@@ -1,5 +1,6 @@
 import { instrumentsFor, instrumentById, INSTRUMENTS, SOUNDFONT_CREDIT } from '../data/instruments'
-import { DRUM_PIECES, DRUM_PIECE_LABELS, DEFAULT_SNAP, RHYTHM_FEELS, VOCAL_ECHOES, VOCAL_REVERBS, VOCAL_TONES, layerHasContent, sameRhythm, vocalTreatmentForInstrument, type VocalRole } from '../types'
+import { audition } from '../audio/audition'
+import { DRUM_PIECES, DRUM_PIECE_LABELS, DEFAULT_SNAP, ORIGINAL_UNDERLAY, RHYTHM_FEELS, VOCAL_ECHOES, VOCAL_REVERBS, VOCAL_TONES, layerHasContent, sameRhythm, vocalTreatmentForInstrument, type VocalRole } from '../types'
 import { useStudio } from '../state/session'
 import { getAudioContext } from '../audio/context'
 import { stripStoredClick } from '../audio/clickStrip'
@@ -70,7 +71,6 @@ export function Inspector() {
     setSession,
     updateTrack,
     updateLayer,
-    addSoundFromTake,
     reuseTake,
     removeLayer,
     selectLayer,
@@ -100,31 +100,64 @@ export function Inspector() {
     patch(revoiceLayer(layer, selected.kind, transcribe, session.meta.bpm))
   }
 
+  const lockedNotes = layer.notes.length > 0 || layer.drums.length > 0
+  const stacks = layer.stackIds ?? []
+
   const addAs = (instrumentId: string, label: string) => {
-    const copy = addSoundFromTake(selected.id, layer.id, instrumentId)
-    if (copy) {
-      void preloadInstrument(instrumentId)
-      selectLayer(selected.id, copy.id)
-      notify(`Stacked ${label} on a new layer. × that layer anytime — this one still plays ${instrumentById(layer.instrumentId).label}.`)
+    if (selected.kind === 'vocals') return
+    if (!lockedNotes) {
+      notify('Lock some notes or hits first — then this sound can sit on the recording.')
+      return
     }
+    if (instrumentId === layer.instrumentId || stacks.includes(instrumentId)) return
+    patch({
+      stackIds: [...stacks, instrumentId],
+      accepted: true,
+      originalMix: layer.originalMix > 0.9 ? ORIGINAL_UNDERLAY : layer.originalMix,
+      status: `Stacked ${label}`,
+    })
+    void preloadInstrument(instrumentId)
+    audition()
+    notify(`${label} is stacked on this take, with your recording still underneath.`)
   }
 
   const chooseSound = (instrumentId: string) => {
     const inst = instrumentById(instrumentId)
+    if (selected.kind !== 'vocals' && hasTake && !lockedNotes) {
+      patch({
+        instrumentId: inst.id,
+        drumVoices: {},
+        name: nameForSound(layer.name, inst.label),
+        status: `${inst.label} is ready once notes lock`,
+      })
+      notify(`No notes locked yet, so you’re still hearing the recording. Loosen the gate, then choose ${inst.label} again.`)
+      return
+    }
     patch({
       instrumentId: inst.id,
+      stackIds: stacks.filter((id) => id !== inst.id),
       drumVoices: {},
       name: nameForSound(layer.name, inst.label),
       accepted: true,
-      originalMix: selected.kind === 'vocals' ? layer.originalMix : 0,
+      originalMix: selected.kind === 'vocals' ? layer.originalMix : hasTake ? ORIGINAL_UNDERLAY : layer.originalMix,
       ...(selected.kind === 'vocals' ? vocalTreatmentForInstrument(inst.id) : {}),
+      status: hasTake && selected.kind !== 'vocals' ? `${inst.label} over your take` : layer.status,
     })
     void preloadInstrument(inst.id)
+    if (hasTake) audition()
     notify(
-      hasTake
-        ? `This layer now plays ${inst.label}. Recorded audio stays — only the voice changed.`
-        : `${inst.label} is ready. Record or drop a take onto this layer whenever you want.`,
+      hasTake && selected.kind !== 'vocals'
+        ? `${inst.label}, with a little of your recording underneath. Hear original if you want the take alone.`
+        : hasTake
+          ? `This layer now plays ${inst.label}.`
+          : `${inst.label} is ready. Record or drop a take onto this layer whenever you want.`,
     )
+  }
+
+  const hearOriginal = () => {
+    patch({ originalMix: 1, status: 'Original take' })
+    audition()
+    notify('Just your recording. Pick a sound again to bring the instrument back.')
   }
 
   const syncAllLayers = () => {
@@ -258,7 +291,13 @@ export function Inspector() {
       <p className="mt-3 text-xs uppercase tracking-widest text-gold">
         {selected.kind === 'vocals' ? 'This layer’s treatment' : 'Sound on this layer'}
       </p>
-      <p className="mt-0.5 text-[11px] text-mute">Playing <span className="text-gold">{instrumentById(layer.instrumentId).label}</span> — swap anytime.</p>
+      <p className="mt-0.5 text-[11px] text-mute">
+        {selected.kind === 'vocals'
+          ? <>Playing <span className="text-gold">{instrumentById(layer.instrumentId).label}</span> — swap anytime.</>
+          : hasTake
+            ? <>After a take, pick a sound. You hear that instrument with a little of your recording under it.</>
+            : <>Pick a sound, then record. The take will sit under it.</>}
+      </p>
       <div className="mt-2 grid gap-2">
         {insts.map((inst) => (
           <button
@@ -336,33 +375,61 @@ export function Inspector() {
         </div>
       )}
 
-      {hasTake && (
+      {hasTake && selected.kind !== 'vocals' && (
         <div className="mt-5">
-          <p className="text-xs uppercase tracking-widest text-mute">Stack another layer</p>
+          <p className="text-xs uppercase tracking-widest text-mute">On this recording</p>
           <p className="mt-1 text-[11px] text-mute">
-            Same take, extra strip — e.g. 808 under Tidal. Remove it with × on the layer list above.
+            Stack another sound on the same take — piano and Rhodes together. Hear original strips them back off.
           </p>
+          {stacks.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {stacks.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    patch({ stackIds: stacks.filter((item) => item !== id), status: `Removed ${instrumentById(id).label}` })
+                    audition()
+                  }}
+                  className="rounded-full border border-gold/70 px-2.5 py-1 text-[11px] text-gold"
+                  title="Remove this stacked sound"
+                >
+                  {instrumentById(id).label} ×
+                </button>
+              ))}
+            </div>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
-            {insts.map((inst) => (
-              <button
-                key={`add-${inst.id}`}
-                type="button"
-                onClick={() => addAs(inst.id, inst.label)}
-                className="rounded-full border border-line px-3 py-1 text-xs text-mist hover:border-gold hover:text-gold"
-              >
-                + {inst.label}
-              </button>
-            ))}
+            {insts
+              .filter((inst) => inst.id !== layer.instrumentId && !stacks.includes(inst.id))
+              .map((inst) => (
+                <button
+                  key={`add-${inst.id}`}
+                  type="button"
+                  onClick={() => addAs(inst.id, inst.label)}
+                  className="rounded-full border border-line px-3 py-1 text-xs text-mist hover:border-gold hover:text-gold"
+                >
+                  + {inst.label}
+                </button>
+              ))}
           </div>
+          <button
+            type="button"
+            onClick={hearOriginal}
+            className={`mt-3 w-full rounded-full border py-1.5 text-xs ${
+              layer.originalMix > 0.9 ? 'border-gold bg-gold/15 text-gold' : 'border-line text-mist hover:border-gold'
+            }`}
+          >
+            Hear original
+          </button>
         </div>
       )}
 
       {selected.kind !== 'vocals' && hasTake && (
         <div className="mt-4 rounded-2xl border border-line p-3">
-          <p className="text-xs uppercase tracking-widest text-gold">Original vs MIDI</p>
+          <p className="text-xs uppercase tracking-widest text-gold">Original underneath</p>
           <p className="mt-1 text-[11px] text-mute">
-            Interpretation only plays the guitar, piano, or kit. Drag toward original if you want the recording in the
-            blend.
+            A chosen sound keeps a little of your take for breadth. Drag right to hear more of the recording, or use Hear original to strip the instrument off.
           </p>
           <label className="mt-2 flex flex-col gap-1 text-[11px] text-mute">
             Keep original
@@ -376,11 +443,11 @@ export function Inspector() {
               onChange={(e) => patch({ originalMix: Number(e.target.value) })}
             />
             <span>
-              {layer.originalMix < 0.1
-                ? 'Interpretation only — changing the sound revoices this take'
+              {layer.originalMix < 0.08
+                ? 'Instrument only'
                 : layer.originalMix > 0.9
-                  ? 'Uploaded audio only — pick a sound to hear MIDI again'
-                  : 'Blend of your take and the MIDI'}
+                  ? 'Original recording only'
+                  : 'Instrument, with your recording underneath'}
             </span>
           </label>
           <button

@@ -164,8 +164,10 @@ export interface Layer {
   /** False until you accept the MIDI reading — Play uses the original take until then */
   accepted: boolean
   reviewing: boolean
-  /** 0 = interpretation only, 1 = original audio only */
+  /** 0 = instrument only, 1 = original audio only. A chosen sound keeps a little of the take under it. */
   originalMix: number
+  /** More instruments voiced from this same recording */
+  stackIds: string[]
   /** Bumps when click bleed is stripped so playback rebuilds from the cleaned buffer */
   clickPass: number
   transcribe: TranscribeSettings
@@ -317,6 +319,9 @@ export const defaultMeta = (): SessionMeta => ({
   bars: 4,
   key: 'C',
 })
+
+/** How much of the raw take stays under a piano, Rhodes, or kit. */
+export const ORIGINAL_UNDERLAY = 0.28
 
 export function layerHasContent(layer: Layer): boolean {
   return layer.notes.length > 0 || layer.drums.length > 0 || layer.duration > 0

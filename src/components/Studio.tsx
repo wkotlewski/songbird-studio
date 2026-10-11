@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import type { Layer, Track } from '../types'
-import { DEFAULT_SNAP, layerHasContent, trackDuration } from '../types'
+import { DEFAULT_SNAP, ORIGINAL_UNDERLAY, layerHasContent, trackDuration } from '../types'
 import { decodeFile, getAudioContext, resumeAudio, unlockAudio } from '../audio/context'
 import { transcribeDrums, analyzeDrums } from '../audio/drums'
 import { transcribeMelody, analyzeMelody } from '../audio/melody'
@@ -8,6 +8,7 @@ import { mixFingerprint } from '../audio/mixerState'
 import { classifyTake, prepareForLoop, resampleToLength, trimSilence } from '../audio/loopPrep'
 import { lockTakeToClick } from '../audio/clickLock'
 import { sharedPhraseSeconds } from '../audio/grid'
+import { bindAudition } from '../audio/audition'
 import { cleanLiveTake, stripStoredClick } from '../audio/clickStrip'
 import {
   applyMixerState,
@@ -177,6 +178,23 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
     else await playSession(sess, opts)
     applyMixerState(sess)
   }
+
+  const blockAudition = useRef(false)
+  blockAudition.current = Boolean(recordingId) || countingIn
+  useEffect(() => {
+    bindAudition(() => {
+      if (blockAudition.current) return
+      previewRef.current = 'session'
+      window.setTimeout(() => {
+        void (async () => {
+          await playSession(sessionRef.current, playOpts(playheadRef.current))
+          applyMixerState(sessionRef.current)
+          setPlaying(true)
+        })()
+      }, 40)
+    })
+    return () => bindAudition(null)
+  }, [])
 
   const soundKey = mixFingerprint(session)
   useEffect(() => {
@@ -378,7 +396,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
           rhythm: locked.feel,
           accepted: true,
           reviewing: locked.drums.length === 0,
-          originalMix: locked.drums.length === 0 ? 1 : 0,
+          originalMix: locked.drums.length === 0 ? 1 : ORIGINAL_UNDERLAY,
           status:
             locked.drums.length === 0
               ? 'No hits locked — loosen onset until the grid fills, then pick a kit'
@@ -425,7 +443,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
         rhythm: locked.feel,
         accepted: true,
         reviewing: locked.notes.length === 0,
-        originalMix: locked.notes.length === 0 ? 1 : 0,
+        originalMix: locked.notes.length === 0 ? 1 : ORIGINAL_UNDERLAY,
         status:
           locked.notes.length === 0
             ? 'No notes locked — loosen gate or confidence until the piano roll fills'

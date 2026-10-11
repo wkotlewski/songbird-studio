@@ -222,6 +222,7 @@ function scheduleLayer(
   const midiGain = ctx.createGain()
   midiGain.gain.value = midiAmt
   midiGain.connect(eqIn)
+  const voices = layerVoices(layer)
 
   if (track.kind === 'drums') {
     const hits = tileEvents(
@@ -232,38 +233,9 @@ function scheduleLayer(
       phrase,
       horizon,
     )
-    const inst = instrumentById(layer.instrumentId)
-    if (inst.id === 'gm-kit') {
-      const font = getCachedSoundfont('synth_drum')
-      if (font) {
-        for (const hit of hits) {
-          const at = eventWhen(hit.time, offset, when, until)
-          if (at === null) continue
-          playSample(
-            ctx,
-            midiGain,
-            font,
-            GM_DRUM[hit.piece] ?? 38,
-            at,
-            clipDur(hit.time, hit.duration, until),
-            hit.velocity / 127,
-          )
-        }
-        return
-      }
-    }
-    for (const hit of hits) {
-      const at = eventWhen(hit.time, offset, when, until)
-      if (at === null) continue
-      playDrumSample(
-        ctx,
-        midiGain,
-        hit.piece,
-        at,
-        hit.velocity,
-        resolveDrumSample(layer.instrumentId, hit.piece, layer.drumVoices),
-      )
-    }
+    voices.forEach((voiceId, index) => {
+      scheduleDrumVoice(ctx, hits, voiceId, layer, midiGain, when, offset, until, index === 0 ? 1 : 0.72)
+    })
     return
   }
 
@@ -276,7 +248,64 @@ function scheduleLayer(
     horizon,
   )
   if (!notes.length) return
-  const inst = instrumentById(layer.instrumentId)
+  voices.forEach((voiceId, index) => {
+    scheduleMelodyVoice(ctx, notes, voiceId, midiGain, when, offset, until, index === 0 ? 1 : 0.72)
+  })
+}
+
+function layerVoices(layer: Layer): string[] {
+  const ids = [layer.instrumentId, ...(layer.stackIds ?? [])]
+  return ids.filter((id, index) => Boolean(id) && ids.indexOf(id) === index)
+}
+
+function scheduleDrumVoice(
+  ctx: BaseAudioContext,
+  hits: ReturnType<typeof quantizeDrums>,
+  instrumentId: string,
+  layer: Layer,
+  dest: AudioNode,
+  when: number,
+  offset: number,
+  until: number | undefined,
+  scale: number,
+): void {
+  const voice = ctx.createGain()
+  voice.gain.value = scale
+  voice.connect(dest)
+  const inst = instrumentById(instrumentId)
+  const voices = instrumentId === layer.instrumentId ? layer.drumVoices : {}
+  if (inst.id === 'gm-kit') {
+    const font = getCachedSoundfont('synth_drum')
+    if (font && Object.keys(font).length > 0) {
+      for (const hit of hits) {
+        const at = eventWhen(hit.time, offset, when, until)
+        if (at === null) continue
+        playSample(ctx, voice, font, GM_DRUM[hit.piece] ?? 38, at, clipDur(hit.time, hit.duration, until), hit.velocity / 127)
+      }
+      return
+    }
+  }
+  for (const hit of hits) {
+    const at = eventWhen(hit.time, offset, when, until)
+    if (at === null) continue
+    playDrumSample(ctx, voice, hit.piece, at, hit.velocity, resolveDrumSample(instrumentId, hit.piece, voices))
+  }
+}
+
+function scheduleMelodyVoice(
+  ctx: BaseAudioContext,
+  notes: { midi: number; time: number; duration: number; velocity: number }[],
+  instrumentId: string,
+  dest: AudioNode,
+  when: number,
+  offset: number,
+  until: number | undefined,
+  scale: number,
+): void {
+  const voice = ctx.createGain()
+  voice.gain.value = scale
+  voice.connect(dest)
+  const inst = instrumentById(instrumentId)
   const font = getCachedSoundfont(inst.soundfont)
   if (font && Object.keys(font).length > 0) {
     for (const note of notes) {
@@ -284,7 +313,7 @@ function scheduleLayer(
       if (at === null) continue
       playSample(
         ctx,
-        midiGain,
+        voice,
         font,
         note.midi,
         at,
@@ -297,7 +326,7 @@ function scheduleLayer(
   for (const note of notes) {
     const at = eventWhen(note.time, offset, when, until)
     if (at === null) continue
-    playOsc(ctx, midiGain, note.midi, at, clipDur(note.time, note.duration, until), note.velocity / 127)
+    playOsc(ctx, voice, note.midi, at, clipDur(note.time, note.duration, until), note.velocity / 127)
   }
 }
 
@@ -358,12 +387,16 @@ async function preloadSession(session: Session): Promise<void> {
   const dirtLoads: Promise<void>[] = []
   for (const track of session.tracks) {
     for (const layer of track.layers) {
-      if (track.kind === 'melody' && layer.notes.length) {
-        fonts.add(instrumentById(layer.instrumentId).soundfont)
-      }
-      if (track.kind === 'drums' && layer.instrumentId === 'gm-kit') fonts.add('synth_drum')
-      if (track.kind === 'drums' && isDirtStyle(layer.instrumentId)) {
-        dirtLoads.push(loadDrumVoices(live, layer.instrumentId, layer.drumVoices))
+      const voices = [layer.instrumentId, ...(layer.stackIds ?? [])]
+      for (const voiceId of voices) {
+        const inst = instrumentById(voiceId)
+        if (track.kind === 'melody' && layer.notes.length && inst.soundfont !== 'analog') {
+          fonts.add(inst.soundfont)
+        }
+        if (track.kind === 'drums' && voiceId === 'gm-kit') fonts.add('synth_drum')
+        if (track.kind === 'drums' && isDirtStyle(voiceId)) {
+          dirtLoads.push(loadDrumVoices(live, voiceId, voiceId === layer.instrumentId ? layer.drumVoices : undefined))
+        }
       }
     }
   }

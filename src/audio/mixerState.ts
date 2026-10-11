@@ -27,6 +27,7 @@ export function mixFingerprint(session: Session): string {
       layers: t.layers.map((l) => ({
         id: l.id,
         instrumentId: l.instrumentId,
+        stackIds: l.stackIds ?? [],
         vocalRole: l.vocalRole,
         vocalTone: l.vocalTone,
         vocalReverb: l.vocalReverb,
