@@ -12,6 +12,8 @@ There are two places: **My Music** and **Studio**. Everything else opens over th
 
 - My Music lists songs on this device and opens one into the studio.
 - The timeline scrolls sideways through the song. That is separate from stereo pan, which places a layer left, center, or right in the speakers.
+- Build asks how long the song should be, in your own words or from a few common lengths. A take then loops until the song is that long.
+- Build also asks what the song should do, and offers the usual shapes: steady, a soft intro that builds and then softens, a climax, or verse and chorus. The shape changes loudness across the song. The original recording stays as it was.
 - Record uses the microphone. The click plays through the speakers and is not mixed into the take.
 - A kept take can be played, and volume, mute, solo, and stereo pan apply to it.
 - Undo and redo step through those edits.
