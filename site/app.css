@@ -255,6 +255,41 @@ h1 { margin: 0; font-size: 28px; font-weight: 650; }
 .length-entry { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .length-entry label { flex: 1; min-width: 88px; }
 .slider { width: 100%; accent-color: var(--cyan); }
+.mix-boxes { display: grid; gap: 8px; }
+.mix-boxes.parts { grid-template-columns: 1fr 1fr; }
+.mix-boxes .plan { min-height: 78px; margin: 0; }
+.strips { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 4px; }
+.strip {
+  flex: 0 0 84px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #0c1424;
+  padding: 8px 6px 10px;
+  text-align: center;
+}
+.strip.on { border-color: var(--cyan); }
+.strip-name {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 0 6px;
+}
+.fader {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 28px;
+  height: 120px;
+  accent-color: var(--cyan);
+  margin: 0 auto 8px;
+}
+.strip-buttons { display: flex; gap: 4px; justify-content: center; }
+.strip-buttons .mini { min-height: 32px; min-width: 32px; padding: 0; }
+.fine-body { margin-top: 8px; }
 .warn { background: #241808; border: 1px solid #6a4a16; color: #ffd89a; border-radius: 12px; padding: 10px 12px; font-size: 13px; }
 
 @media (prefers-reduced-motion: reduce) {

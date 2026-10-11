@@ -17,7 +17,7 @@ There are two places: **My Music** and **Studio**. Everything else opens over th
 - Build also asks what the song should do, and offers the usual shapes: steady, a soft intro that builds and then softens, a climax, or verse and chorus. The shape changes loudness across the song. The original recording stays as it was.
 - Record listens for tempo first. Clap, snap, or beatbox a pulse and the metronome follows it, with a count of four before the next take. A hummed recording sets the tempo instead when you have not already given a pulse.
 - Record uses the microphone. The click plays through the speakers and is not mixed into the take.
-- A kept take can be played, and volume, mute, solo, and stereo pan apply to it.
+- Mix is a channel strip for each layer, with large presets for the whole song and for vocals, instruments, drums, bass, and choir. Fine tune adjusts volume, bass, treble, left and right, and space. Mute and solo are on each strip.
 - Undo and redo step through those edits.
 - Naming a layer as guitar, drums, bass, or another instrument does not change the recorded sound. Export and video are not connected.
 

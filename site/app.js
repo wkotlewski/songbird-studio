@@ -193,6 +193,7 @@ let playing = false
 let playStarted = 0
 let raf = 0
 let activeSources = []
+const mixNodes = new Map()
 let clickTimer
 let undoStack = []
 let redoStack = []
@@ -217,6 +218,8 @@ const state = {
   tempoLocked: false,
   tempoPass: false,
   arming: false,
+  mix: null,
+  fine: false,
   lengthSec: null,
   shape: null,
   intent: null,
@@ -410,15 +413,150 @@ function renderTracks() {
     .join("")
 }
 
-function slider(label, key, min, max, step, value) {
+function slider(label, key, min, max, step, value, id, readout) {
+  const mark = readout == null ? value : readout
+  const layerId = id ? ` data-id="${id}" data-mix="1"` : ""
   return `<label class="field">${label}
-    <input class="slider" type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-action="set-${key}" />
-    <span>${value}</span>
+    <input class="slider" type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-action="set-${key}"${layerId} />
+    <span>${mark}</span>
   </label>`
 }
 
 function selectedLayer() {
   return state.layers.find((layer) => layer.id === state.selected) ?? state.layers[0]
+}
+
+const MIX_PARTS = {
+  vocal: { name: "Vocals up front", line: "Clear, centered, and a little bright.", gain: 0.84, pan: 0, low: -1, high: 3, space: 0.16 },
+  instrument: { name: "Instruments sit back", line: "Under the voice, panned slightly apart.", gain: 0.46, pan: "spread", low: 0, high: -1, space: 0.2 },
+  drums: { name: "Drums punchy", line: "Dry, centered, and easy to feel.", gain: 0.7, pan: 0, low: 2, high: 1, space: 0.02 },
+  bass: { name: "Bass solid", line: "Centered, with more low end.", gain: 0.62, pan: 0, low: 4, high: -2, space: 0 },
+  choir: { name: "Choir wide", line: "Softer, off to one side, in more space.", gain: 0.5, pan: 0.38, low: -1, high: 1, space: 0.42 },
+}
+
+const SONG_MIXES = {
+  clear: { name: "Clear and close", line: "Voice in front. Little space. Instruments quieter." },
+  big: { name: "Big and full", line: "More space around the voice and choir. Drums stay dry." },
+  soft: { name: "Soft room", line: "Quieter, with a gentle space, and the voice still leads." },
+}
+
+const SONG_SCALE = {
+  clear: { vocal: [0.84, 0, -1, 2.5, 0.08], choir: [0.4, 0.18, -1, 0, 0.14], drums: [0.66, 0, 1, 0.5, 0], bass: [0.58, 0, 3, -2, 0], instrument: [0.4, "spread", 0, -1, 0.08] },
+  big: { vocal: [0.78, 0, 0, 2, 0.34], choir: [0.56, 0.42, -1, 1, 0.5], drums: [0.72, 0, 2, 1, 0.05], bass: [0.66, 0, 4, -1, 0.04], instrument: [0.52, "spread", 1, 0, 0.28] },
+  soft: { vocal: [0.68, 0, -1, 1, 0.26], choir: [0.38, 0.28, -2, 0, 0.4], drums: [0.44, 0, 0, -1, 0.1], bass: [0.46, 0, 2, -2, 0.04], instrument: [0.34, "spread", -1, -1, 0.28] },
+}
+
+function mixFamily(layer) {
+  const text = `${layer.sound || ""} ${layer.name || ""}`.toLowerCase()
+  if (/choir/.test(text)) return "choir"
+  if (/drum|clap/.test(text)) return "drums"
+  if (/bass|beatbox/.test(text)) return "bass"
+  if (/guitar|piano|string|brass|synth|instrument/.test(text)) return "instrument"
+  if (/voice|hum|sing|hook/.test(text)) return "vocal"
+  return "instrument"
+}
+
+function applyMixSettings(layer, values, index) {
+  const [gain, pan, low, high, space] = values
+  layer.gain = gain
+  layer.low = low
+  layer.high = high
+  layer.space = space
+  layer.pan = pan === "spread" ? (index % 2 === 0 ? -0.28 : 0.28) : pan
+}
+
+function mixReadout(key, value) {
+  const number = Number(value) || 0
+  if (key === "gain") return String(Math.round(number * 100))
+  if (key === "space") return `${Math.round(number * 100)}%`
+  if (key === "pan") {
+    if (Math.abs(number) < 0.05) return "center"
+    return number < 0 ? `left ${Math.round(Math.abs(number) * 100)}` : `right ${Math.round(number * 100)}`
+  }
+  const db = Math.round(number)
+  return db > 0 ? `+${db}` : String(db)
+}
+
+function mixBox(id, name, line) {
+  return `<button class="plan ${state.mix === id ? "on" : ""}" data-action="apply-mix" data-preset="${id}"><b>${name}</b><span>${line}</span></button>`
+}
+
+function renderMix(head, layer) {
+  if (!state.layers.length) {
+    return `${head("Mix")}<p class="empty">Record a layer, or open an example, then pick a mix.</p>`
+  }
+  const current = layer || state.layers[0]
+  const gain = current.gain ?? 0.8
+  const pan = current.pan ?? 0
+  const low = current.low ?? 0
+  const high = current.high ?? 0
+  const space = current.space ?? 0
+  const strips = state.layers.map((item) => `<div class="strip ${item.id === current.id ? "on" : ""}">
+      <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
+      <input class="fader" type="range" min="0" max="1" step="0.01" value="${item.gain ?? 0.8}" data-mix="1" data-action="set-gain" data-id="${item.id}" aria-label="${esc(item.name)} volume" />
+      <div class="strip-buttons">
+        <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-label="Mute ${esc(item.name)}">M</button>
+        <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-label="Solo ${esc(item.name)}">S</button>
+      </div>
+    </div>`).join("")
+  const fine = state.fine ? `<div class="fine-body">
+      <p class="hint">${esc(current.name)} · ${esc(current.sound || "Layer")}</p>
+      ${slider("Volume", "gain", 0, 1, 0.01, gain, current.id, mixReadout("gain", gain))}
+      ${slider("Bass", "low", -6, 6, 1, low, current.id, mixReadout("low", low))}
+      ${slider("Treble", "high", -6, 6, 1, high, current.id, mixReadout("high", high))}
+      ${slider("Left and right", "pan", -1, 1, 0.01, pan, current.id, mixReadout("pan", pan))}
+      ${slider("Space", "space", 0, 1, 0.01, space, current.id, mixReadout("space", space))}
+      <p class="hint">Bass and treble are tone. Left and right is where it sits in the speakers. Space is room around the sound. Scrolling the timeline still moves through the song.</p>
+    </div>` : ""
+  return `${head("Mix")}
+    <p class="hint">Pick a sound you want. The faders are the mixer. Fine tune is for the few things people usually adjust.</p>
+    <p class="ask">For the whole song</p>
+    <div class="mix-boxes">${Object.entries(SONG_MIXES).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
+    <p class="ask">For one kind of part</p>
+    <div class="mix-boxes parts">${Object.entries(MIX_PARTS).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
+    <div class="strips">${strips}</div>
+    <button class="choice" data-action="toggle-fine">${state.fine ? "Hide fine tune" : "Fine tune this layer"}</button>
+    ${fine}`
+}
+
+function applyMix(id) {
+  if (!state.layers.length) {
+    $("save-status").textContent = "Add a layer first, or open an example."
+    return
+  }
+  snapshot()
+  const part = MIX_PARTS[id]
+  if (part) {
+    let targets = state.layers.filter((layer) => mixFamily(layer) === id)
+    const forced = !targets.length
+    if (forced) targets = [selectedLayer()]
+    targets.forEach((layer, index) => applyMixSettings(layer, [part.gain, part.pan, part.low, part.high, part.space], index))
+    state.mix = id
+    const names = targets.map((item) => item.name).join(", ")
+    rememberSong()
+    for (const layer of targets) refreshMix(layer)
+    renderTracks()
+    renderInspector()
+    $("save-status").textContent = forced
+      ? `This song has no matching part, so ${part.name} was used on ${names}.`
+      : `${part.name}: ${names}.`
+    return
+  }
+  const song = SONG_MIXES[id]
+  if (!song) return
+  const counts = {}
+  for (const layer of state.layers) {
+    const family = mixFamily(layer)
+    counts[family] = counts[family] || 0
+    applyMixSettings(layer, SONG_SCALE[id][family] || SONG_SCALE[id].instrument, counts[family])
+    counts[family] += 1
+  }
+  state.mix = id
+  rememberSong()
+  for (const layer of state.layers) refreshMix(layer)
+  renderTracks()
+  renderInspector()
+  $("save-status").textContent = `${song.name}. ${song.line}`
 }
 
 function renderInspector() {
@@ -490,19 +628,7 @@ function renderInspector() {
       <button class="primary" data-action="video-note">Master my song</button>
       <p id="finish-note" class="hint"></p>`
   } else {
-    const gain = layer?.gain ?? 0.8
-    const pan = layer?.pan ?? 0
-    body = `${head("Layer controls")}
-      <p>${layer ? `${layer.name} · ${layer.sound}` : "No layer yet"}</p>
-      ${layer ? `${slider("Volume", "gain", 0, 1, 0.01, gain)}
-        ${slider("Stereo pan  L–C–R", "pan", -1, 1, 0.01, pan)}
-        <div class="row">
-          <button class="mini ${layer.mute ? "on" : ""}" data-action="toggle-mute">Mute</button>
-          <button class="mini ${layer.solo ? "on" : ""}" data-action="toggle-solo">Solo</button>
-          <button class="mini" data-action="reset-pan">Reset pan</button>
-          <button class="mini" data-action="delete-layer" style="color:var(--danger)">Delete</button>
-        </div>
-        <p class="hint">Pan here is left and right in the speakers. Scrolling the timeline moves through the song.</p>` : `<p class="empty">Make your first sound.</p>`}`
+    body = renderMix(head, layer)
   }
   $("inspector-body").innerHTML = body
 }
@@ -612,8 +738,8 @@ function rememberSong() {
   state.song.bpm = state.bpm
   state.song.tempoSource = state.tempoSource
   state.song.tempoLocked = state.tempoLocked
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, mute, solo, live }) => ({
-    id, name, sound, from, color, peaks, gain, pan, mute, solo, live,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live,
   }))
   saveSongs()
   $("save-status").textContent = "Saved just now"
@@ -631,6 +757,9 @@ function addLayer(blob, name) {
     peaks: bars(state.layers.length + 2),
     gain: 0.8,
     pan: 0,
+    low: 0,
+    high: 0,
+    space: 0,
     mute: false,
     solo: false,
     live: true,
@@ -918,6 +1047,9 @@ function addTransformedLayer(sound) {
     peaks: peaksFromSamples(made.samples),
     gain: 0.7,
     pan: 0.15,
+    low: 0,
+    high: 0,
+    space: 0,
     mute: false,
     solo: false,
     live: true,
@@ -929,6 +1061,40 @@ function addTransformedLayer(sound) {
   renderTracks()
   renderInspector()
   $("save-status").textContent = `${sound} was added from ${source.name}. The original layer is still there.`
+}
+
+function spaceImpulse(ctx) {
+  if (spaceImpulse.cache && spaceImpulse.cache.sampleRate === ctx.sampleRate) return spaceImpulse.cache
+  const length = Math.floor(ctx.sampleRate * 1.1)
+  const buffer = ctx.createBuffer(2, length, ctx.sampleRate)
+  for (let channel = 0; channel < 2; channel++) {
+    const data = buffer.getChannelData(channel)
+    for (let i = 0; i < length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** 2.6
+  }
+  spaceImpulse.cache = buffer
+  return buffer
+}
+
+function refreshMix(layer) {
+  const nodes = mixNodes.get(layer.id)
+  if (!nodes || !playing) return
+  const now = ac().currentTime
+  nodes.low.gain.setValueAtTime(layer.low || 0, now)
+  nodes.high.gain.setValueAtTime(layer.high || 0, now)
+  nodes.pan.pan.setValueAtTime(layer.pan || 0, now)
+  const space = Math.max(0, Math.min(1, layer.space || 0))
+  nodes.dry.gain.setValueAtTime(1 - space * 0.35, now)
+  nodes.wet.gain.setValueAtTime(space * 0.5, now)
+  const span = nodes.span || state.lengthSec || 1
+  if (state.shape && state.lengthSec) {
+    const elapsed = Math.max(0, now - playStarted)
+    nodes.gain.gain.cancelScheduledValues(now)
+    nodes.gain.gain.setValueAtTime(Math.max(0, layer.gain * levelAt(state.shape, Math.min(1, elapsed / span))), now)
+    for (const [frac, level] of (SHAPES[state.shape] || SHAPES.even).points) {
+      const time = playStarted + frac * span
+      if (time > now + 0.03) nodes.gain.gain.linearRampToValueAtTime(Math.max(0, layer.gain * level), time)
+    }
+  } else nodes.gain.gain.setValueAtTime(layer.gain, now)
 }
 
 function audible(layer) {
@@ -955,15 +1121,37 @@ function play() {
     const source = ctx.createBufferSource()
     source.buffer = buffer
     if (state.lengthSec && buffer.duration >= 0.05 && buffer.duration < span - 0.05) source.loop = true
+    const lowFilter = ctx.createBiquadFilter()
+    lowFilter.type = "lowshelf"
+    lowFilter.frequency.value = 140
+    lowFilter.gain.value = layer.low || 0
+    const highFilter = ctx.createBiquadFilter()
+    highFilter.type = "highshelf"
+    highFilter.frequency.value = 4200
+    highFilter.gain.value = layer.high || 0
     const gain = ctx.createGain()
     const pan = ctx.createStereoPanner()
-    pan.pan.value = layer.pan
-    source.connect(gain)
+    pan.pan.value = layer.pan || 0
+    const dry = ctx.createGain()
+    const wet = ctx.createGain()
+    const space = Math.max(0, Math.min(1, layer.space || 0))
+    dry.gain.value = 1 - space * 0.35
+    wet.gain.value = space * 0.5
+    const verb = ctx.createConvolver()
+    verb.buffer = spaceImpulse(ctx)
+    source.connect(lowFilter)
+    lowFilter.connect(highFilter)
+    highFilter.connect(gain)
     gain.connect(pan)
-    pan.connect(ctx.destination)
+    pan.connect(dry)
+    dry.connect(ctx.destination)
+    pan.connect(verb)
+    verb.connect(wet)
+    wet.connect(ctx.destination)
     const start = ctx.currentTime
     if (state.shape && state.lengthSec) scheduleShape(gain, layer.gain, state.shape, start, span)
     else gain.gain.value = layer.gain
+    mixNodes.set(layer.id, { gain, low: lowFilter, high: highFilter, pan, dry, wet, span })
     source.start()
     source.stop(start + Math.max(0.05, span))
     activeSources.push(source)
@@ -993,6 +1181,7 @@ function stopPlayback() {
     try { source.stop() } catch { /* already stopped */ }
   }
   activeSources = []
+  mixNodes.clear()
   const playButton = $("play-btn")
   if (playButton) playButton.textContent = "▶"
 }
@@ -1118,7 +1307,13 @@ document.body.addEventListener("click", (event) => {
     setPanel("record")
   }
   if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
+  if (action === "apply-mix") applyMix(node.dataset.preset)
+  if (action === "toggle-fine") {
+    state.fine = !state.fine
+    renderInspector()
+  }
   if (action === "toggle-mute" || action === "toggle-solo") {
+    if (node.dataset.id) state.selected = node.dataset.id
     const layer = selectedLayer()
     if (!layer) return
     snapshot()
@@ -1165,14 +1360,20 @@ document.body.addEventListener("input", (event) => {
     state.tempoSource = "you"
     rememberSong()
   }
-  if (node.dataset.action === "set-gain" || node.dataset.action === "set-pan") {
-    const layer = selectedLayer()
+  const mixKey = { "set-gain": "gain", "set-pan": "pan", "set-low": "low", "set-high": "high", "set-space": "space" }[node.dataset.action]
+  if (mixKey) {
+    if (node.dataset.id) state.selected = node.dataset.id
+    const layer = state.layers.find((item) => item.id === node.dataset.id) || selectedLayer()
     if (!layer) return
-    const key = node.dataset.action === "set-gain" ? "gain" : "pan"
-    layer[key] = Number(node.value)
-    node.nextElementSibling.textContent = node.value
+    layer[mixKey] = Number(node.value)
+    if (node.nextElementSibling) node.nextElementSibling.textContent = mixReadout(mixKey, layer[mixKey])
+    refreshMix(layer)
     rememberSong()
   }
+})
+
+document.body.addEventListener("pointerdown", (event) => {
+  if (event.target.closest("[data-mix]")) snapshot()
 })
 
 $("timeline").addEventListener("wheel", (event) => {
