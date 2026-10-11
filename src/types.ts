@@ -166,6 +166,8 @@ export interface Layer {
   reviewing: boolean
   /** 0 = interpretation only, 1 = original audio only */
   originalMix: number
+  /** Bumps when click bleed is stripped so playback rebuilds from the cleaned buffer */
+  clickPass: number
   transcribe: TranscribeSettings
 }
 

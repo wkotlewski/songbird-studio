@@ -1,6 +1,8 @@
 import { instrumentsFor, instrumentById, INSTRUMENTS, SOUNDFONT_CREDIT } from '../data/instruments'
 import { DRUM_PIECES, DRUM_PIECE_LABELS, DEFAULT_SNAP, RHYTHM_FEELS, VOCAL_ECHOES, VOCAL_REVERBS, VOCAL_TONES, layerHasContent, sameRhythm, vocalTreatmentForInstrument, type VocalRole } from '../types'
 import { useStudio } from '../state/session'
+import { getAudioContext } from '../audio/context'
+import { stripStoredClick } from '../audio/clickStrip'
 import { getLayerAnalysis, getLayerBuffer, preloadInstrument, setLayerAnalysis, setLayerBuffer } from '../audio/engine'
 import { isDirtStyle, resolveDrumSample, samplesForPiece } from '../audio/drumKit'
 import { analyzeDrums } from '../audio/drums'
@@ -306,6 +308,33 @@ export function Inspector() {
         </div>
       )}
       <p className="mt-3 text-[10px] leading-relaxed text-mute">{SOUNDFONT_CREDIT}</p>
+
+      {getLayerBuffer(layer.id) && (
+        <div className="mt-4 rounded-2xl border border-line p-3">
+          <p className="text-xs uppercase tracking-widest text-gold">Click in this take</p>
+          <p className="mt-1 text-[11px] text-mute">
+            Pull metronome bleed out of the recording you already have. Running it again uses the same original take.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              const ac = getAudioContext()
+              const latency = (ac.baseLatency || 0) + (ac.outputLatency || 0)
+              const next = stripStoredClick(layer.id, session.meta.bpm, latency)
+              if (!next) return
+              setLayerBuffer(layer.id, next)
+              patch({
+                clickPass: (layer.clickPass ?? 0) + 1,
+                status: 'Click removed from this take',
+              })
+              notify('Pulled the metronome out of this take.')
+            }}
+            className="mt-3 w-full rounded-full border border-gold/70 py-1.5 text-xs text-gold hover:bg-gold/10"
+          >
+            Remove click
+          </button>
+        </div>
+      )}
 
       {hasTake && (
         <div className="mt-5">

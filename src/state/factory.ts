@@ -40,6 +40,7 @@ export function createLayer(kind: TrackKind, index: number): Layer {
     accepted: true,
     reviewing: false,
     originalMix: 0.35,
+    clickPass: 0,
     transcribe: kind === 'drums' ? defaultDrumTranscribe() : defaultTranscribe(),
   }
 }
@@ -84,6 +85,7 @@ export function normalizeSession(session: Session): Session {
         vocalReverb: layer.vocalReverb ?? defaultVocalReverb(),
         vocalEcho: layer.vocalEcho ?? defaultVocalEcho(),
         quantize: typeof layer.quantize === 'number' ? layer.quantize : DEFAULT_SNAP,
+        clickPass: typeof layer.clickPass === 'number' ? layer.clickPass : 0,
       })),
     })),
   }

@@ -41,6 +41,7 @@ export function mixFingerprint(session: Session): string {
         voicing: l.voicing,
         notes: l.notes,
         drums: l.drums,
+        clickPass: l.clickPass ?? 0,
       })),
     })),
   })

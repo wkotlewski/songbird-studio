@@ -8,7 +8,7 @@ import { mixFingerprint } from '../audio/mixerState'
 import { classifyTake, prepareForLoop, resampleToLength, trimSilence } from '../audio/loopPrep'
 import { lockTakeToClick } from '../audio/clickLock'
 import { sharedPhraseSeconds } from '../audio/grid'
-import { cleanLiveTake } from '../audio/clickStrip'
+import { cleanLiveTake, stripStoredClick } from '../audio/clickStrip'
 import {
   applyMixerState,
   getLayerBuffer,
@@ -640,6 +640,25 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
     }
   }
 
+  const removeClick = () => {
+    const track = selected
+    const layer = selectedLayer
+    if (!track || !layer || !getLayerBuffer(layer.id)) {
+      notify('Record a take first — then this pulls the metronome out of it.')
+      return
+    }
+    const ac = getAudioContext()
+    const latency = (ac.baseLatency || 0) + (ac.outputLatency || 0)
+    const next = stripStoredClick(layer.id, session.meta.bpm, latency)
+    if (!next) return
+    setLayerBuffer(layer.id, next)
+    updateLayer(track.id, layer.id, {
+      clickPass: (layer.clickPass ?? 0) + 1,
+      status: 'Click removed from this take',
+    })
+    notify('Pulled the metronome out of this take.')
+  }
+
   const togglePlay = async () => {
     if (playing) {
       if (recStarted.current) await finishRecording()
@@ -798,16 +817,25 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
             className={`rounded-full border px-2.5 py-1.5 text-[11px] ${
               clickOn ? 'border-gold bg-gold/15 text-gold' : 'border-line text-mute'
             }`}
-            title={clickOn ? 'Mute the metronome — it is only in your ears, never in the take' : 'Hear the metronome (guide only, not recorded)'}
+            title={clickOn ? 'Mute the metronome in your speakers' : 'Hear the metronome'}
           >
             {clickOn ? 'Click' : 'Muted'}
+          </button>
+          <button
+            type="button"
+            onClick={removeClick}
+            disabled={!selectedLayer || !getLayerBuffer(selectedLayer.id)}
+            className="rounded-full border border-line px-2.5 py-1.5 text-[11px] text-mist hover:border-gold hover:text-gold disabled:opacity-40"
+            title="Pull metronome bleed out of the selected take. Works after you have already recorded."
+          >
+            Remove click
           </button>
           <button
             onClick={() => setCountIn((on) => !on)}
             className={`hidden rounded-full border px-2.5 py-1.5 text-[11px] sm:inline ${
               countIn ? 'border-gold/70 text-gold' : 'border-line text-mute'
             }`}
-            title="One bar of metronome before a live take. Mute Click to count in silently. Never recorded."
+            title="One bar of metronome before a live take. Mute Click to count in silently."
           >
             Count-in
           </button>
