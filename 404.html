@@ -21,11 +21,6 @@
         <span class="sr">Search songs</span>
         <input id="search" type="search" placeholder="Search songs" />
       </label>
-      <div class="tabs" role="tablist">
-        <button class="tab on" data-action="tab" data-tab="mine">My Songs</button>
-        <button class="tab" data-action="tab" data-tab="shared">Shared with Me</button>
-        <button class="tab" data-action="tab" data-tab="community">Community</button>
-      </div>
       <div id="song-list" class="song-list"></div>
       <nav class="mobile-nav">
         <button class="on" data-action="show-library">My Music</button>
@@ -40,6 +35,7 @@
         <div class="title-block">
           <input id="song-title" aria-label="Song title" value="Untitled song" />
           <p id="save-status">Prototype · recordings stay in this tab</p>
+          <div id="project-actions" class="project-actions"></div>
         </div>
         <div class="transport">
           <button data-action="play" id="play-btn" aria-label="Play">▶</button>
