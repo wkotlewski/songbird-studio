@@ -13,7 +13,20 @@ const INPUTS = [
   ["instrument", "Instrument"],
 ]
 
-const TRANSFORMS = ["Piano", "Guitar", "Drums", "Bass", "Choir"]
+const ERAS = [
+  { id: "old", name: "Old school", line: "Warmer, softer, more room." },
+  { id: "modern", name: "Modern", line: "Closer, brighter, tighter." },
+]
+
+const PACKAGES = [
+  { id: "Piano", name: "Acoustic piano", line: "Piano under the tune." },
+  { id: "Rhodes", name: "Rhodes", line: "Electric piano keys." },
+  { id: "Acoustic guitar", name: "Acoustic guitar", line: "A guitar under the tune." },
+  { id: "Electric guitar", name: "Electric guitar", line: "Amp guitar under the tune." },
+  { id: "Drums", name: "Drums", line: "A kit from the claps." },
+  { id: "Bass", name: "Bass", line: "Low notes that hold." },
+  { id: "Choir", name: "Choir", line: "Voices around the melody." },
+]
 
 const LENGTHS = [
   [30, "0:30"],
@@ -203,6 +216,7 @@ const state = {
   query: "",
   shareFor: null,
   deleteFor: null,
+  era: "old",
   songs: loadSongs(),
   song: null,
   layers: [],
@@ -849,7 +863,7 @@ function mixFamily(layer) {
   if (/choir/.test(text)) return "choir"
   if (/drum|clap/.test(text)) return "drums"
   if (/bass|beatbox/.test(text)) return "bass"
-  if (/guitar|piano|string|brass|synth|instrument/.test(text)) return "instrument"
+  if (/guitar|piano|rhodes|keyboard|string|brass|synth|instrument/.test(text)) return "instrument"
   if (/voice|hum|sing|hook/.test(text)) return "vocal"
   return "instrument"
 }
@@ -995,11 +1009,13 @@ function renderInspector() {
       ? `<p class="${state.transformTone === "warn" ? "warn" : "hint"}">${esc(state.transformNote)}</p>`
       : ""
     body = `${head("Transform this layer")}
-      <p class="hint">Your original stays. Songbird adds a new layer and plays it with the song. Highlighted sounds fit the layer you picked. Piano, guitar, and choir follow a melody. Drums follow claps. Bass follows low notes.</p>
+      <p class="hint">Your original stays. Pick old school or modern, then a package. Highlighted packages fit the layer you picked. A melody can become piano, Rhodes, guitar, or choir. Claps become drums. Low notes become bass.</p>
       ${sources.length ? `<p class="ask">Listen to</p>
         <div class="choices">${sources.map((item) => `<button class="${item.id === current.id ? "on" : ""}" data-action="pick-transform-layer" data-id="${item.id}" ${locked}>${esc(item.name)}</button>`).join("")}</div>` : `<p class="hint">Record a layer first, or open an example.</p>`}
-      <p class="ask">Turn it into</p>
-      <div class="grid">${TRANSFORMS.map((name) => `<button class="tile ${current && transformFit(current, name) ? "on" : ""}" data-action="apply-sound" data-sound="${name}" ${locked}>${name}</button>`).join("")}</div>
+      <p class="ask">Old school or modern</p>
+      <div class="mix-boxes parts">${ERAS.map((era) => `<button class="plan ${state.era === era.id ? "on" : ""}" data-action="pick-era" data-era="${era.id}" ${locked}><b>${era.name}</b><span>${era.line}</span></button>`).join("")}</div>
+      <p class="ask">Package</p>
+      <div class="mix-boxes parts">${PACKAGES.map((pack) => `<button class="plan ${current && transformFit(current, pack.id) ? "on" : ""}" data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}><b>${pack.name}</b><span>${pack.line}</span></button>`).join("")}</div>
       ${note}`
   } else if (state.panel === "build") {
     const mins = state.lengthSec ? Math.floor(state.lengthSec / 60) : ""
@@ -1485,7 +1501,10 @@ function addTransformedLayer(sound) {
       const audio = buffers.get(source.layer.id + ":audio")
       const copy = new Float32Array(audio.length)
       copy.set(audio.getChannelData(0))
-      const made = SongbirdMusic.transformAudio(copy, sound, { bpm: state.bpm, sampleRate: audio.sampleRate })
+      const era = state.era === "modern" ? "modern" : "old"
+      const eraName = era === "modern" ? "modern" : "old school"
+      const pack = PACKAGES.find((item) => item.id === sound)
+      const made = SongbirdMusic.transformAudio(copy, sound, { bpm: state.bpm, sampleRate: audio.sampleRate, era })
       if (!made) {
         state.transformNote = `Couldn't find ${missingPart(sound)} in ${source.layer.name}. The original is unchanged.`
         state.transformTone = "warn"
@@ -1493,12 +1512,13 @@ function addTransformedLayer(sound) {
       } else {
         snapshot()
         const id = uid()
-        const colors = { Piano: "#f0a202", Guitar: "#ff8ab0", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
+        const colors = { Piano: "#f0a202", Rhodes: "#7ee0c8", "Acoustic guitar": "#ff8ab0", "Electric guitar": "#ff4d8d", Guitar: "#ff8ab0", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
+        const label = pack ? pack.name : sound
         const layer = {
           id,
-          name: sound,
+          name: label,
           sound,
-          from: `from ${source.layer.name}`,
+          from: `from ${source.layer.name} · ${eraName}`,
           color: colors[sound] || "#7aa2ff",
           peaks: peaksFromSamples(made.samples),
           gain: 0.7,
@@ -1515,8 +1535,8 @@ function addTransformedLayer(sound) {
         state.selected = id
         state.arrived = id
         const heard = source.redirected
-          ? `${sound} was added from ${source.layer.name}. There isn't ${missingPart(sound)} in ${selected.name}, so Songbird used ${source.layer.name}.`
-          : `${sound} was added from ${source.layer.name}. The original layer is still there.`
+          ? `${label}, ${eraName}, was added from ${source.layer.name}. There isn't ${missingPart(sound)} in ${selected.name}, so Songbird used ${source.layer.name}.`
+          : `${label}, ${eraName}, was added from ${source.layer.name}. The original layer is still there.`
         state.transformNote = `${heard} Playing them together.`
         state.transformTone = ""
         $("save-status").textContent = state.transformNote
@@ -1815,6 +1835,10 @@ document.body.addEventListener("click", (event) => {
   if (action === "add-and-record") {
     state.input = node.dataset.input
     setPanel("record")
+  }
+  if (action === "pick-era") {
+    state.era = node.dataset.era === "modern" ? "modern" : "old"
+    renderInspector()
   }
   if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
   if (action === "apply-mix") applyMix(node.dataset.preset)

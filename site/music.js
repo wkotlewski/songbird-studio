@@ -158,9 +158,27 @@ function warm(samples, amount) {
   return samples
 }
 
-function studioFinish(samples, profile) {
-  addRoom(samples, profile.room || 0)
-  warm(samples, profile.warm || 0)
+function tilt(samples, amount) {
+  if (!amount) return samples
+  let low = 0
+  for (let i = 0; i < samples.length; i++) {
+    low += 0.12 * (samples[i] - low)
+    samples[i] += (samples[i] - low) * amount
+  }
+  return samples
+}
+
+function eraTone(era) {
+  if (era === "modern") return { room: 0.4, warm: 0.55, tilt: 0.28 }
+  if (era === "old") return { room: 1.55, warm: 1.4, tilt: -0.32 }
+  return null
+}
+
+function studioFinish(samples, profile, era) {
+  const tone = eraTone(era)
+  addRoom(samples, (profile.room || 0) * (tone ? tone.room : 1))
+  tilt(samples, tone ? tone.tilt : 0)
+  warm(samples, (profile.warm || 0) * (tone ? tone.warm : 1))
   return samples
 }
 
@@ -189,7 +207,7 @@ function renderPianoNote(out, note, gain, rng, hammer) {
   }
 }
 
-function renderPiano(notes, duration, rng = mulberry32(1)) {
+function renderPiano(notes, duration, rng = mulberry32(1), era) {
   const out = silence(duration)
   const key = guessKey(notes)
   notes.forEach((note, index) => {
@@ -200,7 +218,7 @@ function renderPiano(notes, duration, rng = mulberry32(1)) {
       renderPianoNote(out, { ...note, midi: Math.max(48, third), time: note.time + late + 0.012, dur: note.dur * 0.9 }, STUDIO.piano.support, rng, false)
     }
   })
-  return studioFinish(out, STUDIO.piano)
+  return studioFinish(out, STUDIO.piano, era)
 }
 
 function pluckString(out, midi, time, dur, rng, gain) {
@@ -227,19 +245,59 @@ function pluckString(out, midi, time, dur, rng, gain) {
   }
 }
 
-function renderGuitar(notes, duration, rng) {
-  const out = silence(duration)
-  const key = guessKey(notes)
-  notes.forEach((note, index) => {
-    const late = index === 0 ? 0 : (rng() - 0.5) * 0.01
-    pluckString(out, note.midi, note.time + late, note.dur, rng, 0.85)
-    const lower = Math.max(40, transposeDiatonic(note.midi, -4, key))
-    pluckString(out, lower, note.time + late + STUDIO.guitar.strum, note.dur * 0.85, rng, STUDIO.guitar.partner)
-  })
-  return studioFinish(out, STUDIO.guitar)
+function drive(samples, amount) {
+  if (amount <= 0) return samples
+  const gain = 1 + amount * 5
+  for (let i = 0; i < samples.length; i++) samples[i] = Math.tanh(samples[i] * gain) * 0.72
+  return samples
 }
 
-function renderBass(notes, duration) {
+function renderGuitar(notes, duration, rng, style = {}) {
+  const out = silence(duration)
+  const key = guessKey(notes)
+  const electric = !!style.electric
+  const modern = style.era === "modern"
+  notes.forEach((note, index) => {
+    const late = index === 0 ? 0 : (rng() - 0.5) * 0.01
+    pluckString(out, note.midi, note.time + late, note.dur, rng, electric ? 0.95 : 0.85)
+    const lower = Math.max(40, transposeDiatonic(note.midi, -4, key))
+    pluckString(out, lower, note.time + late + STUDIO.guitar.strum, note.dur * 0.85, rng, STUDIO.guitar.partner * (electric ? 0.62 : 1))
+  })
+  if (electric) drive(out, modern ? 0.62 : 0.28)
+  const profile = electric
+    ? { room: modern ? 0.05 : 0.18, warm: modern ? 0.1 : 0.34 }
+    : STUDIO.guitar
+  return studioFinish(out, profile, style.era)
+}
+
+function renderRhodes(notes, duration, rng, era) {
+  const out = silence(duration)
+  const modern = era === "modern"
+  const rate = modern ? 0.7 : 5.1
+  const depth = modern ? 0.06 : 0.38
+  notes.forEach((note, index) => {
+    const late = index === 0 ? 0 : (rng() - 0.5) * 0.01
+    const start = Math.floor((note.time + late) * SR)
+    if (start >= out.length || start < 0) return
+    const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.7) * SR))
+    const freq = hzOf(note.midi)
+    let bodyPhase = 0
+    let tinePhase = 0
+    for (let i = 0; i < length; i++) {
+      const t = i / SR
+      bodyPhase += (2 * Math.PI * freq) / SR
+      tinePhase += (2 * Math.PI * freq * (modern ? 3.02 : 2.5)) / SR
+      const body = Math.sin(bodyPhase) * Math.exp(-t * (modern ? 1.5 : 1.05))
+      const tine = Math.sin(tinePhase) * Math.exp(-t * (modern ? 9 : 5.5))
+      const trem = 1 - depth + depth * Math.sin(2 * Math.PI * rate * (note.time + t))
+      const attack = Math.min(1, t / (modern ? 0.004 : 0.014))
+      out[start + i] += (body * 0.58 + tine * (modern ? 0.32 : 0.16)) * trem * attack * 0.72
+    }
+  })
+  return studioFinish(out, { room: modern ? 0.05 : 0.24, warm: modern ? 0.08 : 0.36 }, era)
+}
+
+function renderBass(notes, duration, era) {
   const out = silence(duration)
   for (const note of notes) {
     const start = Math.floor(note.time * SR)
@@ -259,10 +317,10 @@ function renderBass(notes, duration) {
       out[start + i] += (sub + fundamental * STUDIO.bass.body + grit) * attack * release * hold * 0.55
     }
   }
-  return studioFinish(out, STUDIO.bass)
+  return studioFinish(out, STUDIO.bass, era)
 }
 
-function renderHit(kind, rng) {
+function renderHit(kind, rng, era) {
   const length = Math.floor(SR * (kind === "hat" ? 0.05 : kind === "snare" ? 0.32 : 0.46))
   const out = new Float32Array(length)
   let phase = 0
@@ -272,7 +330,7 @@ function renderHit(kind, rng) {
     if (kind === "kick") {
       const freq = 47 + 160 * Math.exp(-t * 24)
       phase += (2 * Math.PI * freq) / SR
-      const click = t < 0.004 ? (rng() * 2 - 1) * (1 - t / 0.004) * 0.32 : 0
+      const click = t < 0.004 ? (rng() * 2 - 1) * (1 - t / 0.004) * (era === "modern" ? 0.55 : era === "old" ? 0.16 : 0.32) : 0
       out[i] = Math.tanh(Math.sin(phase) * 1.45) * Math.exp(-t * 6.8) * 0.92 + click
     } else if (kind === "snare") {
       const noise = rng() * 2 - 1
@@ -305,7 +363,7 @@ function beatGap(hits) {
   return gaps[Math.floor(gaps.length / 2)]
 }
 
-function renderDrums(hits, duration, rng) {
+function renderDrums(hits, duration, rng, era) {
   const out = silence(duration)
   const beat = beatGap(hits)
   const last = hits.reduce((max, hit) => Math.max(max, hit.time), 0)
@@ -319,12 +377,13 @@ function renderDrums(hits, duration, rng) {
   }
   for (const hit of all) {
     const nudge = hit.kind === "hat" || hit.time < 0.02 ? 0 : (rng() - 0.5) * 0.01
-    const sound = renderHit(hit.kind, rng)
-    const level = hit.kind === "hat" ? STUDIO.drums.hat : 1
+    const sound = renderHit(hit.kind, rng, era)
+    const hat = STUDIO.drums.hat * (era === "modern" ? 1.2 : era === "old" ? 0.7 : 1)
+    const level = hit.kind === "hat" ? hat : 1
     const start = Math.floor((hit.time + nudge) * SR)
     for (let i = 0; i < sound.length && start + i < out.length; i++) out[start + i] += sound[i] * level
   }
-  return studioFinish(out, STUDIO.drums)
+  return studioFinish(out, STUDIO.drums, era)
 }
 
 function downsample(samples) {
@@ -613,7 +672,7 @@ function singVowel(out, note, gain, rng) {
   }
 }
 
-function renderChoir(notes, duration, keyRoot, rng) {
+function renderChoir(notes, duration, keyRoot, rng, era) {
   const out = silence(duration)
   ;[0, 2, 4].forEach((steps, index) => {
     const detune = (index - 1) * STUDIO.choir.detune
@@ -627,7 +686,7 @@ function renderChoir(notes, duration, keyRoot, rng) {
       }, gain, rng)
     }
   })
-  return studioFinish(out, STUDIO.choir)
+  return studioFinish(out, STUDIO.choir, era)
 }
 
 function coverage(written, detected) {
@@ -668,23 +727,26 @@ function transformAudio(samples, kind, options = {}) {
   const bpm = options.bpm || 92
   const duration = samples.length / SR
   const rng = options.rng || mulberry32(1)
+  const era = options.era === "modern" || options.era === "old" ? options.era : undefined
   if (kind === "Drums") {
     const hits = hitsFromOnsets(detectOnsets(samples), bpm)
     if (hits.length < 2) return null
-    return { samples: finish(renderDrums(hits, duration, rng)), proof: { hits } }
+    return { samples: finish(renderDrums(hits, duration, rng, era)), proof: { hits } }
   }
   if (kind === "Bass") {
     const notes = detectNotes(samples, { minHz: 40, maxHz: 180, lowpass: 220, minEnergy: 0.00015 })
     if (!notes.length) return null
-    return { samples: finish(renderBass(notes, duration)), proof: { notes } }
+    return { samples: finish(renderBass(notes, duration, era)), proof: { notes } }
   }
   const notes = detectNotes(samples)
   if (notes.length < 2) return null
-  if (kind === "Piano") return { samples: finish(renderPiano(notes, duration, rng)), proof: { notes } }
-  if (kind === "Guitar") return { samples: finish(renderGuitar(notes, duration, rng)), proof: { notes } }
+  if (kind === "Piano") return { samples: finish(renderPiano(notes, duration, rng, era)), proof: { notes } }
+  if (kind === "Rhodes") return { samples: finish(renderRhodes(notes, duration, rng, era)), proof: { notes } }
+  if (kind === "Electric guitar") return { samples: finish(renderGuitar(notes, duration, rng, { electric: true, era })), proof: { notes } }
+  if (kind === "Acoustic guitar" || kind === "Guitar") return { samples: finish(renderGuitar(notes, duration, rng, { era: kind === "Guitar" ? undefined : era })), proof: { notes } }
   if (kind === "Choir") {
     const key = options.key == null ? guessKey(notes) : options.key
-    return { samples: finish(renderChoir(notes, duration, key, rng)), proof: { notes, key } }
+    return { samples: finish(renderChoir(notes, duration, key, rng, era)), proof: { notes, key } }
   }
   return null
 }
