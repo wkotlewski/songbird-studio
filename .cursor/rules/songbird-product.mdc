@@ -1,0 +1,17 @@
+---
+description: Songbird product, UI and audio safety guardrails
+alwaysApply: true
+---
+# Songbird implementation guardrails
+- Read README.md and the relevant product, design and architecture specs before coding.
+- Two top-level destinations only: Studio and My Music. Everything else is a contextual panel, sheet or mode.
+- Mobile touch-first dark UI; responsive tablet/desktop; big accessible targets; keep timeline horizontal pan distinct from stereo track pan.
+- Preserve immutable original dry audio and reversible processing variants. Never silently overwrite recordings.
+- All fixes and transformations require truthful preview/status, visible progress, A/B and undo where applicable.
+- Magic Log records observation, confidence, rationale, suggestion, action and reversible operation. Do not expose hidden reasoning or pretend certainty.
+- Metronome must be on monitoring bus, not injected into dry capture; speaker bleed can only be mitigated, not guaranteed removed.
+- Do not ship fake AI integrations as real features. Use explicit feature flags and demo labels.
+- Avoid claiming guaranteed real-time neural transformation; measure latency and support graceful fallback.
+- Protect minors, archival recordings, family sharing and voice consent. Private by default.
+- Verify OSS code/model/sample licensing and commercial usage before integration.
+- Implement in phases with tests, preserving the existing repo.

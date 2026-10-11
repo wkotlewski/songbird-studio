@@ -1,42 +1,35 @@
-# SongBird Studio
+# Songbird — Cursor Product & Engineering Blueprint
 
-Turn a hummed melody into guitar or piano, table taps into drums, and a scratch vocal into a mix-ready lead or chorus — then export MIDI or a tagged MP3. Everything runs in the browser.
+**Status:** product specification and implementation blueprint, not a completed application.  
+**Vision:** *You bring the creativity. Songbird brings the studio expertise.*  
+**Product:** mobile-first, adaptive, human-first AI music studio for making music from humming, singing, clapping, tapping, beatboxing, instruments and archival recordings.
 
-**This is a separate GitHub Pages project.** It does not replace the leadership site at [wkotlewski.github.io](https://wkotlewski.github.io/).
+## Start here in Cursor
+1. Open this folder or copy its contents into your existing Songbird repository. Do not overwrite existing code without reviewing it.
+2. Read `product/PRODUCT_BRIEF.md`, `product/JOURNEYS_AND_PERSONAS.md`, `design/UX_SPEC.md`, `product/MAGIC_LOG_AND_PACKAGES.md`, and `architecture/TECHNICAL_ARCHITECTURE.md`.
+3. Review the reference images in `design/`. They are **visual direction, not exact implementation requirements**; the written UX spec is authoritative where images conflict.
+4. Paste `engineering/CURSOR_BUILD_PROMPT.md` into Cursor Agent. Work through the phases in `engineering/ROADMAP_AND_ACCEPTANCE.md`, one phase at a time.
+5. Review `architecture/OPEN_SOURCE_MATRIX.md` and `docs/SAFETY_RIGHTS_AND_COMPLIANCE.md` before integrating any models, soundfonts, or user uploads.
 
-Live: https://wkotlewski.github.io/songbird-studio/
+## Folder guide
+- `product/`: mission, audience, user journeys, Magic Log, transformations, packages, requirements.
+- `design/`: dark-mode references, responsive UX, interaction and flow specifications.
+- `architecture/`: system components, audio pipeline, data model, API contracts, open-source integrations.
+- `engineering/`: Cursor prompt, phased plan, test and quality gates.
+- `.cursor/rules/`: coding/product guardrails.
+- `docs/`: trust, copyright, accessibility, privacy, pricing and metrics.
 
-Repo: https://github.com/wkotlewski/songbird-studio
+## Important product decisions
+- **Exactly two top-level destinations:** `Studio` and `My Music`. Everything else is an in-canvas mode, contextual panel, drawer, or modal.
+- **Responsive:** mobile studio uses horizontally pannable *timeline content* and contextual sheets; tablet/desktop show wider timeline, library rail, and inspector simultaneously. Do not force users through five distinct screens.
+- **Always preserve original dry audio** and an editable project history. No destructive transformations.
+- **Two recording experiences:** Record First and Play Live; live monitoring is a separate low-latency engine from offline studio-quality rendering.
+- **Signature differentiator:** Magic Log / AI Producer + Magic Marker / Magic Eraser, one-tap, explainable, reversible fixes.
+- **Sound packages:** Tune Original, Transform Instrument, Vocal/Harmony, Rhythm, Creative Style, Mix/Master; final audio/video delivery packages are distinct paid offerings.
+- **No fake AI:** If a backend is not integrated, show an explicit prototype/demo state, not a misleading completed fix.
 
-## What it does
+## Proof-of-concept goal
+A user records claps with an optional metronome, loops them, transforms the rhythm to a drum kit, records humming in sync, transforms it to piano or bass, previews Magic Fix recommendations, undoes/redoes changes, autosaves and restores the session, and exports a synchronized stereo WAV. Original audio remains recoverable throughout.
 
-- **Melody tracks** — [pitchy](https://github.com/ianprime0509/pitchy) runs the McLeod Pitch Method (Tartini) so hummed notes keep timing, velocity, and pitch drift. MIDI plays [MusyngKite](https://github.com/gleitz/midi-js-soundfonts) GM samples (piano, guitar, bass, strings, winds, pads) with every key loaded.
-- **Drum tracks** — onset detection classifies kick / snare / hats / toms / crash, then plays [Dirt-Samples](https://github.com/tidalcycles/Dirt-Samples) from TidalCycles / SuperDirt (analog synth fallback if a hit is missing).
-- **Vocal tracks** — keep the recorded audio. Roles (lead, verse, chorus, double, harmony) apply compression, presence EQ, doubles, slap, and a convolution plate.
-- **Tell the studio** — type `fix EQ and master, then export mp3`.
-- **Export** — multi-track MIDI via `@tonejs/midi`, WAV, or 192 kbps MP3 with ID3 title / artist / album / year / genre (`lamejs`).
-
-Audio is processed on-device. Nothing is uploaded unless you download an export.
-
-## Honest limits
-
-SongBird is a real transcription + sampler + mix desk, not a generative model. It will not clone a famous singer or invent a Suno-style full mix from a hum. Studio polish comes from sampled instruments, vocal treatment, and mastering — not from neural audio-to-audio.
-
-## Local dev
-
-```bash
-npm install
-npm run dev
-```
-
-## Deploy
-
-The app is published from the `gh-pages` branch (GitHub CLI tokens often lack the `workflow` scope needed to push Actions files). Rebuild and push:
-
-```bash
-VITE_BASE=/songbird-studio/ npm run build
-cp dist/index.html dist/404.html
-# then publish the dist/ folder to the gh-pages branch
-```
-
-A GitHub Actions workflow lives in `docs/github-pages-workflow.yml` if you later add the `workflow` scope and move it to `.github/workflows/deploy.yml`.
+## Out of scope for initial MVP
+Public social feed, sophisticated AI video generation, realistic zero-latency vocal-to-choir, professional DAW parity, unlicensed voice cloning, guaranteed perfect removal of sound overlapping a vocal performance.

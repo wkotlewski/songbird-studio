@@ -1,0 +1,11 @@
+# Trust, Rights, Privacy and Compliance Requirements
+
+- **Human authorship and copyright:** log user-created layers, edits, AI tools, sources and contributors. Explain that AI assistance does not automatically guarantee copyright in every output. Provide permission controls for listening, downloading, collaborating, remixing and public publishing. Require uploader rights for copyrighted recordings and samples; support takedown/disputes.
+- **Voice/likeness:** preserve authentic archival recordings. Do not impersonate, clone or recreate a recognizable person's voice without verified rights/consent; heightened scrutiny for deceased persons and minors. Avoid misleading realistic depiction of family members in AI videos.
+- **Children:** parent/guardian-managed experiences, private by default, no open messaging or public discovery for child profiles, age-appropriate notices, data minimization, guardian deletion controls. Obtain counsel for COPPA and relevant state privacy rules before child-directed launch.
+- **Privacy/security:** encrypted transport and storage, signed asset URLs, access controls on raw stems and source files, retention and deletion policies, abuse reporting, moderation if community launches, audit logs, content processing disclosure and vendor contracts.
+- **Open-source:** review code licenses, weights, soundfont/sample terms, FFmpeg build codecs, model provenance and AI output restrictions. Record notices/SBOM and pin versions.
+- **Recording safety:** visible microphone permission/recording indicators, no background capture without explicit consent, no silent upload of sensitive family media, data usage explanation.
+- **Quality honesty:** a proposed Magic Fix may fail, especially when noise overlaps desired music. Provide reversible previews and realistic warnings. Do not use misleading 'professional studio quality' guarantees.
+- **Employment/IP:** founder should review invention assignment, outside-work and conflict policies and keep independent development equipment/accounts before integrating this blueprint into any personal repository.
+- **Legal review:** product spec is not legal advice; obtain specialist review before production payments, minors, public publishing, AI likeness, copyright licensing and privacy launch.
