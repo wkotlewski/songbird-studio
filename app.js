@@ -6,13 +6,6 @@ const STARTERS = [
   { id: "bright", title: "A Brighter Day", privacy: "Public", demo: true },
 ]
 
-const DEMO = [
-  ["My humming", "Guitar", "#1fbfa7", 3],
-  ["My claps", "Drums", "#3d7eff", 7],
-  ["My singing", "Choir", "#b44dff", 11],
-  ["My beatbox", "Bass", "#f0a202", 5],
-]
-
 const INPUTS = [
   ["hum", "Hum or sing"],
   ["clap", "Clap or tap"],
@@ -20,7 +13,7 @@ const INPUTS = [
   ["instrument", "Instrument"],
 ]
 
-const INSTRUMENTS = ["Guitar", "Piano", "Drums", "Bass", "Choir", "Strings", "Synth", "Brass"]
+const TRANSFORMS = ["Piano", "Guitar", "Drums", "Bass", "Choir"]
 
 const LENGTHS = [
   [30, "0:30"],
@@ -234,7 +227,7 @@ const $ = (id) => document.getElementById(id)
 function loadSongs() {
   try {
     const saved = JSON.parse(localStorage.getItem("songbird-songs") || "[]")
-    return [...saved, ...STARTERS]
+    return [...STARTERS, ...saved]
   } catch {
     return [...STARTERS]
   }
@@ -330,7 +323,7 @@ function renderSongs() {
     .map(
       (song) => `<button class="song" data-action="open-song" data-id="${song.id}">
         <span class="swatch" style="background:linear-gradient(135deg,#1fbfa7,#3d7eff)"></span>
-        <span><b>${song.title}</b><span class="meta">${song.demo ? "Layout preview" : "On this device"} · ${song.privacy}</span></span>
+        <span><b>${song.title}</b><span class="meta">${song.demo ? "Example · press play" : "On this device"} · ${song.privacy}</span></span>
         <span class="badge">${song.privacy}</span>
       </button>`,
     )
@@ -350,8 +343,12 @@ function layoutTimeline() {
 function renderPlanNote() {
   const note = document.querySelector(".note")
   if (!note) return
+  if (state.song?.demo && state.heard) {
+    note.textContent = state.heard
+    return
+  }
   if (!state.lengthSec) {
-    note.textContent = "Open Build to set a length and a shape. Recordings loop to that length. A transform keeps your original and does not change the sound yet."
+    note.textContent = "Open Build to set a length and a shape. Recordings loop to that length. A transform keeps the original and adds a new layer made from it."
     return
   }
   if (!state.shape) {
@@ -401,7 +398,7 @@ function renderTracks() {
       (layer) => `<div class="track ${layer.id === state.selected ? "selected" : ""}">
         <button class="track-label" data-action="select-layer" data-id="${layer.id}">
           ${layer.name}
-          <small>${layer.sound}${layer.live ? "" : " · layout"}</small>
+          <small>${layer.sound}${layer.from ? ` · ${layer.from}` : ""}${layer.live ? "" : " · layout"}</small>
         </button>
         ${wave(shapedPeaks(layer), layer.color)}
       </div>`,
@@ -445,9 +442,9 @@ function renderInspector() {
       </div>`
   } else if (state.panel === "transform") {
     body = `${head("Transform this layer")}
-      <p class="warn">Your original recording is safe. Choosing an instrument names the layer. It does not change the sound yet.</p>
-      <div class="grid">${INSTRUMENTS.map((name) => `<button class="tile ${layer?.sound === name ? "on" : ""}" data-action="apply-sound" data-sound="${name}">${name}</button>`).join("")}</div>
-      <p class="hint">${layer ? `Selected: ${layer.name}` : "Record a layer first."}</p>`
+      <p class="hint">Your original stays. Songbird listens and adds a new layer. Piano, guitar, and choir follow a melody. Drums follow claps. Bass follows low notes.</p>
+      <div class="grid">${TRANSFORMS.map((name) => `<button class="tile" data-action="apply-sound" data-sound="${name}">${name}</button>`).join("")}</div>
+      <p class="hint">${layer ? `Selected: ${layer.name}${layer.from ? ` · ${layer.from}` : ""}` : "Record a layer first, or open an example."}</p>`
   } else if (state.panel === "build") {
     const mins = state.lengthSec ? Math.floor(state.lengthSec / 60) : ""
     const secs = state.lengthSec ? String(state.lengthSec % 60).padStart(2, "0") : ""
@@ -499,32 +496,74 @@ function renderInspector() {
   $("inspector-body").innerHTML = body
 }
 
+function peaksFromSamples(data) {
+  const count = 48
+  const size = Math.max(1, Math.floor(data.length / count))
+  const peaks = []
+  for (let i = 0; i < count; i++) {
+    let max = 0
+    for (let j = 0; j < size; j += 8) max = Math.max(max, Math.abs(data[i * size + j] || 0))
+    peaks.push(Math.min(1, max))
+  }
+  return peaks
+}
+
+function audioBuffer(samples, sampleRate) {
+  const ctx = ac()
+  const buffer = ctx.createBuffer(1, samples.length, sampleRate)
+  buffer.getChannelData(0).set(samples)
+  return buffer
+}
+
+function dropLayerAudio() {
+  for (const layer of state.layers) {
+    buffers.delete(layer.id)
+    buffers.delete(layer.id + ":audio")
+  }
+}
+
 function openSong(id) {
   const song = state.songs.find((item) => item.id === id)
   if (!song) return
+  dropLayerAudio()
   state.song = song
   $("song-title").value = song.title
+  let exampleNote = ""
   if (song.demo) {
-    state.layers = DEMO.map(([name, sound, color, seed]) => ({
-      id: uid(),
-      name,
-      sound,
-      color,
-      peaks: bars(seed),
-      gain: 0.8,
-      pan: 0,
-      mute: false,
-      solo: false,
-      live: false,
-    }))
+    const made = SongbirdMusic.makeExample(song.id)
+    state.layers = made.layers.map((layer) => {
+      const layerId = uid()
+      buffers.set(layerId + ":audio", audioBuffer(layer.samples, made.sampleRate))
+      return {
+        id: layerId,
+        name: layer.name,
+        sound: layer.sound,
+        from: layer.from,
+        color: layer.color,
+        peaks: peaksFromSamples(layer.samples),
+        gain: layer.gain,
+        pan: layer.pan,
+        mute: false,
+        solo: false,
+        live: true,
+      }
+    })
+    state.lengthSec = made.lengthSec
+    state.shape = made.shape
+    state.intent = made.intent
+    state.bpm = made.bpm
+    $("bpm").value = made.bpm
+    exampleNote = made.blurb
   } else {
     state.layers = song.layers ?? []
   }
   state.selected = state.layers[0]?.id ?? null
-  state.lengthSec = song.lengthSec || null
-  state.shape = song.shape || null
-  state.intent = song.intent || null
-  state.heard = ""
+  if (!song.demo) {
+    state.lengthSec = song.lengthSec || null
+    state.shape = song.shape || null
+    state.intent = song.intent || null
+  }
+  state.heard = exampleNote
   undoStack = []
   redoStack = []
   setScreen("studio")
@@ -532,7 +571,7 @@ function openSong(id) {
   renderRuler()
   renderTracks()
   renderInspector()
-  $("save-status").textContent = song.demo ? "Layout preview · record to add a real take" : "Saved on this device · audio stays in this tab"
+  $("save-status").textContent = song.demo ? "Example ready · press play" : "Saved on this device · audio stays in this tab"
 }
 
 function newSong() {
@@ -551,8 +590,8 @@ function rememberSong() {
   state.song.lengthSec = state.lengthSec
   state.song.shape = state.shape
   state.song.intent = state.intent
-  state.song.layers = state.layers.map(({ id, name, sound, color, peaks, gain, pan, mute, solo, live }) => ({
-    id, name, sound, color, peaks, gain, pan, mute, solo, live,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, mute, solo, live }) => ({
+    id, name, sound, from, color, peaks, gain, pan, mute, solo, live,
   }))
   saveSongs()
   $("save-status").textContent = "Saved just now"
@@ -756,6 +795,46 @@ function scheduleShape(gainNode, base, shapeId, startTime, duration) {
   }
 }
 
+function addTransformedLayer(sound) {
+  const source = selectedLayer()
+  const audio = source && buffers.get(source.id + ":audio")
+  if (!source || !audio) {
+    $("save-status").textContent = "Choose a layer that has sound. Open an example or keep a recording first."
+    return
+  }
+  const copy = new Float32Array(audio.length)
+  copy.set(audio.getChannelData(0))
+  const made = SongbirdMusic.transformAudio(copy, sound, { bpm: state.bpm, sampleRate: audio.sampleRate })
+  if (!made) {
+    const heard = sound === "Drums" ? "a beat" : sound === "Bass" ? "low notes" : "a melody"
+    $("save-status").textContent = `Couldn't find ${heard} in ${source.name}. The original is unchanged.`
+    return
+  }
+  snapshot()
+  const id = uid()
+  const colors = { Piano: "#f0a202", Guitar: "#ff8ab0", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
+  const layer = {
+    id,
+    name: sound,
+    sound,
+    from: `from ${source.name}`,
+    color: colors[sound] || "#7aa2ff",
+    peaks: peaksFromSamples(made.samples),
+    gain: 0.7,
+    pan: 0.15,
+    mute: false,
+    solo: false,
+    live: true,
+  }
+  buffers.set(id + ":audio", audioBuffer(made.samples, SongbirdMusic.sampleRate))
+  state.layers.push(layer)
+  state.selected = id
+  rememberSong()
+  renderTracks()
+  renderInspector()
+  $("save-status").textContent = `${sound} was added from ${source.name}. The original layer is still there.`
+}
+
 function audible(layer) {
   if (layer.mute) return false
   if (state.layers.some((item) => item.solo)) return layer.solo
@@ -935,16 +1014,7 @@ document.body.addEventListener("click", (event) => {
     state.input = node.dataset.input
     setPanel("record")
   }
-  if (action === "apply-sound") {
-    const layer = selectedLayer()
-    if (!layer) return
-    snapshot()
-    layer.sound = node.dataset.sound
-    rememberSong()
-    renderTracks()
-    renderInspector()
-    $("save-status").textContent = "Your original recording is safe. The sound itself is unchanged."
-  }
+  if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
   if (action === "toggle-mute" || action === "toggle-solo") {
     const layer = selectedLayer()
     if (!layer) return
