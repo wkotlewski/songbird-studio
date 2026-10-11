@@ -33,6 +33,24 @@ async function decodeDataUri(ac: AudioContext, uri: string): Promise<AudioBuffer
   return ac.decodeAudioData(bytes.buffer.slice(0))
 }
 
+async function decodeFont(ac: AudioContext, url: string): Promise<FontTable> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`Missing soundfont ${url}`)
+  const table = parseSoundfontJs(await res.text())
+  const out: FontTable = {}
+  await Promise.all(
+    Object.entries(table).map(async ([note, uri]) => {
+      try {
+        out[note] = await decodeDataUri(ac, uri)
+      } catch {
+        /* skip a bad sample */
+      }
+    }),
+  )
+  if (Object.keys(out).length === 0) throw new Error(`Could not decode ${url}`)
+  return out
+}
+
 export async function loadSoundfont(ac: AudioContext, name: string): Promise<FontTable> {
   const hit = cache.get(name)
   if (hit) return hit
@@ -42,20 +60,12 @@ export async function loadSoundfont(ac: AudioContext, name: string): Promise<Fon
   const job = (async () => {
     const ogg = `${SOUNDFONT_BASE}/${name}-ogg.js`
     const mp3 = `${SOUNDFONT_BASE}/${name}-mp3.js`
-    let res = await fetch(ogg)
-    if (!res.ok) res = await fetch(mp3)
-    if (!res.ok) throw new Error(`Could not load ${name} soundfont`)
-    const table = parseSoundfontJs(await res.text())
-    const out: FontTable = {}
-    await Promise.all(
-      Object.entries(table).map(async ([note, uri]) => {
-        try {
-          out[note] = await decodeDataUri(ac, uri)
-        } catch {
-          /* skip a bad sample */
-        }
-      }),
-    )
+    let out: FontTable
+    try {
+      out = await decodeFont(ac, ogg)
+    } catch {
+      out = await decodeFont(ac, mp3)
+    }
     cache.set(name, out)
     inflight.delete(name)
     return out

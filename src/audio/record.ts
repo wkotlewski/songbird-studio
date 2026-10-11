@@ -7,8 +7,9 @@ export type ArmedRecorder = {
 export async function armRecorder(): Promise<ArmedRecorder> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
-      // Keep speaker click and backing tracks out of the take; transients stay.
-      echoCancellation: true,
+      // Echo cancellation ducks the speakers on macOS, so playback goes silent
+      // for the rest of the session. Click bleed is stripped from the take later.
+      echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
     },

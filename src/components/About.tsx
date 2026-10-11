@@ -31,7 +31,7 @@ const TOOLS: { name: string; href: string; role: string }[] = [
   },
   {
     name: 'React + Vite + Tailwind',
-    href: 'https://github.com/wkotlewski3/songbird-studio',
+    href: 'https://github.com/wkotlewski/songbird-studio',
     role: 'The studio UI itself. Source is on GitHub.',
   },
 ]
@@ -149,12 +149,12 @@ export function About({ open, onClose }: { open: boolean; onClose: () => void })
           </a>
           . Source:{' '}
           <a
-            href="https://github.com/wkotlewski3/songbird-studio"
+            href="https://github.com/wkotlewski/songbird-studio"
             className="text-mist hover:text-gold"
             target="_blank"
             rel="noreferrer"
           >
-            github.com/wkotlewski3/songbird-studio
+            github.com/wkotlewski/songbird-studio
           </a>
           .
         </p>

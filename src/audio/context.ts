@@ -7,9 +7,26 @@ export function getAudioContext(): AudioContext {
   return ctx
 }
 
+/** Call synchronously from a click/tap so Safari will actually start the context. */
+export function unlockAudio(): void {
+  const ac = getAudioContext()
+  if (ac.state === 'suspended' || ac.state === 'interrupted') void ac.resume()
+  const buffer = ac.createBuffer(1, 1, ac.sampleRate)
+  const src = ac.createBufferSource()
+  src.buffer = buffer
+  src.connect(ac.destination)
+  src.start()
+}
+
 export async function resumeAudio(): Promise<AudioContext> {
   const ac = getAudioContext()
-  if (ac.state === 'suspended') await ac.resume()
+  if (ac.state === 'suspended' || ac.state === 'interrupted') {
+    try {
+      await ac.resume()
+    } catch {
+      /* a later play() from a click can still start it */
+    }
+  }
   return ac
 }
 

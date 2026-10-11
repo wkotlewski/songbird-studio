@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import type { Layer, Track } from '../types'
 import { DEFAULT_SNAP, layerHasContent, trackDuration } from '../types'
-import { decodeFile, getAudioContext } from '../audio/context'
+import { decodeFile, getAudioContext, resumeAudio, unlockAudio } from '../audio/context'
 import { transcribeDrums, analyzeDrums } from '../audio/drums'
 import { transcribeMelody, analyzeMelody } from '../audio/melody'
 import { mixFingerprint } from '../audio/mixerState'
@@ -362,7 +362,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
           rhythm: locked.feel,
           accepted: true,
           reviewing: locked.drums.length === 0,
-          originalMix: 0,
+          originalMix: locked.drums.length === 0 ? 1 : 0,
           status:
             locked.drums.length === 0
               ? 'No hits locked — loosen onset until the grid fills, then pick a kit'
@@ -409,7 +409,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
         rhythm: locked.feel,
         accepted: true,
         reviewing: locked.notes.length === 0,
-        originalMix: 0,
+        originalMix: locked.notes.length === 0 ? 1 : 0,
         status:
           locked.notes.length === 0
             ? 'No notes locked — loosen gate or confidence until the piano roll fills'
@@ -487,6 +487,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
     }
     try {
       const blob = await armed.stop()
+      await resumeAudio()
       if (blob.size < 200) return
       const ac = getAudioContext()
       const latency = (ac.baseLatency || 0) + (ac.outputLatency || 0)
@@ -547,6 +548,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
       if (track && dest) updateLayer(track.id, dest.id, { status })
     }
 
+    unlockAudio()
     try {
       const armed = await armRecorder()
       if (recGen.current !== gen) {
@@ -653,6 +655,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
       setPlaying(false)
       return
     }
+    unlockAudio()
     try {
       previewRef.current = 'session'
       const dur = sessionDuration(session)

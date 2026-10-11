@@ -278,7 +278,7 @@ function scheduleLayer(
   if (!notes.length) return
   const inst = instrumentById(layer.instrumentId)
   const font = getCachedSoundfont(inst.soundfont)
-  if (font) {
+  if (font && Object.keys(font).length > 0) {
     for (const note of notes) {
       const at = eventWhen(note.time, offset, when, until)
       if (at === null) continue
@@ -377,6 +377,7 @@ let outputGain: GainNode | null = null
 let startedAt = 0
 let playOffset = 0
 let playingFlag = false
+let playGen = 0
 let activeLoop: LoopRange | null = null
 let loopMarker: OscillatorNode | null = null
 let replay: (() => Promise<void>) | null = null
@@ -427,6 +428,7 @@ export function getLoop(): LoopRange | null {
 }
 
 export async function playSession(session: Session, opts: PlayOpts = {}): Promise<void> {
+  const gen = ++playGen
   stopSession()
   liveSession = session
   const offset = Math.max(0, opts.offset ?? 0)
@@ -434,6 +436,7 @@ export async function playSession(session: Session, opts: PlayOpts = {}): Promis
   const until = activeLoop?.end
   const ctx = await resumeAudio()
   await preloadSession(session)
+  if (gen !== playGen) return
   const gain = ctx.createGain()
   outputGain = gain
   playingFlag = true
