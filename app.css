@@ -85,6 +85,7 @@ h1 { margin: 0; font-size: 28px; font-weight: 650; }
 #save-status, .note, .hint, .meta { color: var(--mute); font-size: 12px; }
 #save-status { margin: 4px 0 0; }
 .note { margin: 0 16px 8px; }
+.legal { margin: 0; padding: 8px 16px 12px; color: var(--mute); font-size: 11px; }
 
 .tabs { display: flex; gap: 8px; padding: 0 16px 8px; }
 .tab { padding: 8px 12px; color: var(--mute); }
