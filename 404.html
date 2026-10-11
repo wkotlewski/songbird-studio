@@ -1,25 +1,82 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta
-      name="description"
-      content="SongBird Studio — hum a melody, tap a beat, sing a verse. Transcribe to MIDI, pick open-source sounds, enhance vocals, and export a mastered MP3."
-    />
-    <title>SongBird Studio</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
-    <script type="module" crossorigin src="/songbird-studio/assets/index-C0XQg7OG.js"></script>
-    <link rel="stylesheet" crossorigin href="/songbird-studio/assets/index-nMB-qsYw.css">
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07111f" />
+  <title>Songbird</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body data-screen="library">
+  <div class="app">
+    <aside id="library" class="pane">
+      <header class="lib-head">
+        <div>
+          <p class="brand">Songbird</p>
+          <h1>My Music</h1>
+        </div>
+        <button class="icon-btn" data-action="new-song" aria-label="Create new song">+</button>
+      </header>
+      <label class="search">
+        <span class="sr">Search songs</span>
+        <input id="search" type="search" placeholder="Search songs" />
+      </label>
+      <div class="tabs" role="tablist">
+        <button class="tab on" data-action="tab" data-tab="mine">My Songs</button>
+        <button class="tab" data-action="tab" data-tab="shared">Shared with Me</button>
+        <button class="tab" data-action="tab" data-tab="community">Community</button>
+      </div>
+      <div id="song-list" class="song-list"></div>
+      <nav class="mobile-nav">
+        <button class="on" data-action="show-library">My Music</button>
+        <button data-action="new-song">Create New</button>
+      </nav>
+    </aside>
+
+    <main id="studio" class="pane">
+      <header class="studio-bar">
+        <button class="icon-btn mobile-only" data-action="show-library" aria-label="My Music">⌂</button>
+        <div class="title-block">
+          <input id="song-title" aria-label="Song title" value="Untitled song" />
+          <p id="save-status">Prototype · recordings stay in this tab</p>
+        </div>
+        <div class="transport">
+          <button data-action="play" id="play-btn" aria-label="Play">▶</button>
+          <button data-action="record" id="rec-btn" class="rec" aria-label="Record">●</button>
+          <button data-action="undo" aria-label="Undo">↶</button>
+          <button data-action="redo" aria-label="Redo">↷</button>
+        </div>
+        <label class="bpm">
+          BPM
+          <input id="bpm" type="number" min="40" max="200" value="92" />
+        </label>
+        <button id="click-btn" class="chip on" data-action="toggle-click">Click</button>
+      </header>
+
+      <p class="note">Recording and mix play in this browser. A transform keeps your original and does not change the sound yet.</p>
+
+      <div id="timeline" class="timeline" tabindex="0" aria-label="Song timeline. Scroll sideways to move through the song.">
+        <div class="timeline-inner">
+          <div class="ruler" id="ruler"></div>
+          <div id="tracks"></div>
+          <div id="playhead" class="playhead"></div>
+        </div>
+      </div>
+
+      <div class="dock">
+        <button data-action="panel" data-panel="record"><b>Record</b><span>Make a sound</span></button>
+        <button data-action="panel" data-panel="transform"><b>Transform</b><span>Turn it into something new</span></button>
+        <button data-action="panel" data-panel="build"><b>Build</b><span>Add more layers</span></button>
+        <button data-action="panel" data-panel="mix"><b>Mix</b><span>Balance and enhance</span></button>
+        <button data-action="panel" data-panel="finish"><b>Finish</b><span>Master and make video</span></button>
+      </div>
+    </main>
+
+    <aside id="inspector" class="pane" aria-live="polite">
+      <div class="sheet-handle" data-action="close-panel" aria-label="Close panel"></div>
+      <div id="inspector-body"></div>
+    </aside>
+  </div>
+  <script src="app.js"></script>
+</body>
 </html>
