@@ -213,6 +213,10 @@ const state = {
   bpm: 92,
   click: true,
   countIn: true,
+  tempoSource: "",
+  tempoLocked: false,
+  tempoPass: false,
+  arming: false,
   lengthSec: null,
   shape: null,
   intent: null,
@@ -422,7 +426,14 @@ function renderInspector() {
   const head = (title) => `<div class="sheet-head"><h2>${title}</h2><button class="icon-btn" data-action="close-panel" aria-label="Close">×</button></div>`
   let body = ""
   if (state.panel === "record") {
+    const tempoLine = state.tempoSource
+      ? `Tempo ${state.bpm} from ${state.tempoSource}. The click follows it.`
+      : "Clap, snap, or beatbox a steady pulse first. Songbird sets the metronome from it. If you just hum, it finds the tempo from that instead."
+    const listening = state.recording && state.tempoPass
     body = `${head("Make a sound")}
+      <p class="ask">First, the tempo</p>
+      <p class="hint">${tempoLine}</p>
+      <button class="primary" data-action="tempo-pass">${listening ? "Stop and set the tempo" : "Clap the tempo"}</button>
       <div class="seg">
         <button class="${state.mode === "first" ? "on" : ""}" data-action="rec-mode" data-mode="first">Record First</button>
         <button class="${state.mode === "live" ? "on" : ""}" data-action="rec-mode" data-mode="live">Play Live</button>
@@ -430,7 +441,7 @@ function renderInspector() {
       <div class="grid">${INPUTS.map(([id, label]) => `<button class="tile ${state.input === id ? "on" : ""}" data-action="pick-input" data-input="${id}">${label}</button>`).join("")}</div>
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording ? "hot" : ""}" data-action="toggle-record" aria-label="${state.recording ? "Stop recording" : "Record"}">${state.recording ? "■" : "●"}</button>
-      <p class="hint" id="rec-time">${state.recording ? "Recording… metronome stays in the speakers, not in the take." : "00:00 / 0:20"}</p>
+      <p class="hint" id="rec-time">${listening ? "Listening for the tempo. No click yet." : state.recording ? "Recording. The click stays in the speakers, not in the take." : state.tempoLocked ? "The click counts in four beats at this tempo." : "00:00"}</p>
       ${state.mode === "live" ? `<p class="warn">Live instrument monitoring is not connected yet. You can still record your voice.</p>` : ""}
       <p class="hint">Headphones help keep the click out of the microphone.</p>
       <div class="seg">
@@ -552,6 +563,8 @@ function openSong(id) {
     state.shape = made.shape
     state.intent = made.intent
     state.bpm = made.bpm
+    state.tempoSource = "this example"
+    state.tempoLocked = true
     $("bpm").value = made.bpm
     exampleNote = made.blurb
   } else {
@@ -562,6 +575,10 @@ function openSong(id) {
     state.lengthSec = song.lengthSec || null
     state.shape = song.shape || null
     state.intent = song.intent || null
+    state.bpm = song.bpm || 92
+    state.tempoSource = song.tempoSource || ""
+    state.tempoLocked = !!song.tempoLocked
+    $("bpm").value = state.bpm
   }
   state.heard = exampleNote
   undoStack = []
@@ -580,8 +597,10 @@ function newSong() {
   saveSongs()
   renderSongs()
   openSong(song.id)
-  setPanel("build")
-  $("save-status").textContent = "How long should this song be?"
+  setPanel("record")
+  state.tempoSource = ""
+  state.tempoLocked = false
+  $("save-status").textContent = "Clap, snap, or beatbox the tempo. Or just start humming."
 }
 
 function rememberSong() {
@@ -590,6 +609,9 @@ function rememberSong() {
   state.song.lengthSec = state.lengthSec
   state.song.shape = state.shape
   state.song.intent = state.intent
+  state.song.bpm = state.bpm
+  state.song.tempoSource = state.tempoSource
+  state.song.tempoLocked = state.tempoLocked
   state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, mute, solo, live }) => ({
     id, name, sound, from, color, peaks, gain, pan, mute, solo, live,
   }))
@@ -636,94 +658,168 @@ async function blobPeaks(blob) {
   return { buffer, peaks }
 }
 
-async function keepTake() {
+async function keepTake(name, stayOpen) {
   if (!pendingBlob) return
   const decoded = await blobPeaks(pendingBlob)
-  const label = INPUTS.find(([id]) => id === state.input)?.[1] ?? "Voice"
+  const label = name || INPUTS.find(([id]) => id === state.input)?.[1] || "Voice"
   addLayer(pendingBlob, label)
   const layer = state.layers[state.layers.length - 1]
   layer.peaks = decoded.peaks
+  if (name === "Claps" || name === "Beatbox") layer.from = "your pulse"
   buffers.set(layer.id + ":audio", decoded.buffer)
   pendingBlob = null
+  rememberSong()
   renderTracks()
-  closePanel()
-  $("save-status").textContent = "Take kept. Your original recording is safe."
+  if (!stayOpen) closePanel()
+  const tempo = state.tempoSource ? ` Tempo is ${state.bpm} from ${state.tempoSource}.` : ""
+  $("save-status").textContent = `Take kept. Your original recording is safe.${tempo}`
 }
 
-function clickAt(time) {
+function useTempo(bpm, source, lock) {
+  state.bpm = bpm
+  state.tempoSource = source
+  state.tempoLocked = lock
+  const field = $("bpm")
+  if (field) field.value = String(bpm)
+  rememberSong()
+}
+
+async function finishRecording(wasTempo) {
+  if (!pendingBlob) {
+    renderInspector()
+    return
+  }
+  $("save-status").textContent = "Finding the tempo…"
+  try {
+    const decoded = await blobPeaks(pendingBlob)
+    const copy = new Float32Array(decoded.buffer.length)
+    copy.set(decoded.buffer.getChannelData(0))
+    const found = wasTempo || !state.tempoLocked
+      ? SongbirdMusic.tempoFromAudio(copy, decoded.buffer.sampleRate, wasTempo ? "pulse" : "melody")
+      : null
+    if (found && (wasTempo || !state.tempoLocked)) useTempo(found.bpm, wasTempo ? "your pulse" : "your humming", wasTempo)
+    if (wasTempo && found) {
+      await keepTake(state.input === "beat" ? "Beatbox" : "Claps", true)
+      $("save-status").textContent = `Tempo is ${state.bpm} from your pulse. The click matches it. Record the rest of the song to that.`
+      renderInspector()
+      return
+    }
+    if (wasTempo) {
+      $("save-status").textContent = "Clap, snap, or beatbox a steady pulse a few more times. At least four hits."
+    } else if (found) {
+      $("save-status").textContent = `Tempo is ${state.bpm} from your humming. Keep the take. The click will follow that next time.`
+    }
+  } catch {
+    $("save-status").textContent = "Couldn't read the tempo from that take."
+  }
+  renderInspector()
+}
+
+function clickAt(time, accent) {
   const ctx = ac()
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()
-  osc.frequency.value = 1200
+  osc.frequency.value = accent ? 1680 : 1120
+  const peak = accent ? 0.24 : 0.11
   gain.gain.setValueAtTime(0.0001, time)
-  gain.gain.exponentialRampToValueAtTime(0.15, time + 0.004)
-  gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.04)
+  gain.gain.exponentialRampToValueAtTime(peak, time + 0.004)
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + (accent ? 0.06 : 0.04))
   osc.connect(gain)
   gain.connect(ctx.destination)
   osc.start(time)
-  osc.stop(time + 0.05)
+  osc.stop(time + 0.07)
 }
 
-function startClick() {
+function startClick(startAt) {
   stopClick()
   if (!state.click) return
   const ctx = ac()
   const beat = 60 / state.bpm
-  let next = ctx.currentTime + 0.05
+  let next = startAt || ctx.currentTime + 0.06
+  let index = 0
   clickTimer = window.setInterval(() => {
     const now = ctx.currentTime
-    while (next < now + 0.2) {
-      clickAt(next)
+    while (next < now + 0.25) {
+      clickAt(next, index % 4 === 0)
+      index += 1
       next += beat
     }
-  }, 40)
+  }, 25)
 }
 
 function stopClick() {
   window.clearInterval(clickTimer)
 }
 
-async function toggleRecord() {
-  if (state.recording) {
-    state.recording = false
-    recorder?.stop()
-    recStream?.getTracks().forEach((track) => track.stop())
-    window.clearInterval(recTimer)
-    stopClick()
-    renderInspector()
+function cancelRecord() {
+  const wasTempo = state.tempoPass
+  state.arming = false
+  state.recording = false
+  state.tempoPass = false
+  window.clearInterval(recTimer)
+  stopClick()
+  recStream?.getTracks().forEach((track) => track.stop())
+  if (recorder && recorder.state !== "inactive") {
+    recorder._wasTempo = wasTempo
+    recorder.stop()
     return
   }
+  renderInspector()
+}
+
+async function toggleRecord() {
+  if (state.recording || state.arming) {
+    cancelRecord()
+    return
+  }
+  const tempoPass = state.tempoPass
+  state.arming = true
   try {
     recStream = await navigator.mediaDevices.getUserMedia({ audio: true })
   } catch {
+    state.arming = false
+    state.tempoPass = false
     $("save-status").textContent = "Microphone permission is needed to record."
     return
   }
+  if (!state.arming) {
+    recStream?.getTracks().forEach((track) => track.stop())
+    return
+  }
+  state.recording = true
+  state.arming = false
+  renderInspector()
   ac()
-  if (state.countIn && state.click) {
-    startClick()
-    await new Promise((resolve) => window.setTimeout(resolve, (60 / state.bpm) * 4 * 1000))
-  } else {
+  if (!tempoPass && state.countIn && state.click) {
+    const beat = 60 / state.bpm
+    const lead = 0.08
+    $("save-status").textContent = `Count-in at ${state.bpm}. Then you record.`
+    startClick(ac().currentTime + lead)
+    await new Promise((resolve) => window.setTimeout(resolve, (lead + beat * 4) * 1000))
+  } else if (!tempoPass) {
     startClick()
   }
+  if (!state.recording) return
   recChunks = []
-  recorder = new MediaRecorder(recStream)
-  recorder.ondataavailable = (event) => {
+  const media = new MediaRecorder(recStream)
+  media._wasTempo = tempoPass
+  recorder = media
+  media.ondataavailable = (event) => {
     if (event.data.size) recChunks.push(event.data)
   }
-  recorder.onstop = () => {
-    pendingBlob = new Blob(recChunks, { type: recorder.mimeType || "audio/webm" })
+  media.onstop = () => {
+    pendingBlob = new Blob(recChunks, { type: media.mimeType || "audio/webm" })
     state.recording = false
-    renderInspector()
+    state.tempoPass = false
+    void finishRecording(media._wasTempo)
   }
-  recorder.start()
-  state.recording = true
+  media.start()
   recStarted = performance.now()
   recTimer = window.setInterval(() => {
     const node = $("rec-time")
     if (!node) return
     const seconds = Math.floor((performance.now() - recStarted) / 1000)
-    node.textContent = `00:${String(seconds).padStart(2, "0")} · recording`
+    node.textContent = tempoPass ? `00:${String(seconds).padStart(2, "0")} · listening for the tempo` : `00:${String(seconds).padStart(2, "0")} · recording`
   }, 250)
   renderInspector()
 }
@@ -918,7 +1014,14 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "open-song") openSong(node.dataset.id)
   if (action === "play") playing ? stopPlayback() : play()
-  if (action === "record" || action === "toggle-record") void toggleRecord()
+  if (action === "tempo-pass") {
+    if (!state.recording) state.tempoPass = true
+    void toggleRecord()
+  }
+  if (action === "record" || action === "toggle-record") {
+    if (!state.recording) state.tempoPass = false
+    void toggleRecord()
+  }
   if (action === "panel") setPanel(node.dataset.panel)
   if (action === "close-panel") closePanel()
   if (action === "undo" && undoStack.length) {
@@ -1056,7 +1159,12 @@ document.body.addEventListener("input", (event) => {
   }
   if (node.id === "song-title") rememberSong()
   if (node.id === "wish") state.wish = node.value
-  if (node.id === "bpm") state.bpm = Math.min(200, Math.max(40, Number(node.value) || 92))
+  if (node.id === "bpm") {
+    state.bpm = Math.min(200, Math.max(40, Number(node.value) || 92))
+    state.tempoLocked = true
+    state.tempoSource = "you"
+    rememberSong()
+  }
   if (node.dataset.action === "set-gain" || node.dataset.action === "set-pan") {
     const layer = selectedLayer()
     if (!layer) return

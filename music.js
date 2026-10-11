@@ -349,6 +349,81 @@ function detectOnsets(samples) {
   return times
 }
 
+function detectPulses(samples) {
+  const hop = Math.floor(SR * 0.01)
+  const times = []
+  let previous = 0
+  for (let i = 0; i + hop < samples.length; i += hop) {
+    let energy = 0
+    for (let j = 0; j < hop; j += 2) energy += (samples[i + j] || 0) ** 2
+    energy = Math.sqrt(energy / (hop / 2))
+    const last = times.length ? times[times.length - 1] : -1
+    if (energy > 0.11 && energy > previous * 1.75 && i / SR - last > 0.18) times.push(i / SR)
+    previous = previous * 0.45 + energy * 0.55
+  }
+  return times
+}
+
+function mergeTimes(groups) {
+  return groups
+    .flat()
+    .filter((time) => Number.isFinite(time))
+    .sort((a, b) => a - b)
+    .filter((time, index, all) => index === 0 || time - all[index - 1] > 0.05)
+}
+
+function alignScore(times, period) {
+  if (!times.length || period <= 0) return 0
+  const origin = times[0]
+  let hits = 0
+  for (const time of times) {
+    const pos = (time - origin) / period
+    const onBeat = Math.abs(pos - Math.round(pos))
+    const onHalf = Math.abs(pos * 2 - Math.round(pos * 2))
+    if (onBeat < 0.18 || onHalf < 0.18) hits += 1
+  }
+  return hits / times.length
+}
+
+function tempoFromTimes(times) {
+  if (!times || times.length < 4) return null
+  const gaps = []
+  for (let i = 1; i < times.length; i++) {
+    const gap = times[i] - times[i - 1]
+    if (gap >= 0.18 && gap <= 2) gaps.push(gap)
+  }
+  if (gaps.length < 3) return null
+  const sorted = gaps.slice().sort((a, b) => a - b)
+  const median = sorted[Math.floor(sorted.length / 2)]
+  let bpm = Math.round(60 / median)
+  if (bpm > 180) bpm = Math.round(bpm / 2)
+  if (bpm > 180) bpm = Math.round(bpm / 2)
+  if (bpm < 56) bpm *= 2
+  if (bpm < 56) bpm *= 2
+  bpm = Math.min(180, Math.max(56, bpm))
+  let best = null
+  for (let candidate = bpm - 5; candidate <= bpm + 5; candidate++) {
+    if (candidate < 56 || candidate > 180) continue
+    const score = alignScore(times, 60 / candidate)
+    const closer = best && Math.abs(score - best.score) <= 0.02 && Math.abs(candidate - bpm) < Math.abs(best.bpm - bpm)
+    if (!best || score > best.score + 0.02 || closer) best = { bpm: candidate, score }
+  }
+  if (!best || best.score < 0.68) return null
+  return best
+}
+
+function tempoFromAudio(samples, sampleRate, mode = "any") {
+  const audio = toEngineRate(samples, sampleRate || SR).subarray(0, SR * 40)
+  let times = []
+  if (mode !== "melody") times = mergeTimes([detectOnsets(audio), detectPulses(audio)])
+  if (mode === "melody" || (mode === "any" && times.length < 4)) {
+    const notes = detectNotes(audio).map((note) => note.time)
+    times = mode === "melody" ? notes : mergeTimes([times, notes])
+  }
+  const found = tempoFromTimes(times)
+  return found ? { bpm: found.bpm, score: found.score } : null
+}
+
 function hitsFromOnsets(times, bpm) {
   const beat = 60 / bpm
   const seen = new Set()
@@ -664,6 +739,8 @@ function makeExample(id) {
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
+  tempoFromAudio,
+  tempoFromTimes,
   sampleRate: SR,
   detectNotes,
   detectOnsets,
