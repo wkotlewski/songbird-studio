@@ -51,3 +51,37 @@ export function closeEvents<T extends { time: number; duration: number }>(
   }
   return out.sort((a, b) => a.time - b.time)
 }
+
+/** Copy events inside [start, end) and place that copy immediately after the section. */
+export function duplicateEvents<T extends { time: number; duration: number }>(
+  events: T[],
+  start: number,
+  end: number,
+): T[] {
+  const gap = end - start
+  if (gap <= 0.001 || !events.length) return events
+  const out: T[] = []
+  for (const event of events) {
+    const eventEnd = event.time + event.duration
+    const overlaps = eventEnd > start + 0.008 && event.time < end - 0.008
+    if (event.time >= end - 0.008) {
+      out.push({ ...event, time: event.time + gap })
+      continue
+    }
+    if (!overlaps) {
+      out.push(event)
+      continue
+    }
+    if (eventEnd > end + 0.008) {
+      out.push({ ...event, duration: event.duration + gap })
+      continue
+    }
+    out.push(event)
+    const clipStart = Math.max(event.time, start)
+    const clipEnd = Math.min(eventEnd, end)
+    if (clipEnd - clipStart >= 0.02) {
+      out.push({ ...event, time: end + (clipStart - start), duration: clipEnd - clipStart })
+    }
+  }
+  return out.sort((a, b) => a.time - b.time)
+}

@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent, type ReactNode } from 'react'
 import type { LoopRange } from '../audio/engine'
 import { barDuration, beatDuration, snapToGrid } from '../audio/metronome'
 
@@ -29,6 +29,8 @@ export function Timeline({
   arrangement,
   onExtend,
   onCut,
+  onDuplicate,
+  onSelect,
 }: {
   duration: number
   bpm: number
@@ -45,10 +47,15 @@ export function Timeline({
   onExtend?: (seconds: number) => void
   /** Remove the selected stretch and pull everything after it forward. */
   onCut?: (range: LoopRange) => void
+  /** Copy the selected stretch and place it immediately after. */
+  onDuplicate?: (range: LoopRange) => void
+  /** Set the selection without changing the song length. */
+  onSelect?: (range: LoopRange) => void
 }) {
   const areaRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ mode: DragMode; origin: number } | null>(null)
   const [draft, setDraft] = useState<LoopRange | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; range: LoopRange } | null>(null)
   const tMax = Math.max(duration, 0.5)
   const bar = barDuration(bpm)
   const region = draft ?? loop
@@ -128,6 +135,43 @@ export function Timeline({
     onLoopOn(true)
   }
 
+  useEffect(() => {
+    if (!menu) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    const onPointer = (event: globalThis.PointerEvent) => {
+      if (event.button !== 0) return
+      setMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onPointer)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onPointer)
+    }
+  }, [menu])
+
+  const onContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!onCut && !onDuplicate) return
+    event.preventDefault()
+    const t = timeAt(event.clientX)
+    let range = loop && t >= loop.start - 0.02 && t <= loop.end + 0.02 ? loop : null
+    if (!range) {
+      const beat = beatDuration(bpm)
+      const start = Math.floor(t / bar) * bar
+      const end = Math.min(tMax, Math.max(start + bar, start + beat))
+      range = { start, end }
+      ;(onSelect ?? onLoop)(range)
+      onLoopOn(true)
+    }
+    setMenu({
+      x: Math.min(event.clientX, window.innerWidth - 168),
+      y: Math.min(event.clientY, window.innerHeight - 96),
+      range,
+    })
+  }
+
   const ticks = (() => {
     const beat = 60 / Math.max(1, bpm)
     const count = tMax / beat
@@ -151,9 +195,10 @@ export function Timeline({
         {region ? (
           <span className="text-gold">
             {formatTime(region.start)} – {formatTime(region.end)}
+            <span className="text-mute"> · right-click to duplicate or delete</span>
           </span>
         ) : (
-          <span>Drag across a gap, then Delete space to close it. Drag a note or the wave to nudge.</span>
+          <span>Select a section, then right-click to duplicate or delete it.</span>
         )}
         <span className="ml-auto flex flex-wrap justify-end gap-1">
           {[1, 2, 4, 8, 16].map((n) => (
@@ -245,6 +290,7 @@ export function Timeline({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onContextMenu={onContextMenu}
         onDoubleClick={() => {
           onLoop(null)
           onLoopOn(false)
@@ -301,6 +347,37 @@ export function Timeline({
           />
         </div>
       </div>
+      {menu && (
+        <div
+          className="fixed z-50 min-w-40 overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-lg"
+          style={{ left: menu.x, top: menu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left text-sm text-mist hover:bg-gold/15 hover:text-gold"
+            onClick={() => {
+              const range = menu.range
+              setMenu(null)
+              onDuplicate?.(range)
+            }}
+          >
+            Duplicate
+          </button>
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left text-sm text-mist hover:bg-gold/15 hover:text-gold"
+            onClick={() => {
+              const range = menu.range
+              setMenu(null)
+              onCut?.(range)
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   )
 }

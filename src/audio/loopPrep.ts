@@ -131,6 +131,31 @@ export function audibleEnd(buffer: AudioBuffer, gate = 0.018): number {
   return tailLoud > 0.05 ? buffer.duration : 0
 }
 
+/** A silent buffer with the same channel count and sample rate. */
+export function silentLike(buffer: AudioBuffer, seconds: number): AudioBuffer {
+  const len = Math.max(8, Math.floor(Math.max(0.05, seconds) * buffer.sampleRate))
+  return makeBuffer(buffer.numberOfChannels, len, buffer.sampleRate)
+}
+
+/** Insert a copy of [startSec, endSec) at endSec, pushing the tail later. */
+export function insertBufferCopy(buffer: AudioBuffer, startSec: number, endSec: number): AudioBuffer {
+  const sr = buffer.sampleRate
+  const len = buffer.length
+  const a = Math.max(0, Math.min(len, Math.round(startSec * sr)))
+  const b = Math.max(a, Math.min(len, Math.round(Math.max(startSec, endSec) * sr)))
+  const slice = b - a
+  if (slice < 8) return buffer
+  const out = makeBuffer(buffer.numberOfChannels, len + slice, sr)
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const src = buffer.getChannelData(c)
+    const dst = out.getChannelData(c)
+    dst.set(src.subarray(0, b), 0)
+    dst.set(src.subarray(a, b), b)
+    if (b < len) dst.set(src.subarray(b), b + slice)
+  }
+  return out
+}
+
 /** Cut [startSec, endSec) out and join the two sides. */
 export function spliceBuffer(buffer: AudioBuffer, startSec: number, endSec: number): AudioBuffer {
   const sr = buffer.sampleRate

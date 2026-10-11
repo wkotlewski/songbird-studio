@@ -1,6 +1,6 @@
 import { getAudioContext, mixToMono } from './context'
 import { getLayerBuffer } from './engine'
-import { rotateWindow, spliceBuffer } from './loopPrep'
+import { insertBufferCopy, rotateWindow, silentLike, spliceBuffer } from './loopPrep'
 import { beatDuration, BEATS_PER_BAR, CLICK_FREQ_ACCENT, CLICK_FREQ_BEAT } from './metronome'
 
 function copyBuffer(buffer: AudioBuffer): AudioBuffer {
@@ -186,4 +186,18 @@ export function spliceStoredClick(layerId: string, startSec: number, endSec: num
   const source = clickSources.get(layerId)
   if (!source) return
   clickSources.set(layerId, spliceBuffer(source, startSec, endSec))
+}
+
+/** Keep the click-removal source in sync when a section of the take is duplicated. */
+export function insertStoredClick(layerId: string, startSec: number, endSec: number): void {
+  const source = clickSources.get(layerId)
+  if (!source) return
+  clickSources.set(layerId, insertBufferCopy(source, startSec, endSec))
+}
+
+/** Drop the saved take when the whole section is deleted, so Remove click cannot bring it back. */
+export function silenceStoredClick(layerId: string, seconds: number): void {
+  const source = clickSources.get(layerId)
+  if (!source) return
+  clickSources.set(layerId, silentLike(source, seconds))
 }

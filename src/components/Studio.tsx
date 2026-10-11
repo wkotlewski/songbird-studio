@@ -5,13 +5,13 @@ import { decodeFile, getAudioContext, resumeAudio, unlockAudio } from '../audio/
 import { transcribeDrums, analyzeDrums } from '../audio/drums'
 import { transcribeMelody, analyzeMelody } from '../audio/melody'
 import { mixFingerprint } from '../audio/mixerState'
-import { audibleEnd, classifyTake, prepareForLoop, resampleToLength, spliceBuffer, trimSilence } from '../audio/loopPrep'
+import { audibleEnd, classifyTake, insertBufferCopy, prepareForLoop, resampleToLength, silentLike, spliceBuffer, trimSilence } from '../audio/loopPrep'
 import { lockTakeToClick } from '../audio/clickLock'
-import { closeEvents, phraseCut } from '../audio/edit'
+import { closeEvents, duplicateEvents, phraseCut } from '../audio/edit'
 import { repeatPhrase, sharedPhraseSeconds } from '../audio/grid'
 import { moveHit, moveNote, slideTake } from '../audio/nudge'
 import { bindAudition } from '../audio/audition'
-import { cleanLiveTake, spliceStoredClick, stripStoredClick } from '../audio/clickStrip'
+import { cleanLiveTake, insertStoredClick, silenceStoredClick, spliceStoredClick, stripStoredClick } from '../audio/clickStrip'
 import {
   applyMixerState,
   getLayerBuffer,
@@ -242,6 +242,12 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
     loopRef.current = { ...loopRef.current, loopOn: on }
   }
 
+  const selectRange = (range: LoopRange) => {
+    setLoop(range)
+    setLoopOn(true)
+    loopRef.current = { ...loopRef.current, loop: range, loopOn: true }
+  }
+
   const extendSong = (targetSeconds: number) => {
     const current = sessionRef.current
     const bpm = current.meta.bpm
@@ -271,34 +277,39 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
     notify(`Song is ${shown}. Each repeat starts on the next beat. Drag a note, a hit, or the wave if it needs a nudge.`)
   }
 
+  const longestPhrase = () => {
+    const current = sessionRef.current
+    let phrase = 0
+    for (const track of current.tracks) {
+      for (const layer of track.layers) {
+        const buf = getLayerBuffer(layer.id)
+        const next = repeatPhrase(layer, current.meta.bpm, current.meta.bars, buf ? audibleEnd(buf) : 0)
+        if (next > phrase) phrase = next
+      }
+    }
+    return phrase
+  }
+
   const cutSpace = (range: LoopRange) => {
     const current = sessionRef.current
     const bpm = current.meta.bpm
     const beat = beatDuration(bpm)
     const bar = barDuration(bpm)
-    let phrase = 0
-    for (const track of current.tracks) {
-      for (const layer of track.layers) {
-        const buf = getLayerBuffer(layer.id)
-        const next = repeatPhrase(layer, bpm, current.meta.bars, buf ? audibleEnd(buf) : 0)
-        if (next > phrase) phrase = next
-      }
-    }
+    const phrase = longestPhrase()
     const span = phraseCut(range, phrase)
     if (!span) return
     const gap = span.end - span.start
-    if (gap >= phrase - beat * 0.4) {
-      notify('Select just the empty stretch. Leave the notes in place.')
-      return
-    }
     for (const track of current.tracks) {
       for (const layer of track.layers) {
         const buf = getLayerBuffer(layer.id)
         if (!buf) continue
+        const coversAll = span.start <= 0.05 && span.end >= buf.duration - 0.05
         const cut = spliceBuffer(buf, span.start, span.end)
-        if (cut !== buf) {
-          setLayerBuffer(layer.id, cut)
-          spliceStoredClick(layer.id, span.start, span.end)
+        const next = cut !== buf ? cut : coversAll ? silentLike(buf, beat) : buf
+        if (next !== buf) {
+          setLayerBuffer(layer.id, next)
+          if (cut !== buf) spliceStoredClick(layer.id, span.start, span.end)
+          else silenceStoredClick(layer.id, next.duration)
         }
       }
     }
@@ -328,7 +339,54 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
     const head = playheadRef.current
     if (head >= range.end - 0.02) void seek(Math.max(0, head - gap))
     else if (head > range.start) void seek(range.start)
-    notify('Removed that space. Everything after it moved up.')
+    notify('Removed that section. Everything after it moved up.')
+  }
+
+  const duplicateSection = (range: LoopRange) => {
+    const current = sessionRef.current
+    const bpm = current.meta.bpm
+    const beat = beatDuration(bpm)
+    const bar = barDuration(bpm)
+    const phrase = longestPhrase()
+    const span = phraseCut(range, phrase)
+    if (!span) return
+    const gap = span.end - span.start
+    for (const track of current.tracks) {
+      for (const layer of track.layers) {
+        const buf = getLayerBuffer(layer.id)
+        if (!buf) continue
+        const copy = insertBufferCopy(buf, span.start, span.end)
+        if (copy !== buf) {
+          setLayerBuffer(layer.id, copy)
+          insertStoredClick(layer.id, span.start, span.end)
+        }
+      }
+    }
+    const songSeconds = bar * Math.max(1, current.meta.bars)
+    const tiles = Math.max(1, Math.round(songSeconds / Math.max(phrase, beat)))
+    const newBars = Math.min(240, Math.max(1, Math.round((songSeconds + gap * tiles) / bar)))
+    const tracks = current.tracks.map((track) => ({
+      ...track,
+      layers: track.layers.map((layer) => {
+        const buf = getLayerBuffer(layer.id)
+        return {
+          ...layer,
+          duration: buf ? buf.duration : layer.duration + gap,
+          notes: duplicateEvents(layer.notes, span.start, span.end),
+          drums: duplicateEvents(layer.drums, span.start, span.end),
+          clickPass: (layer.clickPass ?? 0) + 1,
+        }
+      }),
+    }))
+    setSession((s) => ({
+      ...s,
+      meta: { ...s.meta, bars: newBars },
+      tracks,
+    }))
+    const cycle = phrase > 0.08 ? Math.floor(range.start / phrase + 1e-9) : 0
+    changeLoop({ start: cycle * phrase + span.end, end: cycle * phrase + span.end + gap })
+    changeLoopOn(true)
+    notify('Duplicated that section. It plays twice in a row.')
   }
 
   const cutRef = useRef(cutSpace)
@@ -1123,6 +1181,8 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                     arrangement={barsDuration(session.meta.bpm, session.meta.bars)}
                     onExtend={extendSong}
                     onCut={cutSpace}
+                    onDuplicate={duplicateSection}
+                    onSelect={selectRange}
                     onPlaying={setPlaying}
                     onPreview={(mode) => {
                       previewRef.current = mode
@@ -1142,6 +1202,8 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                     arrangement={barsDuration(session.meta.bpm, session.meta.bars)}
                     onExtend={extendSong}
                     onCut={cutSpace}
+                    onDuplicate={duplicateSection}
+                    onSelect={selectRange}
                   >
                     {selected.kind === 'vocals' ? (
                       <Waveform
@@ -1219,6 +1281,8 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                   arrangement={barsDuration(session.meta.bpm, session.meta.bars)}
                   onExtend={extendSong}
                   onCut={cutSpace}
+                  onDuplicate={duplicateSection}
+                  onSelect={selectRange}
                 >
                   <div className="flex h-full flex-1 items-center justify-center px-4 text-center text-sm text-mute">
                     {recordingId === 'live' ? 'Capturing this pass…' : 'Empty arrangement — record or drop a take.'}

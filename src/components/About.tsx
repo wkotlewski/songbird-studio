@@ -43,7 +43,7 @@ const STEPS: { title: string; body: string }[] = [
   },
   {
     title: 'Loop a region',
-    body: 'Use 1 / 2 / 4 / 8 bar, or drag on the timeline. Click to jump. Drag the gold edges to resize. Delete space cuts that stretch out and closes the gap. Song 0:30, 1:00, or 2:00 repeats the phrase on the next beat. Drag a note, a hit, or the waveform if you need to nudge it.',
+    body: 'Use 1 / 2 / 4 / 8 bar, or drag on the timeline. Click to jump. Drag the gold edges to resize. Select a loop or a section of one, then right-click to duplicate or delete it. Song 0:30, 1:00, or 2:00 repeats the phrase on the next beat. Drag a note, a hit, or the waveform if you need to nudge it.',
   },
   {
     title: 'Add a track — or skip it',
