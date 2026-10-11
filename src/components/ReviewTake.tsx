@@ -61,6 +61,8 @@ export function ReviewTake({
   onScrub,
   onLoop,
   onLoopOn,
+  arrangement,
+  onExtend,
   onPlaying,
   onPreview,
 }: {
@@ -73,6 +75,8 @@ export function ReviewTake({
   onScrub: (t: number) => void
   onLoop: (range: LoopRange | null) => void
   onLoopOn: (on: boolean) => void
+  arrangement?: number
+  onExtend?: (seconds: number) => void
   onPlaying: (playing: boolean) => void
   onPreview: (mode: 'original' | 'interp') => void
 }) {
@@ -122,7 +126,7 @@ export function ReviewTake({
     notify('Kept your take. MIDI was discarded for this layer.')
   }
 
-  const span = Math.max(layer.duration || 4, loopOn && loop ? loop.end : 0)
+  const span = Math.max(layer.duration || 4, loopOn && loop ? loop.end : 0, arrangement ?? 0)
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-2 overflow-auto rounded-xl border border-gold/40 bg-panel p-3">
@@ -147,6 +151,8 @@ export function ReviewTake({
           onScrub={onScrub}
           onLoop={onLoop}
           onLoopOn={onLoopOn}
+          arrangement={arrangement}
+          onExtend={onExtend}
         >
           <PianoRoll
             layers={[{ id: layer.id, notes: layer.notes, drums: layer.drums, duration: layer.duration, voicing: layer.voicing }]}

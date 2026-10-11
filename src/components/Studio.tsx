@@ -37,7 +37,7 @@ import { Mixer } from './Mixer'
 import { PianoRoll } from './PianoRoll'
 import { ReviewTake } from './ReviewTake'
 import { SessionsModal } from './SessionsModal'
-import { Timeline } from './Timeline'
+import { formatTime, Timeline } from './Timeline'
 import { TrackList } from './TrackList'
 import { VideoDesk } from './VideoDesk'
 import { Visualizer, visColor } from './Visualizer'
@@ -215,6 +215,22 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
   const changeLoopOn = (on: boolean) => {
     setLoopOn(on)
     loopRef.current = { ...loopRef.current, loopOn: on }
+  }
+
+  const extendSong = (targetSeconds: number) => {
+    const bpm = sessionRef.current.meta.bpm
+    const bar = barDuration(bpm)
+    const range = loopRef.current.loop
+    const cellSeconds =
+      range && range.end - range.start > 0.2 ? range.end - range.start : bar * Math.max(1, sessionRef.current.meta.bars)
+    const cellBars = Math.max(1, Math.round(cellSeconds / bar))
+    const repeats = Math.max(1, Math.floor(targetSeconds / (cellBars * bar) + 1e-6))
+    const songBars = Math.min(240, repeats * cellBars)
+    const seconds = songBars * bar
+    setSession((s) => (s.meta.bars === songBars ? s : { ...s, meta: { ...s.meta, bars: songBars } }))
+    changeLoopOn(false)
+    const shown = formatTime(Math.round(seconds)).replace(/\.00$/, '')
+    notify(`Song is ${shown}. The loop repeats to fill it. Turn Loop on to cycle just that phrase.`)
   }
 
   const commitBpm = (raw: number) => {
@@ -951,6 +967,8 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                     onScrub={scrub}
                     onLoop={changeLoop}
                     onLoopOn={changeLoopOn}
+                    arrangement={barsDuration(session.meta.bpm, session.meta.bars)}
+                    onExtend={extendSong}
                     onPlaying={setPlaying}
                     onPreview={(mode) => {
                       previewRef.current = mode
@@ -967,6 +985,8 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                     onScrub={scrub}
                     onLoop={changeLoop}
                     onLoopOn={changeLoopOn}
+                    arrangement={barsDuration(session.meta.bpm, session.meta.bars)}
+                    onExtend={extendSong}
                   >
                     {selected.kind === 'vocals' ? (
                       <Waveform buffer={buffer} span={timelineDuration} />
@@ -1023,6 +1043,8 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                   onScrub={scrub}
                   onLoop={changeLoop}
                   onLoopOn={changeLoopOn}
+                  arrangement={barsDuration(session.meta.bpm, session.meta.bars)}
+                  onExtend={extendSong}
                 >
                   <div className="flex h-full flex-1 items-center justify-center px-4 text-center text-sm text-mute">
                     {recordingId === 'live' ? 'Capturing this pass…' : 'Empty arrangement — record or drop a take.'}

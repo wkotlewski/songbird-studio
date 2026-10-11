@@ -26,6 +26,8 @@ export function Timeline({
   onScrub,
   onLoop,
   onLoopOn,
+  arrangement,
+  onExtend,
 }: {
   duration: number
   bpm: number
@@ -37,6 +39,9 @@ export function Timeline({
   onScrub?: (t: number) => void
   onLoop: (range: LoopRange | null) => void
   onLoopOn: (on: boolean) => void
+  /** Song length in seconds. The short loop repeats to fill it. */
+  arrangement?: number
+  onExtend?: (seconds: number) => void
 }) {
   const areaRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ mode: DragMode; origin: number } | null>(null)
@@ -188,6 +193,32 @@ export function Timeline({
           >
             Clear
           </button>
+          {onExtend && (
+            <>
+              <span className="ml-1 text-mute">Song</span>
+              {[
+                [30, '0:30'],
+                [60, '1:00'],
+                [120, '2:00'],
+              ].map(([sec, label]) => {
+                const target = Number(sec)
+                const active = arrangement != null && Math.abs(arrangement - target) < bar * 0.75
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => onExtend(target)}
+                    title="Repeat the current loop until the song reaches this length"
+                    className={`rounded-full border px-2 py-0.5 ${
+                      active ? 'border-gold bg-gold/15 text-gold' : 'border-line text-mist hover:border-gold'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </>
+          )}
         </span>
       </div>
 
