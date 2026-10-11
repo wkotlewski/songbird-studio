@@ -551,15 +551,20 @@ function setScreen(screen) {
   document.body.dataset.screen = screen
 }
 
+function showInspector() {
+  document.body.classList.remove("inspector-closed")
+  document.body.classList.add("sheet-open")
+}
+
 function setPanel(panel) {
   state.panel = panel
-  document.body.classList.add("sheet-open")
+  showInspector()
   renderInspector()
 }
 
 function closePanel() {
-  if (window.matchMedia("(min-width: 1100px)").matches) return
   document.body.classList.remove("sheet-open")
+  document.body.classList.add("inspector-closed")
 }
 
 function renderSongs() {
@@ -582,8 +587,8 @@ function renderSongs() {
     .map(
       (song) => `<button class="song" data-action="open-song" data-id="${song.id}">
         <span class="swatch" style="background:linear-gradient(135deg,#1fbfa7,#3d7eff)"></span>
-        <span><b>${song.title}</b><span class="meta">${song.demo ? "Example · press play" : "On this device"} · ${song.privacy}</span></span>
-        <span class="badge">${song.privacy}</span>
+        <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${song.demo ? "Example · press play" : "On this device"}</span></span>
+        <span class="badge">${esc(song.privacy)}</span>
       </button>`,
     )
     .join("")
@@ -974,6 +979,7 @@ function openSong(id) {
   state.arrived = null
   undoStack = []
   redoStack = []
+  showInspector()
   setScreen("studio")
   renderPlanNote()
   renderRuler()
@@ -1565,7 +1571,10 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "select-layer") {
     state.selected = node.dataset.id
-    if (state.panel !== "transform") state.panel = "mix"
+    if (state.panel !== "transform") {
+      state.panel = "mix"
+      showInspector()
+    }
     renderTracks()
     if (state.panel === "mix" && !window.matchMedia("(min-width: 1100px)").matches) setPanel("mix")
     else renderInspector()
