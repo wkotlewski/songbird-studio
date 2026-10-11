@@ -4,9 +4,9 @@ Turn a hummed melody into guitar or piano, table taps into drums, and a scratch 
 
 **This is a separate GitHub Pages project.** It does not replace the leadership site at [wkotlewski.github.io](https://wkotlewski.github.io/).
 
-Live: https://wkotlewski3.github.io/songbird-studio/
+Live: https://wkotlewski.github.io/songbird-studio/
 
-Repo: https://github.com/wkotlewski3/songbird-studio
+Repo: https://github.com/wkotlewski/songbird-studio
 
 ## What it does
 
