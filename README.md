@@ -1,35 +1,34 @@
-# Songbird — Cursor Product & Engineering Blueprint
+# Songbird
 
-**Status:** product specification and implementation blueprint, not a completed application.  
-**Vision:** *You bring the creativity. Songbird brings the studio expertise.*  
-**Product:** mobile-first, adaptive, human-first AI music studio for making music from humming, singing, clapping, tapping, beatboxing, instruments and archival recordings.
+Copyright © 2026 Whitney Kotlewski. All rights reserved.
 
-## Start here in Cursor
-1. Open this folder or copy its contents into your existing Songbird repository. Do not overwrite existing code without reviewing it.
-2. Read `product/PRODUCT_BRIEF.md`, `product/JOURNEYS_AND_PERSONAS.md`, `design/UX_SPEC.md`, `product/MAGIC_LOG_AND_PACKAGES.md`, and `architecture/TECHNICAL_ARCHITECTURE.md`.
-3. Review the reference images in `design/`. They are **visual direction, not exact implementation requirements**; the written UX spec is authoritative where images conflict.
-4. Paste `engineering/CURSOR_BUILD_PROMPT.md` into Cursor Agent. Work through the phases in `engineering/ROADMAP_AND_ACCEPTANCE.md`, one phase at a time.
-5. Review `architecture/OPEN_SOURCE_MATRIX.md` and `docs/SAFETY_RIGHTS_AND_COMPLIANCE.md` before integrating any models, soundfonts, or user uploads.
+Songbird is a browser music studio. People keep their own recordings, shape a song on one timeline, and come back to it from My Music. This public repository is the interactive page. It is not a license to copy the product.
 
-## Folder guide
-- `product/`: mission, audience, user journeys, Magic Log, transformations, packages, requirements.
-- `design/`: dark-mode references, responsive UX, interaction and flow specifications.
-- `architecture/`: system components, audio pipeline, data model, API contracts, open-source integrations.
-- `engineering/`: Cursor prompt, phased plan, test and quality gates.
-- `.cursor/rules/`: coding/product guardrails.
-- `docs/`: trust, copyright, accessibility, privacy, pricing and metrics.
+Internal product, design, and architecture notes are kept in a private repository for the engineering team. They are not published here.
 
-## Important product decisions
-- **Exactly two top-level destinations:** `Studio` and `My Music`. Everything else is an in-canvas mode, contextual panel, drawer, or modal.
-- **Responsive:** mobile studio uses horizontally pannable *timeline content* and contextual sheets; tablet/desktop show wider timeline, library rail, and inspector simultaneously. Do not force users through five distinct screens.
-- **Always preserve original dry audio** and an editable project history. No destructive transformations.
-- **Two recording experiences:** Record First and Play Live; live monitoring is a separate low-latency engine from offline studio-quality rendering.
-- **Signature differentiator:** Magic Log / AI Producer + Magic Marker / Magic Eraser, one-tap, explainable, reversible fixes.
-- **Sound packages:** Tune Original, Transform Instrument, Vocal/Harmony, Rhythm, Creative Style, Mix/Master; final audio/video delivery packages are distinct paid offerings.
-- **No fake AI:** If a backend is not integrated, show an explicit prototype/demo state, not a misleading completed fix.
+## What the public page does
 
-## Proof-of-concept goal
-A user records claps with an optional metronome, loops them, transforms the rhythm to a drum kit, records humming in sync, transforms it to piano or bass, previews Magic Fix recommendations, undoes/redoes changes, autosaves and restores the session, and exports a synchronized stereo WAV. Original audio remains recoverable throughout.
+There are two places: **My Music** and **Studio**. Everything else opens over the song.
 
-## Out of scope for initial MVP
-Public social feed, sophisticated AI video generation, realistic zero-latency vocal-to-choir, professional DAW parity, unlicensed voice cloning, guaranteed perfect removal of sound overlapping a vocal performance.
+- My Music lists songs on this device and opens one into the studio.
+- The timeline scrolls sideways through the song. That is separate from stereo pan, which places a layer left, center, or right in the speakers.
+- Record uses the microphone. The click plays through the speakers and is not mixed into the take.
+- A kept take can be played, and volume, mute, solo, and stereo pan apply to it.
+- Undo and redo step through those edits.
+- Naming a layer as guitar, drums, bass, or another instrument does not change the recorded sound. Export and video are not connected.
+
+Recordings stay in the browser tab. Refreshing the page keeps the song list on this device and drops the audio.
+
+## How it was built
+
+The page is static HTML, CSS, and JavaScript in `site/`. There is no application framework and no server. The script uses the Web Audio API for playback, metering, and the click, and the MediaRecorder API for the microphone. Song metadata is stored in `localStorage`. Audio buffers stay in memory for the life of the tab.
+
+GitHub Pages serves the `gh-pages` branch at [wkotlewski.github.io/songbird-studio](https://wkotlewski.github.io/songbird-studio/). The files in `site/` are copied to the root of that branch. `404.html` matches `index.html` so a refresh still opens the page. `.nojekyll` keeps Pages from running the files through a site generator.
+
+To publish a change, update `site/`, copy those files to a checkout of `gh-pages`, commit, and push that branch.
+
+## Copyright
+
+The Songbird name, interface, interaction design, and product are owned by Whitney Kotlewski. Looking at this repository or using the public page does not grant any right to copy, reproduce, modify, distribute, or build from the Songbird idea or interface.
+
+All rights reserved.
