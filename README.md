@@ -18,6 +18,7 @@ There are two places: **My Music** and **Studio**. Everything else opens over th
 - Record listens for tempo first. Clap, snap, or beatbox a pulse and the metronome follows it, with a count of four before the next take. A hummed recording sets the tempo instead when you have not already given a pulse.
 - Record uses the microphone. The click plays through the speakers and is not mixed into the take.
 - Mix is a channel strip for each layer, with large presets for the whole song and for vocals, instruments, drums, bass, and choir. Fine tune adjusts volume, bass, treble, left and right, and space. Mute and solo are on each strip.
+- Play and record wake a night sky behind the song. Stars, light, and each waveform move with the sound. Keeping a take or adding a new part does the same for a moment.
 - Undo and redo step through those edits.
 - Naming a layer as guitar, drums, bass, or another instrument does not change the recorded sound. Export and video are not connected.
 
@@ -25,7 +26,7 @@ Recordings stay in the browser tab. Refreshing the page keeps the song list on t
 
 ## How it was built
 
-The page is static HTML, CSS, and JavaScript in `site/`. There is no application framework and no server. The script uses the Web Audio API for playback, metering, and the click, and the MediaRecorder API for the microphone. Song metadata is stored in `localStorage`. Audio buffers stay in memory for the life of the tab.
+The page is static HTML, CSS, and JavaScript in `site/`. There is no application framework and no server. The script uses the Web Audio API for playback, metering, the click, and a sky that moves with the sound, and the MediaRecorder API for the microphone. Song metadata is stored in `localStorage`. Audio buffers stay in memory for the life of the tab.
 
 GitHub Pages serves the `gh-pages` branch at [wkotlewski.github.io/songbird-studio](https://wkotlewski.github.io/songbird-studio/). The files in `site/` are copied to the root of that branch. `404.html` matches `index.html` so a refresh still opens the page. `.nojekyll` keeps Pages from running the files through a site generator.
 

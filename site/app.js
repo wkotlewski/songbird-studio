@@ -259,8 +259,9 @@ function bars(seed, count = 56) {
   return out
 }
 
-function wave(peaks, color) {
-  return `<div class="wave" style="background:${color}33">${peaks
+function wave(peaks, color, id) {
+  const mark = id ? ` data-layer="${id}"` : ""
+  return `<div class="wave"${mark} style="background:${color}33;--wave:${color}">${peaks
     .map((peak) => `<i style="height:${Math.max(8, peak * 46)}px;background:${color}"></i>`)
     .join("")}</div>`
 }
@@ -269,6 +270,253 @@ function ac() {
   if (!audioCtx) audioCtx = new AudioContext()
   if (audioCtx.state === "suspended") void audioCtx.resume()
   return audioCtx
+}
+
+const CLOUDS = [
+  { x: 0.18, y: 0.28, color: "46,230,199" },
+  { x: 0.74, y: 0.36, color: "180,77,255" },
+  { x: 0.48, y: 0.72, color: "240,162,2" },
+  { x: 0.86, y: 0.18, color: "255,77,141" },
+]
+const STAR_HUES = ["#f4f7fb", "#2ee6c7", "#b44dff", "#f0a202", "#9ec2ff", "#ff8ab0"]
+const sky = {
+  stars: [],
+  motes: [],
+  raf: 0,
+  level: 0,
+  micSource: null,
+  micAnalyser: null,
+  micBins: null,
+  flashes: [],
+  reduced: false,
+}
+
+function seedStars() {
+  sky.stars = Array.from({ length: 78 }, (_, index) => ({
+    x: Math.random(),
+    y: Math.random(),
+    r: index % 11 === 0 ? 1.7 : 0.45 + Math.random() * 0.85,
+    phase: Math.random() * Math.PI * 2,
+    hue: STAR_HUES[index % STAR_HUES.length],
+  }))
+}
+
+function fitSky() {
+  const canvas = $("sky")
+  const stage = canvas?.parentElement || document.querySelector(".stage")
+  if (!canvas || !stage) return null
+  const width = Math.max(320, stage.clientWidth || 0)
+  const height = Math.max(180, stage.clientHeight || 0)
+  const dpr = Math.min(2, window.devicePixelRatio || 1)
+  const pixelsW = Math.floor(width * dpr)
+  const pixelsH = Math.floor(height * dpr)
+  if (canvas.width !== pixelsW || canvas.height !== pixelsH) {
+    canvas.width = pixelsW
+    canvas.height = pixelsH
+  }
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return null
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  return { ctx, width, height }
+}
+
+function spawnMotes(count) {
+  if (sky.reduced) return
+  for (let i = 0; i < count; i++) {
+    sky.motes.push({
+      x: Math.random(),
+      y: 0.55 + Math.random() * 0.4,
+      vx: (Math.random() - 0.5) * 0.00035,
+      vy: -0.00012 - Math.random() * 0.0004,
+      life: 0.4 + Math.random() * 0.6,
+      decay: 0.003 + Math.random() * 0.007,
+      r: 0.8 + Math.random() * 2.1,
+      hue: STAR_HUES[Math.floor(Math.random() * STAR_HUES.length)],
+    })
+  }
+}
+
+function readEnergy() {
+  let energy = 0
+  if (state.recording && sky.micAnalyser && sky.micBins) {
+    sky.micAnalyser.getByteFrequencyData(sky.micBins)
+    let sum = 0
+    for (let i = 0; i < sky.micBins.length; i++) sum += sky.micBins[i]
+    energy = sum / (sky.micBins.length * 255)
+  }
+  for (const nodes of mixNodes.values()) {
+    if (!nodes.watch || !nodes.bins) continue
+    nodes.watch.getByteFrequencyData(nodes.bins)
+    let sum = 0
+    for (let i = 0; i < nodes.bins.length; i++) sum += nodes.bins[i]
+    const layerEnergy = sum / (nodes.bins.length * 255)
+    nodes.energy = layerEnergy
+    if (layerEnergy > energy) energy = layerEnergy
+    const waveEl = document.querySelector(`.wave[data-layer="${nodes.id}"]`)
+    if (waveEl) waveEl.style.setProperty("--pulse", layerEnergy.toFixed(3))
+  }
+  if (audioCtx) {
+    const now = audioCtx.currentTime
+    sky.flashes = sky.flashes.filter((flash) => now - flash.when < 0.18)
+    for (const flash of sky.flashes) {
+      const age = now - flash.when
+      if (age >= 0) energy = Math.max(energy, flash.strength * (1 - age / 0.18))
+    }
+  }
+  if (document.body.dataset.sound) energy = Math.max(energy, 0.05)
+  return Math.max(0, Math.min(1, energy))
+}
+
+function paintMeter() {
+  if (!state.recording || !sky.micBins) return
+  const meter = document.querySelector(".meter")
+  if (!meter) return
+  meter.classList.add("live")
+  const bars = meter.querySelectorAll("i")
+  const bins = sky.micBins
+  for (let i = 0; i < bars.length; i++) {
+    const start = Math.floor((i / bars.length) * bins.length)
+    const end = Math.max(start + 1, Math.floor(((i + 1) / bars.length) * bins.length))
+    let peak = 0
+    for (let bin = start; bin < end; bin++) peak = Math.max(peak, bins[bin])
+    bars[i].style.height = `${Math.round(6 + (peak / 255) * 30)}px`
+  }
+}
+
+function paintSky(now, level) {
+  const fitted = fitSky()
+  if (!fitted) return
+  const { ctx, width, height } = fitted
+  const awake = !!document.body.dataset.sound
+  ctx.clearRect(0, 0, width, height)
+  const wash = ctx.createLinearGradient(0, 0, width, height)
+  wash.addColorStop(0, "rgba(8, 14, 36, 0.25)")
+  wash.addColorStop(0.55, "rgba(18, 10, 40, 0.18)")
+  wash.addColorStop(1, "rgba(6, 16, 32, 0.4)")
+  ctx.fillStyle = wash
+  ctx.fillRect(0, 0, width, height)
+  for (let i = 0; i < CLOUDS.length; i++) {
+    const cloud = CLOUDS[i]
+    const drift = sky.reduced ? 0 : Math.sin(now / 4200 + i) * 0.035
+    const cx = (cloud.x + drift) * width
+    const cy = (cloud.y + Math.cos(now / 5100 + i) * (sky.reduced ? 0 : 0.02)) * height
+    const radius = Math.max(width, height) * (0.22 + level * 0.18)
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
+    const alpha = (awake ? 0.05 + level * 0.22 : 0.035).toFixed(3)
+    glow.addColorStop(0, `rgba(${cloud.color},${alpha})`)
+    glow.addColorStop(1, `rgba(${cloud.color},0)`)
+    ctx.fillStyle = glow
+    ctx.fillRect(0, 0, width, height)
+  }
+  if (!sky.stars.length) seedStars()
+  for (const star of sky.stars) {
+    const twinkle = sky.reduced ? 0.75 : 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(now / 680 + star.phase))
+    ctx.globalAlpha = Math.min(1, twinkle * (awake ? 0.55 + level * 1.15 : 0.55))
+    ctx.fillStyle = star.hue
+    ctx.beginPath()
+    ctx.arc(star.x * width, star.y * height, star.r * (1 + level * 0.8), 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.globalAlpha = 1
+  if (awake && document.body.dataset.sound === "play") {
+    const head = $("playhead")
+    const stage = document.querySelector(".stage")
+    if (head && stage) {
+      const headBox = head.getBoundingClientRect()
+      const stageBox = stage.getBoundingClientRect()
+      const x = headBox.left - stageBox.left + headBox.width / 2
+      if (x > -20 && x < width + 20) {
+        const beam = ctx.createLinearGradient(x, 0, x, height)
+        beam.addColorStop(0, `rgba(255,255,255,${0.14 + level * 0.4})`)
+        beam.addColorStop(0.45, `rgba(46,230,199,${0.08 + level * 0.22})`)
+        beam.addColorStop(1, "rgba(180,77,255,0)")
+        ctx.fillStyle = beam
+        ctx.fillRect(x - 22, 0, 44, height)
+      }
+    }
+  }
+  if (awake && document.body.dataset.sound === "record") {
+    const halo = ctx.createRadialGradient(width / 2, height * 0.58, 8, width / 2, height * 0.58, width * 0.46)
+    halo.addColorStop(0, `rgba(255,77,141,${0.06 + level * 0.34})`)
+    halo.addColorStop(0.55, `rgba(180,77,255,${0.04 + level * 0.14})`)
+    halo.addColorStop(1, "rgba(0,0,0,0)")
+    ctx.fillStyle = halo
+    ctx.fillRect(0, 0, width, height)
+  }
+  if (!sky.reduced) {
+    if (awake && level > 0.04 && sky.motes.length < 46 && Math.random() < level * 0.55) spawnMotes(1)
+    for (const mote of sky.motes) {
+      mote.x += mote.vx * (1 + level * 4)
+      mote.y += mote.vy * (1 + level * 3)
+      mote.life -= mote.decay
+      ctx.globalAlpha = Math.max(0, mote.life) * (0.35 + level * 0.65)
+      ctx.fillStyle = mote.hue
+      ctx.beginPath()
+      ctx.arc(mote.x * width, mote.y * height, mote.r, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.globalAlpha = 1
+    sky.motes = sky.motes.filter((mote) => mote.life > 0 && mote.y > -0.05)
+  }
+}
+
+function drawSky(now) {
+  const energy = readEnergy()
+  sky.level += (energy - sky.level) * (sky.reduced ? 1 : 0.22)
+  document.documentElement.style.setProperty("--pulse", sky.level.toFixed(3))
+  paintSky(now, sky.level)
+  paintMeter()
+  const awake = !!document.body.dataset.sound
+  if (!awake && sky.level < 0.02 && !sky.motes.length) {
+    sky.raf = 0
+    document.documentElement.style.setProperty("--pulse", "0")
+    paintSky(now, 0)
+    return
+  }
+  sky.raf = requestAnimationFrame(drawSky)
+}
+
+function beginSky(kind) {
+  document.body.dataset.sound = kind
+  fitSky()
+  spawnMotes(kind === "record" ? 10 : 18)
+  if (!sky.raf) sky.raf = requestAnimationFrame(drawSky)
+}
+
+function endSky() {
+  if (playing || state.recording) return
+  document.body.removeAttribute("data-sound")
+}
+
+function wakeSky() {
+  if (playing || state.recording) {
+    spawnMotes(12)
+    return
+  }
+  beginSky("magic")
+  window.setTimeout(() => {
+    if (document.body.dataset.sound === "magic") endSky()
+  }, 1400)
+}
+
+function attachMic(stream) {
+  releaseMic()
+  const ctx = ac()
+  const source = ctx.createMediaStreamSource(stream)
+  const analyser = ctx.createAnalyser()
+  analyser.fftSize = 256
+  analyser.smoothingTimeConstant = 0.72
+  source.connect(analyser)
+  sky.micSource = source
+  sky.micAnalyser = analyser
+  sky.micBins = new Uint8Array(analyser.frequencyBinCount)
+}
+
+function releaseMic() {
+  try { sky.micSource?.disconnect() } catch { /* already released */ }
+  sky.micSource = null
+  sky.micAnalyser = null
+  sky.micBins = null
 }
 
 function snapshot() {
@@ -407,7 +655,7 @@ function renderTracks() {
           ${layer.name}
           <small>${layer.sound}${layer.from ? ` · ${layer.from}` : ""}${layer.live ? "" : " · layout"}</small>
         </button>
-        ${wave(shapedPeaks(layer), layer.color)}
+        ${wave(shapedPeaks(layer), layer.color, layer.id)}
       </div>`,
     )
     .join("")
@@ -802,6 +1050,7 @@ async function keepTake(name, stayOpen) {
   if (!stayOpen) closePanel()
   const tempo = state.tempoSource ? ` Tempo is ${state.bpm} from ${state.tempoSource}.` : ""
   $("save-status").textContent = `Take kept. Your original recording is safe.${tempo}`
+  wakeSky()
 }
 
 function useTempo(bpm, source, lock) {
@@ -857,6 +1106,7 @@ function clickAt(time, accent) {
   gain.connect(ctx.destination)
   osc.start(time)
   osc.stop(time + 0.07)
+  sky.flashes.push({ when: time, strength: accent ? 1 : 0.42 })
 }
 
 function startClick(startAt) {
@@ -893,6 +1143,8 @@ function cancelRecord() {
     recorder.stop()
     return
   }
+  releaseMic()
+  endSky()
   renderInspector()
 }
 
@@ -918,6 +1170,8 @@ async function toggleRecord() {
   state.recording = true
   state.arming = false
   renderInspector()
+  attachMic(recStream)
+  beginSky("record")
   ac()
   if (!tempoPass && state.countIn && state.click) {
     const beat = 60 / state.bpm
@@ -940,6 +1194,8 @@ async function toggleRecord() {
     pendingBlob = new Blob(recChunks, { type: media.mimeType || "audio/webm" })
     state.recording = false
     state.tempoPass = false
+    releaseMic()
+    endSky()
     void finishRecording(media._wasTempo)
   }
   media.start()
@@ -1061,6 +1317,7 @@ function addTransformedLayer(sound) {
   renderTracks()
   renderInspector()
   $("save-status").textContent = `${sound} was added from ${source.name}. The original layer is still there.`
+  wakeSky()
 }
 
 function spaceImpulse(ctx) {
@@ -1114,6 +1371,7 @@ function play() {
   playing = true
   playStarted = ctx.currentTime
   $("play-btn").textContent = "■"
+  beginSky("play")
   const span = state.lengthSec || Math.max(...live.map((layer) => buffers.get(layer.id + ":audio").duration))
   let ended = 0
   for (const layer of live) {
@@ -1143,15 +1401,19 @@ function play() {
     lowFilter.connect(highFilter)
     highFilter.connect(gain)
     gain.connect(pan)
+    const watch = ctx.createAnalyser()
+    watch.fftSize = 64
+    watch.smoothingTimeConstant = 0.78
     pan.connect(dry)
     dry.connect(ctx.destination)
     pan.connect(verb)
     verb.connect(wet)
     wet.connect(ctx.destination)
+    pan.connect(watch)
     const start = ctx.currentTime
     if (state.shape && state.lengthSec) scheduleShape(gain, layer.gain, state.shape, start, span)
     else gain.gain.value = layer.gain
-    mixNodes.set(layer.id, { gain, low: lowFilter, high: highFilter, pan, dry, wet, span })
+    mixNodes.set(layer.id, { id: layer.id, gain, low: lowFilter, high: highFilter, pan, dry, wet, span, watch, bins: new Uint8Array(watch.frequencyBinCount) })
     source.start()
     source.stop(start + Math.max(0.05, span))
     activeSources.push(source)
@@ -1180,8 +1442,14 @@ function stopPlayback() {
   for (const source of activeSources) {
     try { source.stop() } catch { /* already stopped */ }
   }
+  for (const nodes of mixNodes.values()) {
+    try { nodes.dry?.disconnect() } catch { /* already stopped */ }
+    try { nodes.wet?.disconnect() } catch { /* already stopped */ }
+    try { nodes.watch?.disconnect() } catch { /* already stopped */ }
+  }
   activeSources = []
   mixNodes.clear()
+  endSky()
   const playButton = $("play-btn")
   if (playButton) playButton.textContent = "▶"
 }
@@ -1388,3 +1656,14 @@ renderRuler()
 renderTracks()
 renderInspector()
 if (window.matchMedia("(min-width: 1100px)").matches) document.body.classList.add("sheet-open")
+sky.reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+seedStars()
+paintSky(0, 0)
+if (window.ResizeObserver) {
+  const stage = document.querySelector(".stage")
+  if (stage) {
+    new ResizeObserver(() => {
+      if (!sky.raf) paintSky(performance.now(), sky.level)
+    }).observe(stage)
+  }
+}
