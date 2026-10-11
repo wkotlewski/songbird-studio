@@ -56,11 +56,14 @@
 
       <p class="note">Open an example and press play. A transform keeps the original and adds a new layer made from it.</p>
 
-      <div id="timeline" class="timeline" tabindex="0" aria-label="Song timeline. Scroll sideways to move through the song.">
-        <div class="timeline-inner">
-          <div class="ruler" id="ruler"></div>
-          <div id="tracks"></div>
-          <div id="playhead" class="playhead"></div>
+      <div class="stage">
+        <canvas id="sky" class="sky" aria-hidden="true"></canvas>
+        <div id="timeline" class="timeline" tabindex="0" aria-label="Song timeline. Scroll sideways to move through the song.">
+          <div class="timeline-inner">
+            <div class="ruler" id="ruler"></div>
+            <div id="tracks"></div>
+            <div id="playhead" class="playhead"></div>
+          </div>
         </div>
       </div>
 
