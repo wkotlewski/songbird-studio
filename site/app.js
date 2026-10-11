@@ -225,6 +225,10 @@ const state = {
   intent: null,
   wish: "",
   heard: "",
+  transformNote: "",
+  transformTone: "",
+  transforming: false,
+  arrived: null,
   span: 40,
   trackWidth: 1400,
 }
@@ -650,7 +654,7 @@ function renderTracks() {
   }
   box.innerHTML = state.layers
     .map(
-      (layer) => `<div class="track ${layer.id === state.selected ? "selected" : ""}">
+      (layer) => `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""}">
         <button class="track-label" data-action="select-layer" data-id="${layer.id}">
           ${layer.name}
           <small>${layer.sound}${layer.from ? ` · ${layer.from}` : ""}${layer.live ? "" : " · layout"}</small>
@@ -838,10 +842,19 @@ function renderInspector() {
         <button class="choice" data-action="discard-take">Try again</button>
       </div>`
   } else if (state.panel === "transform") {
+    const sources = state.layers.filter((item) => buffers.get(item.id + ":audio"))
+    const current = sources.find((item) => item.id === state.selected) || sources[0]
+    const locked = state.transforming ? "disabled" : ""
+    const note = state.transformNote
+      ? `<p class="${state.transformTone === "warn" ? "warn" : "hint"}">${esc(state.transformNote)}</p>`
+      : ""
     body = `${head("Transform this layer")}
-      <p class="hint">Your original stays. Songbird listens and adds a new layer. Piano, guitar, and choir follow a melody. Drums follow claps. Bass follows low notes.</p>
-      <div class="grid">${TRANSFORMS.map((name) => `<button class="tile" data-action="apply-sound" data-sound="${name}">${name}</button>`).join("")}</div>
-      <p class="hint">${layer ? `Selected: ${layer.name}${layer.from ? ` · ${layer.from}` : ""}` : "Record a layer first, or open an example."}</p>`
+      <p class="hint">Your original stays. Songbird adds a new layer and plays it with the song. Highlighted sounds fit the layer you picked. Piano, guitar, and choir follow a melody. Drums follow claps. Bass follows low notes.</p>
+      ${sources.length ? `<p class="ask">Listen to</p>
+        <div class="choices">${sources.map((item) => `<button class="${item.id === current.id ? "on" : ""}" data-action="pick-transform-layer" data-id="${item.id}" ${locked}>${esc(item.name)}</button>`).join("")}</div>` : `<p class="hint">Record a layer first, or open an example.</p>`}
+      <p class="ask">Turn it into</p>
+      <div class="grid">${TRANSFORMS.map((name) => `<button class="tile ${current && transformFit(current, name) ? "on" : ""}" data-action="apply-sound" data-sound="${name}" ${locked}>${name}</button>`).join("")}</div>
+      ${note}`
   } else if (state.panel === "build") {
     const mins = state.lengthSec ? Math.floor(state.lengthSec / 60) : ""
     const secs = state.lengthSec ? String(state.lengthSec % 60).padStart(2, "0") : ""
@@ -955,6 +968,10 @@ function openSong(id) {
     $("bpm").value = state.bpm
   }
   state.heard = exampleNote
+  state.transformNote = ""
+  state.transformTone = ""
+  state.transforming = false
+  state.arrived = null
   undoStack = []
   redoStack = []
   setScreen("studio")
@@ -1276,48 +1293,98 @@ function scheduleShape(gainNode, base, shapeId, startTime, duration) {
   }
 }
 
+function transformFit(layer, sound) {
+  const family = mixFamily(layer)
+  if (sound === "Drums") return family === "drums"
+  if (sound === "Bass") return family === "bass"
+  return family === "vocal" || family === "choir" || family === "instrument"
+}
+
+function missingPart(sound) {
+  if (sound === "Drums") return "a beat"
+  if (sound === "Bass") return "low notes"
+  return "a melody"
+}
+
+function sourceForTransform(selected, sound, layers) {
+  if (transformFit(selected, sound)) return { layer: selected, redirected: false }
+  const match = layers.find((layer) => layer.id !== selected.id && transformFit(layer, sound))
+  if (match) return { layer: match, redirected: true }
+  return { layer: selected, redirected: false }
+}
+
 function addTransformedLayer(sound) {
-  const source = selectedLayer()
-  const audio = source && buffers.get(source.id + ":audio")
-  if (!source || !audio) {
-    $("save-status").textContent = "Choose a layer that has sound. Open an example or keep a recording first."
+  if (state.transforming) return
+  const layers = state.layers.filter((layer) => buffers.get(layer.id + ":audio"))
+  const selected = layers.find((layer) => layer.id === state.selected) || layers[0]
+  if (!selected) {
+    state.transformNote = "Record a layer, or open an example, then pick a sound."
+    state.transformTone = "warn"
+    $("save-status").textContent = state.transformNote
+    renderInspector()
     return
   }
-  const copy = new Float32Array(audio.length)
-  copy.set(audio.getChannelData(0))
-  const made = SongbirdMusic.transformAudio(copy, sound, { bpm: state.bpm, sampleRate: audio.sampleRate })
-  if (!made) {
-    const heard = sound === "Drums" ? "a beat" : sound === "Bass" ? "low notes" : "a melody"
-    $("save-status").textContent = `Couldn't find ${heard} in ${source.name}. The original is unchanged.`
-    return
-  }
-  snapshot()
-  const id = uid()
-  const colors = { Piano: "#f0a202", Guitar: "#ff8ab0", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
-  const layer = {
-    id,
-    name: sound,
-    sound,
-    from: `from ${source.name}`,
-    color: colors[sound] || "#7aa2ff",
-    peaks: peaksFromSamples(made.samples),
-    gain: 0.7,
-    pan: 0.15,
-    low: 0,
-    high: 0,
-    space: 0,
-    mute: false,
-    solo: false,
-    live: true,
-  }
-  buffers.set(id + ":audio", audioBuffer(made.samples, SongbirdMusic.sampleRate))
-  state.layers.push(layer)
-  state.selected = id
-  rememberSong()
-  renderTracks()
+  const source = sourceForTransform(selected, sound, layers)
+  state.transforming = true
+  state.transformNote = `Listening to ${source.layer.name}…`
+  state.transformTone = ""
+  $("save-status").textContent = state.transformNote
   renderInspector()
-  $("save-status").textContent = `${sound} was added from ${source.name}. The original layer is still there.`
-  wakeSky()
+  const ctx = ac()
+  if (ctx.resume) void ctx.resume()
+  window.setTimeout(() => {
+    try {
+      const audio = buffers.get(source.layer.id + ":audio")
+      const copy = new Float32Array(audio.length)
+      copy.set(audio.getChannelData(0))
+      const made = SongbirdMusic.transformAudio(copy, sound, { bpm: state.bpm, sampleRate: audio.sampleRate })
+      if (!made) {
+        state.transformNote = `Couldn't find ${missingPart(sound)} in ${source.layer.name}. The original is unchanged.`
+        state.transformTone = "warn"
+        $("save-status").textContent = state.transformNote
+      } else {
+        snapshot()
+        const id = uid()
+        const colors = { Piano: "#f0a202", Guitar: "#ff8ab0", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
+        const layer = {
+          id,
+          name: sound,
+          sound,
+          from: `from ${source.layer.name}`,
+          color: colors[sound] || "#7aa2ff",
+          peaks: peaksFromSamples(made.samples),
+          gain: 0.7,
+          pan: 0.15,
+          low: 0,
+          high: 0,
+          space: 0,
+          mute: false,
+          solo: false,
+          live: true,
+        }
+        buffers.set(id + ":audio", audioBuffer(made.samples, SongbirdMusic.sampleRate))
+        state.layers.push(layer)
+        state.selected = id
+        state.arrived = id
+        const heard = source.redirected
+          ? `${sound} was added from ${source.layer.name}. There isn't ${missingPart(sound)} in ${selected.name}, so Songbird used ${source.layer.name}.`
+          : `${sound} was added from ${source.layer.name}. The original layer is still there.`
+        state.transformNote = `${heard} Playing them together.`
+        state.transformTone = ""
+        $("save-status").textContent = state.transformNote
+        rememberSong()
+        try { play() } catch { /* the new layer is still on the timeline */ }
+      }
+    } catch {
+      state.transformNote = "That didn't work. The original layer is unchanged."
+      state.transformTone = "warn"
+      $("save-status").textContent = state.transformNote
+    }
+    state.transforming = false
+    renderTracks()
+    renderInspector()
+    document.querySelector(".track.arrived")?.scrollIntoView?.({ block: "nearest", inline: "nearest" })
+  }, 30)
 }
 
 function spaceImpulse(ctx) {
@@ -1498,10 +1565,16 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "select-layer") {
     state.selected = node.dataset.id
-    state.panel = "mix"
+    if (state.panel !== "transform") state.panel = "mix"
     renderTracks()
-    if (window.matchMedia("(min-width: 1100px)").matches) renderInspector()
-    else setPanel("mix")
+    if (state.panel === "mix" && !window.matchMedia("(min-width: 1100px)").matches) setPanel("mix")
+    else renderInspector()
+  }
+  if (action === "pick-transform-layer") {
+    state.selected = node.dataset.id
+    state.panel = "transform"
+    renderTracks()
+    renderInspector()
   }
   if (action === "rec-mode") {
     state.mode = node.dataset.mode

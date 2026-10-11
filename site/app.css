@@ -177,6 +177,11 @@ h1 { margin: 0; font-size: 28px; font-weight: 650; }
 }
 .track-label small { display: block; color: var(--mute); }
 .track.selected .track-label { outline: 2px solid var(--cyan); }
+.track.arrived .wave { animation: arrive 1.1s ease; }
+@keyframes arrive {
+  from { filter: brightness(1.7); }
+  to { filter: brightness(1); }
+}
 .wave {
   position: relative;
   height: 54px;
@@ -374,7 +379,9 @@ body[data-sound] .stage {
 @media (prefers-reduced-motion: reduce) {
   #inspector { transition: none; }
   .meter.go i, .meter.live i { animation: none; height: 18px; }
-  body[data-sound="play"] .wave::after { animation: none; opacity: 0.35; }
+  body[data-sound="play"] .wave::after,
+  .track.arrived .wave { animation: none; }
+  body[data-sound="play"] .wave::after { opacity: 0.35; }
   body[data-sound="play"] .wave i,
   body[data-sound="record"] .mic { transform: none; }
 }
