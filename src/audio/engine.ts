@@ -9,7 +9,8 @@ import { getCachedSoundfont, loadSoundfont, playSample } from './soundfont'
 import { instrumentById } from '../data/instruments'
 import { dbToGain, midiToFreq, resumeAudio } from './context'
 import { barsDuration, clickMonitor, scheduleClick, setClickMuted as muteClick, isClickMuted as clickIsMuted, silenceClick } from './metronome'
-import { layerPlaybackPhrase, layerSlotsPerBeat, tileEvents, wrapTime } from './grid'
+import { layerSlotsPerBeat, repeatPhrase, tileEvents, wrapTime } from './grid'
+import { audibleEnd } from './loopPrep'
 import { realizedNotes } from './voicing'
 
 const audioBuffers = new Map<string, AudioBuffer>()
@@ -129,7 +130,7 @@ export function applyMixerState(session: Session, maps: MixerMaps = liveMixer): 
 }
 
 export type LoopRange = { start: number; end: number }
-export type PlayOpts = { offset?: number; loop?: LoopRange | null }
+export type PlayOpts = { offset?: number; loop?: LoopRange | null; phrase?: number }
 
 function playOriginal(
   ctx: BaseAudioContext,
@@ -200,7 +201,12 @@ function scheduleLayer(
   eqOut.connect(dest)
   const buffer = audioBuffers.get(layer.id)
   const horizon = until ?? sketchDuration(session)
-  const phrase = layerPlaybackPhrase(layer.duration || buffer?.duration || 0, session.meta.bpm, session.meta.bars)
+  const phrase = repeatPhrase(
+    layer,
+    session.meta.bpm,
+    session.meta.bars,
+    buffer ? audibleEnd(buffer) : 0,
+  )
 
   if (track.kind === 'vocals') {
     if (!buffer) return
@@ -565,7 +571,7 @@ export async function previewOriginal(layerId: string, opts: PlayOpts = {}): Pro
   masterAnalyser = tapAnalyser(ctx, gain, 1024)
   playTiledBuffer(buffer, startedAt, offset, activeLoop?.end, (audioWhen, localOff, localEnd) => {
     playOriginal(ctx, buffer, gain, audioWhen, 1, localOff, localEnd)
-  })
+  }, opts.phrase)
   replay = activeLoop ? () => previewOriginal(layerId, { offset: activeLoop!.start, loop: activeLoop }) : null
   if (activeLoop) armLoop(ctx, activeLoop.end, offset)
 }

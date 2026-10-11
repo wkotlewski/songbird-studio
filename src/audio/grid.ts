@@ -1,6 +1,6 @@
 import type { DrumHit, MidiNote, RhythmFeel } from '../types'
 import { RHYTHM_FEELS, defaultRhythm } from '../types'
-import { barDuration } from './metronome'
+import { barDuration, beatDuration } from './metronome'
 
 export function wrapTime(time: number, length: number): number {
   if (length <= 0) return Math.max(0, time)
@@ -36,6 +36,44 @@ export function layerPlaybackPhrase(duration: number, bpm: number, sessionBars: 
   if (nearest >= 1 && Math.abs(n - nearest) < 0.08) return layerLen
   if (Math.abs(layerLen - sessionLen) < barDuration(bpm) * 0.6) return sessionLen
   return layerLen
+}
+
+/** When the last note or hit actually finishes. */
+export function eventEnd(
+  notes: { time: number; duration: number }[],
+  drums: { time: number; duration: number }[],
+): number {
+  let end = 0
+  for (const note of notes) end = Math.max(end, note.time + Math.max(0.02, note.duration))
+  for (const hit of drums) end = Math.max(end, hit.time + Math.max(0.02, hit.duration))
+  return end
+}
+
+/** The beat boundary at or just after `time`, so a repeat can start on the click. */
+export function onNextBeat(time: number, bpm: number): number {
+  const beat = beatDuration(bpm)
+  if (time <= 0.02) return beat
+  return Math.max(beat, Math.ceil((time - 0.004) / beat) * beat)
+}
+
+/**
+ * How long one repeat is.
+ * A take padded out to a bar (or several) used to leave a silent gap before the next copy.
+ * If the music ends earlier, the repeat jumps to the next beat instead.
+ */
+export function repeatPhrase(
+  layer: { duration: number; notes: { time: number; duration: number }[]; drums: { time: number; duration: number }[] },
+  bpm: number,
+  sessionBars: number,
+  audibleEnd = 0,
+): number {
+  const beat = beatDuration(bpm)
+  const padded = layerPlaybackPhrase(layer.duration, bpm, sessionBars)
+  const musical = Math.max(eventEnd(layer.notes, layer.drums), audibleEnd)
+  if (musical < 0.05) return padded
+  const tight = onNextBeat(musical, bpm)
+  if (padded - tight > beat * 0.75) return tight
+  return padded
 }
 
 export function layerSlotsPerBeat(layer: { rhythm?: RhythmFeel | null }): number {

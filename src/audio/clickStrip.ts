@@ -1,5 +1,6 @@
 import { getAudioContext, mixToMono } from './context'
 import { getLayerBuffer } from './engine'
+import { rotateWindow } from './loopPrep'
 import { beatDuration, BEATS_PER_BAR, CLICK_FREQ_ACCENT, CLICK_FREQ_BEAT } from './metronome'
 
 function copyBuffer(buffer: AudioBuffer): AudioBuffer {
@@ -171,4 +172,11 @@ export function stripStoredClick(layerId: string, bpm: number, latency = 0): Aud
   const source = clickSources.get(layerId)
   if (!source) return null
   return stripClickBleed(source, bpm, latency)
+}
+
+/** Keep the click-removal source lined up with a take the user has slid on the grid. */
+export function nudgeStoredClick(layerId: string, offsetSec: number, windowSec: number): void {
+  const source = clickSources.get(layerId)
+  if (!source) return
+  clickSources.set(layerId, rotateWindow(source, offsetSec, windowSec))
 }

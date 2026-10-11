@@ -5,9 +5,10 @@ import { decodeFile, getAudioContext, resumeAudio, unlockAudio } from '../audio/
 import { transcribeDrums, analyzeDrums } from '../audio/drums'
 import { transcribeMelody, analyzeMelody } from '../audio/melody'
 import { mixFingerprint } from '../audio/mixerState'
-import { classifyTake, prepareForLoop, resampleToLength, trimSilence } from '../audio/loopPrep'
+import { audibleEnd, classifyTake, prepareForLoop, resampleToLength, trimSilence } from '../audio/loopPrep'
 import { lockTakeToClick } from '../audio/clickLock'
-import { sharedPhraseSeconds } from '../audio/grid'
+import { repeatPhrase, sharedPhraseSeconds } from '../audio/grid'
+import { moveHit, moveNote, slideTake } from '../audio/nudge'
 import { bindAudition } from '../audio/audition'
 import { cleanLiveTake, stripStoredClick } from '../audio/clickStrip'
 import {
@@ -97,7 +98,12 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
 
   const playOpts = (offset: number): PlayOpts => {
     const { loop: range, loopOn: on } = loopRef.current
-    return { offset, loop: on ? range : null }
+    const sess = sessionRef.current
+    const track = sess.tracks.find((t) => t.id === sess.selectedId)
+    const layer = track?.layers.find((l) => l.id === track.selectedLayerId)
+    const buf = layer ? getLayerBuffer(layer.id) : undefined
+    const phrase = layer ? repeatPhrase(layer, sess.meta.bpm, sess.meta.bars, buf ? audibleEnd(buf) : 0) : undefined
+    return { offset, loop: on ? range : null, phrase }
   }
 
   useEffect(() => {
@@ -236,19 +242,65 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
   }
 
   const extendSong = (targetSeconds: number) => {
-    const bpm = sessionRef.current.meta.bpm
+    const current = sessionRef.current
+    const bpm = current.meta.bpm
+    const beat = beatDuration(bpm)
     const bar = barDuration(bpm)
-    const range = loopRef.current.loop
-    const cellSeconds =
-      range && range.end - range.start > 0.2 ? range.end - range.start : bar * Math.max(1, sessionRef.current.meta.bars)
-    const cellBars = Math.max(1, Math.round(cellSeconds / bar))
-    const repeats = Math.max(1, Math.floor(targetSeconds / (cellBars * bar) + 1e-6))
-    const songBars = Math.min(240, repeats * cellBars)
+    let cell = 0
+    for (const track of current.tracks) {
+      for (const layer of track.layers) {
+        const buf = getLayerBuffer(layer.id)
+        const phrase = repeatPhrase(layer, bpm, current.meta.bars, buf ? audibleEnd(buf) : 0)
+        if (phrase > cell) cell = phrase
+      }
+    }
+    if (cell < beat) {
+      const range = loopRef.current.loop
+      const loopLen = range && range.end - range.start > 0.2 ? range.end - range.start : bar * Math.max(1, current.meta.bars)
+      cell = Math.max(beat, Math.ceil((loopLen - 0.004) / beat) * beat)
+    }
+    const repeats = Math.max(1, Math.floor(targetSeconds / cell + 1e-6))
+    const songSeconds = repeats * cell
+    const songBars = Math.min(240, Math.max(1, Math.round(songSeconds / bar)))
     const seconds = songBars * bar
-    setSession((s) => (s.meta.bars === songBars ? s : { ...s, meta: { ...s.meta, bars: songBars } }))
+    changeLoop({ start: 0, end: cell })
     changeLoopOn(false)
+    setSession((s) => (s.meta.bars === songBars ? s : { ...s, meta: { ...s.meta, bars: songBars } }))
     const shown = formatTime(Math.round(seconds)).replace(/\.00$/, '')
-    notify(`Song is ${shown}. The loop repeats to fill it. Turn Loop on to cycle just that phrase.`)
+    notify(`Song is ${shown}. Each repeat starts on the next beat. Drag a note, a hit, or the wave if it needs a nudge.`)
+  }
+
+  const layerById = (layerId: string) => {
+    for (const track of sessionRef.current.tracks) {
+      const layer = track.layers.find((l) => l.id === layerId)
+      if (layer) return { track, layer }
+    }
+    return null
+  }
+
+  const placeNote = (layerId: string, index: number, time: number) => {
+    const found = layerById(layerId)
+    if (!found) return
+    const notes = moveNote(found.layer.notes, index, time)
+    if (notes === found.layer.notes) return
+    updateLayer(found.track.id, layerId, { notes })
+  }
+
+  const placeHit = (layerId: string, index: number, time: number) => {
+    const found = layerById(layerId)
+    if (!found) return
+    const drums = moveHit(found.layer.drums, index, time)
+    if (drums === found.layer.drums) return
+    updateLayer(found.track.id, layerId, { drums })
+  }
+
+  const slideLayer = (layerId: string, delta: number) => {
+    const found = layerById(layerId)
+    if (!found) return
+    const sess = sessionRef.current
+    const patch = slideTake(found.layer, delta, sess.meta.bpm, sess.meta.bars)
+    if (!patch) return
+    updateLayer(found.track.id, layerId, patch)
   }
 
   const commitBpm = (raw: number) => {
@@ -728,6 +780,9 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
   }
 
   const buffer = selectedLayer ? getLayerBuffer(selectedLayer.id) : undefined
+  const cycle = selectedLayer
+    ? repeatPhrase(selectedLayer, session.meta.bpm, session.meta.bars, buffer ? audibleEnd(buffer) : 0)
+    : undefined
   const timelineDuration = Math.max(
     selected ? trackDuration(selected) : 0,
     buffer?.duration ?? 0,
@@ -1007,7 +1062,13 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                     onExtend={extendSong}
                   >
                     {selected.kind === 'vocals' ? (
-                      <Waveform buffer={buffer} span={timelineDuration} />
+                      <Waveform
+                        buffer={buffer}
+                        span={timelineDuration}
+                        cycle={cycle}
+                        onSeek={(t) => void seek(t)}
+                        onSlide={selectedLayer ? (delta) => slideLayer(selectedLayer.id, delta) : undefined}
+                      />
                     ) : (
                       <>
                         <PianoRoll
@@ -1017,8 +1078,20 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                           bpm={session.meta.bpm}
                           bars={session.meta.bars}
                           songKey={session.meta.key}
+                          onMoveNote={placeNote}
+                          onMoveHit={placeHit}
                         />
-                        {buffer && <Waveform buffer={buffer} color="#e8b86d" span={timelineDuration} compact />}
+                        {buffer && (
+                          <Waveform
+                            buffer={buffer}
+                            color="#e8b86d"
+                            span={timelineDuration}
+                            cycle={cycle}
+                            compact
+                            onSeek={(t) => void seek(t)}
+                            onSlide={selectedLayer ? (delta) => slideLayer(selectedLayer.id, delta) : undefined}
+                          />
+                        )}
                       </>
                     )}
                   </Timeline>

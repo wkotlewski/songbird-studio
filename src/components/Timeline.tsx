@@ -150,7 +150,7 @@ export function Timeline({
             {formatTime(region.start)} – {formatTime(region.end)}
           </span>
         ) : (
-          <span>Click to jump · drag to loop a region</span>
+          <span>Click to jump · drag empty space to loop · drag a note or the wave to nudge</span>
         )}
         <span className="ml-auto flex flex-wrap justify-end gap-1">
           {[1, 2, 4, 8, 16].map((n) => (
@@ -208,7 +208,7 @@ export function Timeline({
                     key={label}
                     type="button"
                     onClick={() => onExtend(target)}
-                    title="Repeat the current loop until the song reaches this length"
+                    title="Repeat the phrase on the next beat until the song reaches this length"
                     className={`rounded-full border px-2 py-0.5 ${
                       active ? 'border-gold bg-gold/15 text-gold' : 'border-line text-mist hover:border-gold'
                     }`}

@@ -43,7 +43,7 @@ const STEPS: { title: string; body: string }[] = [
   },
   {
     title: 'Loop a region',
-    body: 'Use 1 / 2 / 4 / 8 bar, or drag on the timeline. Click to jump. Drag the gold edges to resize. Song 0:30, 1:00, or 2:00 repeats that loop out to a full track. Turn Loop back on to cycle just the short phrase.',
+    body: 'Use 1 / 2 / 4 / 8 bar, or drag on the timeline. Click to jump. Drag the gold edges to resize. Song 0:30, 1:00, or 2:00 repeats the phrase on the next beat so it stays tight. Drag a note, a hit, or the waveform if you need to nudge it. Turn Loop back on to cycle just that phrase.',
   },
   {
     title: 'Add a track — or skip it',

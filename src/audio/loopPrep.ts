@@ -91,6 +91,64 @@ export function prepareForLoop(
   return { buffer: next, seconds, bars, derived }
 }
 
+function windowRms(buffer: AudioBuffer, start: number, win: number, step: number): number {
+  let sum = 0
+  let n = 0
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c)
+    const last = Math.min(data.length, start + win)
+    for (let j = start; j < last; j += step) {
+      const v = data[j] ?? 0
+      sum += v * v
+      n++
+    }
+  }
+  return n > 0 ? Math.sqrt(sum / n) : 0
+}
+
+/**
+ * Last moment that is still part of the take.
+ * A loop crossfade writes a few milliseconds of the start onto the end of a
+ * padded buffer; that blip is ignored when a stretch of silence sits in front of it.
+ */
+export function audibleEnd(buffer: AudioBuffer, gate = 0.018): number {
+  const sr = buffer.sampleRate
+  const win = Math.max(1, Math.floor(sr * 0.02))
+  const step = Math.max(1, Math.floor(win / 4))
+  let tailLoud = 0
+  let silentRun = 0
+  for (let i = buffer.length - win; i > 0; i -= win) {
+    const loud = windowRms(buffer, i, win, step) > gate
+    if (loud) {
+      if (silentRun > 0.08 && tailLoud < 0.05) return Math.min(buffer.duration, (i + win) / sr)
+      if (silentRun > 0.08 && tailLoud >= 0.05) return buffer.duration
+      tailLoud += win / sr
+      silentRun = 0
+    } else {
+      silentRun += win / sr
+    }
+  }
+  return tailLoud > 0.05 ? buffer.duration : 0
+}
+
+/** Rotate only the repeating window, leaving any padded tail where it is. */
+export function rotateWindow(buffer: AudioBuffer, offsetSec: number, windowSec: number): AudioBuffer {
+  const len = buffer.length
+  const window = Math.min(len, Math.max(1, Math.round(Math.max(0.05, windowSec) * buffer.sampleRate)))
+  let n = Math.round(offsetSec * buffer.sampleRate) % window
+  if (n < 0) n += window
+  if (n < 8 || n > window - 8) return buffer
+  const out = makeBuffer(buffer.numberOfChannels, len, buffer.sampleRate)
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const src = buffer.getChannelData(c)
+    const dst = out.getChannelData(c)
+    dst.set(src.subarray(n, window), 0)
+    dst.set(src.subarray(0, n), window - n)
+    if (window < len) dst.set(src.subarray(window), window)
+  }
+  return out
+}
+
 export function rotateBuffer(buffer: AudioBuffer, offsetSec: number): AudioBuffer {
   const len = buffer.length
   let n = Math.round(offsetSec * buffer.sampleRate)

@@ -7,6 +7,9 @@ import {
   stopSession,
   type LoopRange,
 } from '../audio/engine'
+import { audibleEnd } from '../audio/loopPrep'
+import { repeatPhrase } from '../audio/grid'
+import { moveHit, moveNote, slideTake } from '../audio/nudge'
 import { revoiceLayer } from '../audio/revoice'
 import { useStudio } from '../state/session'
 import { PianoRoll } from './PianoRoll'
@@ -82,6 +85,21 @@ export function ReviewTake({
 }) {
   const { session, updateLayer, notify } = useStudio()
   const buffer = getLayerBuffer(layer.id)
+  const phrase = repeatPhrase(layer, session.meta.bpm, session.meta.bars, buffer ? audibleEnd(buffer) : 0)
+  const placeNote = (layerId: string, index: number, time: number) => {
+    if (layerId !== layer.id) return
+    const notes = moveNote(layer.notes, index, time)
+    if (notes !== layer.notes) updateLayer(track.id, layer.id, { notes })
+  }
+  const placeHit = (layerId: string, index: number, time: number) => {
+    if (layerId !== layer.id) return
+    const drums = moveHit(layer.drums, index, time)
+    if (drums !== layer.drums) updateLayer(track.id, layer.id, { drums })
+  }
+  const slideLayer = (delta: number) => {
+    const patch = slideTake(layer, delta, session.meta.bpm, session.meta.bars)
+    if (patch) updateLayer(track.id, layer.id, patch)
+  }
   const settings = layer.transcribe
 
   const applySettings = (patch: Partial<TranscribeSettings>) => {
@@ -161,15 +179,25 @@ export function ReviewTake({
             bpm={session.meta.bpm}
             bars={session.meta.bars}
             songKey={session.meta.key}
+            onMoveNote={placeNote}
+            onMoveHit={placeHit}
           />
-          <Waveform buffer={buffer} color="#e8b86d" span={span} compact />
+          <Waveform
+            buffer={buffer}
+            color="#e8b86d"
+            span={span}
+            cycle={phrase}
+            compact
+            onSeek={onSeek}
+            onSlide={slideLayer}
+          />
         </Timeline>
       </div>
 
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => {
-            const opts = { offset: playhead, loop: loopOn ? loop : null }
+            const opts = { offset: playhead, loop: loopOn ? loop : null, phrase }
             onPreview('original')
             void previewOriginal(layer.id, opts).then(() => onPlaying(true))
           }}
