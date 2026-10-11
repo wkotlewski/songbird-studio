@@ -15,6 +15,7 @@ There are two places: **My Music** and **Studio**. Everything else opens over th
 - My Music includes five example songs you can play. Each one keeps the original sound and adds a part made from it: humming becomes piano, guitar, or choir; claps become drums; a beatbox becomes bass. The song has a length and a shape.
 - Build asks how long the song should be, in your own words or from a few common lengths. A take then loops until the song is that long.
 - Build also asks what the song should do, and offers the usual shapes: steady, a soft intro that builds and then softens, a climax, or verse and chorus. The shape changes loudness across the song. The original recording stays as it was.
+- Record listens for tempo first. Clap, snap, or beatbox a pulse and the metronome follows it, with a count of four before the next take. A hummed recording sets the tempo instead when you have not already given a pulse.
 - Record uses the microphone. The click plays through the speakers and is not mixed into the take.
 - A kept take can be played, and volume, mute, solo, and stereo pan apply to it.
 - Undo and redo step through those edits.
