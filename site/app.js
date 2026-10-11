@@ -1,9 +1,9 @@
 const STARTERS = [
-  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Private", demo: true },
-  { id: "family", title: "Our Family Song", privacy: "Family only", demo: true },
-  { id: "summer", title: "Summer Memories", privacy: "Shared with family", demo: true },
-  { id: "ella", title: "Ella's Happy Song", privacy: "Private", demo: true },
-  { id: "bright", title: "A Brighter Day", privacy: "Public", demo: true },
+  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true },
+  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true },
+  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true },
+  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true },
+  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true },
 ]
 
 const INPUTS = [
@@ -200,8 +200,9 @@ let redoStack = []
 
 const state = {
   screen: "library",
-  tab: "mine",
   query: "",
+  shareFor: null,
+  deleteFor: null,
   songs: loadSongs(),
   song: null,
   layers: [],
@@ -235,18 +236,60 @@ const state = {
 
 const $ = (id) => document.getElementById(id)
 
-function loadSongs() {
+function songEmails(song) {
+  return Array.isArray(song?.sharedWith) ? song.sharedWith : []
+}
+
+function hiddenIds() {
   try {
-    const saved = JSON.parse(localStorage.getItem("songbird-songs") || "[]")
-    return [...STARTERS, ...saved]
+    const ids = JSON.parse(localStorage.getItem("songbird-hidden") || "[]")
+    return Array.isArray(ids) ? ids : []
   } catch {
-    return [...STARTERS]
+    return []
   }
 }
 
+function shareMap() {
+  try {
+    const map = JSON.parse(localStorage.getItem("songbird-shares") || "{}")
+    return map && typeof map === "object" ? map : {}
+  } catch {
+    return {}
+  }
+}
+
+function loadSongs() {
+  let saved = []
+  try {
+    const parsed = JSON.parse(localStorage.getItem("songbird-songs") || "[]")
+    saved = Array.isArray(parsed) ? parsed : []
+  } catch {
+    saved = []
+  }
+  const hidden = new Set(hiddenIds())
+  const shares = shareMap()
+  const starters = STARTERS.filter((song) => !hidden.has(song.id)).map((song) => ({
+    ...song,
+    privacy: "Shared",
+    sharedWith: Array.isArray(shares[song.id]) ? shares[song.id] : [],
+  }))
+  const mine = saved.map((song) => ({ ...song, privacy: "Shared", sharedWith: songEmails(song) }))
+  return [...starters, ...mine]
+}
+
 function saveSongs() {
-  const mine = state.songs.filter((song) => !song.demo)
+  const mine = state.songs.filter((song) => !song.demo).map((song) => ({ ...song, privacy: "Shared", sharedWith: songEmails(song) }))
   localStorage.setItem("songbird-songs", JSON.stringify(mine))
+}
+
+function saveDemoShare(song) {
+  const shares = shareMap()
+  shares[song.id] = songEmails(song)
+  localStorage.setItem("songbird-shares", JSON.stringify(shares))
+}
+
+function validEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim())
 }
 
 function uid() {
@@ -567,17 +610,37 @@ function closePanel() {
   document.body.classList.add("inspector-closed")
 }
 
+function shareDetail(song) {
+  const emails = songEmails(song)
+  if (!emails.length) return "Shared"
+  return `Shared with ${emails.join(", ")}`
+}
+
+function renderShareBox(song) {
+  if (state.deleteFor === song.id) {
+    return `<div class="share-box">
+      <p class="warn">Delete ${esc(song.title)}? This removes it from the list.</p>
+      <div class="row">
+        <button class="primary" data-action="confirm-delete" data-id="${song.id}">Delete</button>
+        <button class="choice" data-action="cancel-song">Keep it</button>
+      </div>
+    </div>`
+  }
+  if (state.shareFor !== song.id) return ""
+  const emails = songEmails(song)
+  return `<div class="share-box">
+    <p class="hint">Add their email. It is saved on this song in this browser. Songbird does not send mail yet.</p>
+    ${emails.length ? `<p class="hint">${emails.map((email) => esc(email)).join(", ")}</p>` : ""}
+    <div class="share-row">
+      <input class="share-email" type="email" data-id="${song.id}" placeholder="name@email.com" aria-label="Email address" />
+      <button class="primary" data-action="add-share" data-id="${song.id}">Share</button>
+    </div>
+  </div>`
+}
+
 function renderSongs() {
   const q = state.query.trim().toLowerCase()
   const list = $("song-list")
-  if (state.tab === "community") {
-    list.innerHTML = `<p class="empty">Community is not open yet.</p>`
-    return
-  }
-  if (state.tab === "shared") {
-    list.innerHTML = `<p class="empty">Nothing shared with you yet.</p>`
-    return
-  }
   const songs = state.songs.filter((song) => song.title.toLowerCase().includes(q))
   if (!songs.length) {
     list.innerHTML = `<p class="empty">Make your first sound.</p>`
@@ -585,13 +648,91 @@ function renderSongs() {
   }
   list.innerHTML = songs
     .map(
-      (song) => `<button class="song" data-action="open-song" data-id="${song.id}">
-        <span class="swatch" style="background:linear-gradient(135deg,#1fbfa7,#3d7eff)"></span>
-        <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${song.demo ? "Example · press play" : "On this device"}</span></span>
-        <span class="badge">${esc(song.privacy)}</span>
-      </button>`,
+      (song) => `<article class="song">
+        <button class="song-open" data-action="open-song" data-id="${song.id}">
+          <span class="swatch" style="background:linear-gradient(135deg,#1fbfa7,#3d7eff)"></span>
+          <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(shareDetail(song))}</span></span>
+          <span class="badge">Shared</span>
+        </button>
+        <div class="song-actions">
+          <button class="choice" data-action="share-song" data-id="${song.id}">Share</button>
+          <button class="choice" data-action="ask-delete" data-id="${song.id}">Delete</button>
+        </div>
+        ${renderShareBox(song)}
+      </article>`,
     )
     .join("")
+}
+
+function renderProjectActions() {
+  const box = $("project-actions")
+  if (!box) return
+  const song = state.song
+  if (!song) {
+    box.innerHTML = ""
+    return
+  }
+  box.innerHTML = `<div class="song-actions">
+      <button class="choice" data-action="share-song" data-id="${song.id}">Share</button>
+      <button class="choice" data-action="ask-delete" data-id="${song.id}">Delete</button>
+    </div>
+    ${renderShareBox(song)}`
+}
+
+function shareSong(id, raw) {
+  const song = state.songs.find((item) => item.id === id)
+  if (!song) return
+  const email = String(raw || "").trim().toLowerCase()
+  if (!validEmail(email)) {
+    state.shareFor = id
+    $("save-status").textContent = "Enter an email address like name@email.com."
+    renderSongs()
+    renderProjectActions()
+    return
+  }
+  const emails = songEmails(song)
+  if (!emails.includes(email)) emails.push(email)
+  song.sharedWith = emails
+  song.privacy = "Shared"
+  if (song.demo) saveDemoShare(song)
+  else saveSongs()
+  state.shareFor = id
+  state.deleteFor = null
+  $("save-status").textContent = `Shared with ${email}. The address is saved on this song in this browser.`
+  renderSongs()
+  renderProjectActions()
+}
+
+function deleteSong(id) {
+  const song = state.songs.find((item) => item.id === id)
+  if (!song) return
+  if (song.demo) {
+    const hidden = hiddenIds()
+    if (!hidden.includes(id)) hidden.push(id)
+    localStorage.setItem("songbird-hidden", JSON.stringify(hidden))
+    const shares = shareMap()
+    delete shares[id]
+    localStorage.setItem("songbird-shares", JSON.stringify(shares))
+  }
+  state.songs = state.songs.filter((item) => item.id !== id)
+  if (!song.demo) saveSongs()
+  state.shareFor = null
+  state.deleteFor = null
+  if (state.song?.id === id) {
+    stopPlayback()
+    dropLayerAudio()
+    state.song = null
+    state.layers = []
+    state.selected = null
+    setScreen("library")
+    closePanel()
+    if ($("song-title")) $("song-title").value = "Untitled song"
+    renderTracks()
+    renderInspector()
+  }
+  $("save-status").textContent = `${song.title} was deleted.`
+  renderSongs()
+  renderProjectActions()
 }
 
 function layoutTimeline() {
@@ -986,10 +1127,11 @@ function openSong(id) {
   renderTracks()
   renderInspector()
   $("save-status").textContent = song.demo ? "Example ready · press play" : "Saved on this device · audio stays in this tab"
+  renderProjectActions()
 }
 
 function newSong() {
-  const song = { id: uid(), title: "Untitled song", privacy: "Private", demo: false, layers: [] }
+  const song = { id: uid(), title: "Untitled song", privacy: "Shared", demo: false, sharedWith: [], layers: [] }
   state.songs.unshift(song)
   saveSongs()
   renderSongs()
@@ -1537,12 +1679,30 @@ document.body.addEventListener("click", (event) => {
     renderSongs()
   }
   if (action === "new-song") newSong()
-  if (action === "tab") {
-    state.tab = node.dataset.tab
-    document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("on", tab.dataset.tab === state.tab))
-    renderSongs()
-  }
   if (action === "open-song") openSong(node.dataset.id)
+  if (action === "share-song") {
+    state.shareFor = node.dataset.id
+    state.deleteFor = null
+    renderSongs()
+    renderProjectActions()
+  }
+  if (action === "ask-delete") {
+    state.deleteFor = node.dataset.id
+    state.shareFor = null
+    renderSongs()
+    renderProjectActions()
+  }
+  if (action === "cancel-song") {
+    state.shareFor = null
+    state.deleteFor = null
+    renderSongs()
+    renderProjectActions()
+  }
+  if (action === "confirm-delete") deleteSong(node.dataset.id)
+  if (action === "add-share") {
+    const field = node.parentElement?.querySelector(".share-email")
+    shareSong(node.dataset.id, field ? field.value : "")
+  }
   if (action === "play") playing ? stopPlayback() : play()
   if (action === "tempo-pass") {
     if (!state.recording) state.tempoPass = true
@@ -1696,6 +1856,12 @@ document.body.addEventListener("click", (event) => {
   }
 })
 
+document.body.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.target.classList?.contains("share-email")) return
+  event.preventDefault()
+  shareSong(event.target.dataset.id, event.target.value)
+})
+
 document.body.addEventListener("input", (event) => {
   const node = event.target
   if (node.id === "search") {
@@ -1734,6 +1900,7 @@ $("timeline").addEventListener("wheel", (event) => {
 }, { passive: false })
 
 renderSongs()
+renderProjectActions()
 renderRuler()
 renderTracks()
 renderInspector()

@@ -88,14 +88,14 @@ h1 { margin: 0; font-size: 28px; font-weight: 650; }
 .note { margin: 0 16px 8px; }
 .legal { margin: 0; padding: 8px 16px 12px; color: var(--mute); font-size: 11px; }
 
-.tabs { display: flex; gap: 8px; padding: 0 16px 8px; overflow-x: auto; }
-.tab { flex: none; padding: 8px 12px; color: var(--mute); }
-.tab.on, .chip.on, .choice.on, .seg button.on, .choices button.on { color: #061018; background: var(--cyan); border-color: var(--cyan); }
+.chip.on, .choice.on, .seg button.on, .choices button.on { color: #061018; background: var(--cyan); border-color: var(--cyan); }
 
 .song-list { padding: 8px 16px 96px; display: flex; flex-direction: column; gap: 10px; }
 .song {
-  display: flex; gap: 12px; align-items: center;
-  text-align: left;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
   width: 100%;
   min-width: 0;
   background: var(--card);
@@ -103,6 +103,23 @@ h1 { margin: 0; font-size: 28px; font-weight: 650; }
   border-radius: 16px;
   padding: 10px;
 }
+.song-open {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.song-actions { display: flex; gap: 6px; }
+.song-actions .choice { min-height: 36px; padding: 6px 10px; }
+.share-box { flex: 1 0 100%; }
+.share-row { display: flex; gap: 8px; align-items: center; }
+.share-row input { flex: 1; min-width: 0; }
+.project-actions { margin-top: 8px; }
 .swatch { width: 52px; height: 52px; border-radius: 12px; flex: none; }
 .song-copy { flex: 1; min-width: 0; }
 .song b, .song .meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

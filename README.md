@@ -10,7 +10,7 @@ Internal product, design, and architecture notes are kept in a private repositor
 
 There are two places: **My Music** and **Studio**. Everything else opens over the song.
 
-- My Music lists songs on this device and opens one into the studio.
+- My Music lists every song in one list. There are no separate song filters. A song can be deleted, or shared by adding an email address. The address is saved with the song in this browser. The page does not send email.
 - The timeline scrolls sideways through the song. That is separate from stereo pan, which places a layer left, center, or right in the speakers.
 - My Music includes five example songs you can play. Each one keeps the original sound and adds a part made from it: humming becomes piano, guitar, or choir; claps become drums; a beatbox becomes bass. The song has a length and a shape.
 - Build asks how long the song should be, in your own words or from a few common lengths. A take then loops until the song is that long.
