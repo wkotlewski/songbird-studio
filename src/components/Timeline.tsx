@@ -28,6 +28,7 @@ export function Timeline({
   onLoopOn,
   arrangement,
   onExtend,
+  onCut,
 }: {
   duration: number
   bpm: number
@@ -42,6 +43,8 @@ export function Timeline({
   /** Song length in seconds. The short loop repeats to fill it. */
   arrangement?: number
   onExtend?: (seconds: number) => void
+  /** Remove the selected stretch and pull everything after it forward. */
+  onCut?: (range: LoopRange) => void
 }) {
   const areaRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ mode: DragMode; origin: number } | null>(null)
@@ -150,7 +153,7 @@ export function Timeline({
             {formatTime(region.start)} – {formatTime(region.end)}
           </span>
         ) : (
-          <span>Click to jump · drag empty space to loop · drag a note or the wave to nudge</span>
+          <span>Drag across a gap, then Delete space to close it. Drag a note or the wave to nudge.</span>
         )}
         <span className="ml-auto flex flex-wrap justify-end gap-1">
           {[1, 2, 4, 8, 16].map((n) => (
@@ -193,6 +196,19 @@ export function Timeline({
           >
             Clear
           </button>
+          {onCut && (
+            <button
+              type="button"
+              disabled={!loop || loop.end - loop.start < 0.08}
+              onClick={() => {
+                if (loop) onCut(loop)
+              }}
+              title="Cut this stretch out and close the gap. Everything after it slides forward."
+              className="rounded-full border border-line px-2 py-0.5 text-mist hover:border-gold disabled:opacity-40"
+            >
+              Delete space
+            </button>
+          )}
           {onExtend && (
             <>
               <span className="ml-1 text-mute">Song</span>

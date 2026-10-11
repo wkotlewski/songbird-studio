@@ -1,6 +1,6 @@
 import { getAudioContext, mixToMono } from './context'
 import { getLayerBuffer } from './engine'
-import { rotateWindow } from './loopPrep'
+import { rotateWindow, spliceBuffer } from './loopPrep'
 import { beatDuration, BEATS_PER_BAR, CLICK_FREQ_ACCENT, CLICK_FREQ_BEAT } from './metronome'
 
 function copyBuffer(buffer: AudioBuffer): AudioBuffer {
@@ -179,4 +179,11 @@ export function nudgeStoredClick(layerId: string, offsetSec: number, windowSec: 
   const source = clickSources.get(layerId)
   if (!source) return
   clickSources.set(layerId, rotateWindow(source, offsetSec, windowSec))
+}
+
+/** Keep the click-removal source in sync when a stretch of the take is deleted. */
+export function spliceStoredClick(layerId: string, startSec: number, endSec: number): void {
+  const source = clickSources.get(layerId)
+  if (!source) return
+  clickSources.set(layerId, spliceBuffer(source, startSec, endSec))
 }

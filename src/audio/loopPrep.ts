@@ -131,6 +131,25 @@ export function audibleEnd(buffer: AudioBuffer, gate = 0.018): number {
   return tailLoud > 0.05 ? buffer.duration : 0
 }
 
+/** Cut [startSec, endSec) out and join the two sides. */
+export function spliceBuffer(buffer: AudioBuffer, startSec: number, endSec: number): AudioBuffer {
+  const sr = buffer.sampleRate
+  const len = buffer.length
+  const a = Math.max(0, Math.min(len, Math.round(startSec * sr)))
+  const b = Math.max(a, Math.min(len, Math.round(Math.max(startSec, endSec) * sr)))
+  if (b - a < 8) return buffer
+  const keep = len - (b - a)
+  if (keep < 8) return buffer
+  const out = makeBuffer(buffer.numberOfChannels, keep, sr)
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const src = buffer.getChannelData(c)
+    const dst = out.getChannelData(c)
+    dst.set(src.subarray(0, a), 0)
+    dst.set(src.subarray(b), a)
+  }
+  return out
+}
+
 /** Rotate only the repeating window, leaving any padded tail where it is. */
 export function rotateWindow(buffer: AudioBuffer, offsetSec: number, windowSec: number): AudioBuffer {
   const len = buffer.length

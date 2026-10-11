@@ -66,6 +66,7 @@ export function ReviewTake({
   onLoopOn,
   arrangement,
   onExtend,
+  onCut,
   onPlaying,
   onPreview,
 }: {
@@ -80,6 +81,7 @@ export function ReviewTake({
   onLoopOn: (on: boolean) => void
   arrangement?: number
   onExtend?: (seconds: number) => void
+  onCut?: (range: LoopRange) => void
   onPlaying: (playing: boolean) => void
   onPreview: (mode: 'original' | 'interp') => void
 }) {
@@ -171,6 +173,7 @@ export function ReviewTake({
           onLoopOn={onLoopOn}
           arrangement={arrangement}
           onExtend={onExtend}
+          onCut={onCut}
         >
           <PianoRoll
             layers={[{ id: layer.id, notes: layer.notes, drums: layer.drums, duration: layer.duration, voicing: layer.voicing }]}

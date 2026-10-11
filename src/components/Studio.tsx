@@ -5,12 +5,13 @@ import { decodeFile, getAudioContext, resumeAudio, unlockAudio } from '../audio/
 import { transcribeDrums, analyzeDrums } from '../audio/drums'
 import { transcribeMelody, analyzeMelody } from '../audio/melody'
 import { mixFingerprint } from '../audio/mixerState'
-import { audibleEnd, classifyTake, prepareForLoop, resampleToLength, trimSilence } from '../audio/loopPrep'
+import { audibleEnd, classifyTake, prepareForLoop, resampleToLength, spliceBuffer, trimSilence } from '../audio/loopPrep'
 import { lockTakeToClick } from '../audio/clickLock'
+import { closeEvents, phraseCut } from '../audio/edit'
 import { repeatPhrase, sharedPhraseSeconds } from '../audio/grid'
 import { moveHit, moveNote, slideTake } from '../audio/nudge'
 import { bindAudition } from '../audio/audition'
-import { cleanLiveTake, stripStoredClick } from '../audio/clickStrip'
+import { cleanLiveTake, spliceStoredClick, stripStoredClick } from '../audio/clickStrip'
 import {
   applyMixerState,
   getLayerBuffer,
@@ -269,6 +270,85 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
     const shown = formatTime(Math.round(seconds)).replace(/\.00$/, '')
     notify(`Song is ${shown}. Each repeat starts on the next beat. Drag a note, a hit, or the wave if it needs a nudge.`)
   }
+
+  const cutSpace = (range: LoopRange) => {
+    const current = sessionRef.current
+    const bpm = current.meta.bpm
+    const beat = beatDuration(bpm)
+    const bar = barDuration(bpm)
+    let phrase = 0
+    for (const track of current.tracks) {
+      for (const layer of track.layers) {
+        const buf = getLayerBuffer(layer.id)
+        const next = repeatPhrase(layer, bpm, current.meta.bars, buf ? audibleEnd(buf) : 0)
+        if (next > phrase) phrase = next
+      }
+    }
+    const span = phraseCut(range, phrase)
+    if (!span) return
+    const gap = span.end - span.start
+    if (gap >= phrase - beat * 0.4) {
+      notify('Select just the empty stretch. Leave the notes in place.')
+      return
+    }
+    for (const track of current.tracks) {
+      for (const layer of track.layers) {
+        const buf = getLayerBuffer(layer.id)
+        if (!buf) continue
+        const cut = spliceBuffer(buf, span.start, span.end)
+        if (cut !== buf) {
+          setLayerBuffer(layer.id, cut)
+          spliceStoredClick(layer.id, span.start, span.end)
+        }
+      }
+    }
+    const songSeconds = bar * Math.max(1, current.meta.bars)
+    const tiles = Math.max(1, Math.round(songSeconds / Math.max(phrase, beat)))
+    const newBars = Math.min(240, Math.max(1, Math.round(Math.max(beat, songSeconds - gap * tiles) / bar)))
+    const tracks = current.tracks.map((track) => ({
+      ...track,
+      layers: track.layers.map((layer) => {
+        const buf = getLayerBuffer(layer.id)
+        return {
+          ...layer,
+          duration: buf ? buf.duration : Math.max(0.05, layer.duration - gap),
+          notes: closeEvents(layer.notes, span.start, span.end),
+          drums: closeEvents(layer.drums, span.start, span.end),
+          clickPass: (layer.clickPass ?? 0) + 1,
+        }
+      }),
+    }))
+    setSession((s) => ({
+      ...s,
+      meta: { ...s.meta, bars: newBars },
+      tracks,
+    }))
+    changeLoop(null)
+    changeLoopOn(false)
+    const head = playheadRef.current
+    if (head >= range.end - 0.02) void seek(Math.max(0, head - gap))
+    else if (head > range.start) void seek(range.start)
+    notify('Removed that space. Everything after it moved up.')
+  }
+
+  const cutRef = useRef(cutSpace)
+  cutRef.current = cutSpace
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Backspace' && event.key !== 'Delete') return
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return
+      }
+      const selected = loopRef.current.loop
+      if (!selected || selected.end - selected.start < 0.08) return
+      event.preventDefault()
+      cutRef.current(selected)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const layerById = (layerId: string) => {
     for (const track of sessionRef.current.tracks) {
@@ -1042,6 +1122,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                     onLoopOn={changeLoopOn}
                     arrangement={barsDuration(session.meta.bpm, session.meta.bars)}
                     onExtend={extendSong}
+                    onCut={cutSpace}
                     onPlaying={setPlaying}
                     onPreview={(mode) => {
                       previewRef.current = mode
@@ -1060,6 +1141,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                     onLoopOn={changeLoopOn}
                     arrangement={barsDuration(session.meta.bpm, session.meta.bars)}
                     onExtend={extendSong}
+                    onCut={cutSpace}
                   >
                     {selected.kind === 'vocals' ? (
                       <Waveform
@@ -1136,6 +1218,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
                   onLoopOn={changeLoopOn}
                   arrangement={barsDuration(session.meta.bpm, session.meta.bars)}
                   onExtend={extendSong}
+                  onCut={cutSpace}
                 >
                   <div className="flex h-full flex-1 items-center justify-center px-4 text-center text-sm text-mute">
                     {recordingId === 'live' ? 'Capturing this pass…' : 'Empty arrangement — record or drop a take.'}
