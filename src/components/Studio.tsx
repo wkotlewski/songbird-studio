@@ -880,7 +880,7 @@ export function Studio({ onHome, onAbout }: { onHome: () => void; onAbout: () =>
       clickPass: (layer.clickPass ?? 0) + 1,
       status: 'Click removed from this take',
     })
-    notify('Pulled the metronome out of this take.')
+    notify('Pulled the metronome out and kept the melody going through it.')
   }
 
   const togglePlay = async () => {

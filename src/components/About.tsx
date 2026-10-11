@@ -39,7 +39,7 @@ const TOOLS: { name: string; href: string; role: string }[] = [
 const STEPS: { title: string; body: string }[] = [
   {
     title: 'Set the grid',
-    body: 'Pick a BPM. Press Play — you should hear a click on a 4-bar loop. Mute Click anytime. If the metronome still bled into a take, use Remove click — it works after you have already recorded.',
+    body: 'Pick a BPM. Press Play — you should hear a click on a 4-bar loop. Mute Click anytime. If the speakers bled into the mic, Remove click lifts that tick out and keeps the melody continuous. It works after you have already recorded.',
   },
   {
     title: 'Loop a region',
@@ -51,7 +51,7 @@ const STEPS: { title: string; body: string }[] = [
   },
   {
     title: 'Record live or drop a raw file',
-    body: 'Record live captures the next pass. Mute Click before you record when you can. Remove click pulls metronome bleed out of a take you already have, including vocals.',
+    body: 'Record live captures the next pass. Mute Click before you record when you can. Remove click finds the metronome tick that repeated on the beat, lifts it out, and repairs the note underneath so the take does not get a hole.',
   },
   {
     title: 'Clean and mix',
