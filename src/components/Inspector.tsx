@@ -1,4 +1,4 @@
-import { instrumentsFor, instrumentById, INSTRUMENTS, SOUNDFONT_CREDIT } from '../data/instruments'
+import { instrumentsFor, instrumentById, INSTRUMENTS, SOUNDFONT_CREDIT, type InstrumentGroup } from '../data/instruments'
 import { audition } from '../audio/audition'
 import { DRUM_PIECES, DRUM_PIECE_LABELS, DEFAULT_SNAP, ORIGINAL_UNDERLAY, RHYTHM_FEELS, VOCAL_ECHOES, VOCAL_REVERBS, VOCAL_TONES, layerHasContent, sameRhythm, vocalTreatmentForInstrument, type VocalRole } from '../types'
 import { useStudio } from '../state/session'
@@ -57,6 +57,17 @@ function Knob({
   )
 }
 
+const SOUND_PACKS: { id: InstrumentGroup; label: string; hint: string }[] = [
+  { id: 'keys', label: 'Keys', hint: 'Piano, Rhodes, Wurlitzer' },
+  { id: 'guitar', label: 'Guitar', hint: 'Nylon, steel, electric' },
+  { id: 'bass', label: 'Bass', hint: 'Upright, finger, fretless' },
+  { id: 'strings', label: 'Strings', hint: 'Violin, cello, ensemble' },
+  { id: 'winds', label: 'Winds', hint: 'Flute, sax, brass' },
+  { id: 'synth', label: 'Synth', hint: 'Pad and choir' },
+  { id: 'drums', label: 'Drums', hint: 'Kits that follow your hits' },
+  { id: 'voice', label: 'Voice', hint: 'How the vocal sits' },
+]
+
 function nameForSound(current: string, label: string): string {
   if (current.startsWith('Layer')) return label
   if (INSTRUMENTS.some((inst) => inst.label === current)) return label
@@ -103,24 +114,6 @@ export function Inspector() {
   const lockedNotes = layer.notes.length > 0 || layer.drums.length > 0
   const stacks = layer.stackIds ?? []
 
-  const addAs = (instrumentId: string, label: string) => {
-    if (selected.kind === 'vocals') return
-    if (!lockedNotes) {
-      notify('Lock some notes or hits first — then this sound can sit on the recording.')
-      return
-    }
-    if (instrumentId === layer.instrumentId || stacks.includes(instrumentId)) return
-    patch({
-      stackIds: [...stacks, instrumentId],
-      accepted: true,
-      originalMix: layer.originalMix > 0.9 ? ORIGINAL_UNDERLAY : layer.originalMix,
-      status: `Stacked ${label}`,
-    })
-    void preloadInstrument(instrumentId)
-    audition()
-    notify(`${label} is stacked on this take, with your recording still underneath.`)
-  }
-
   const chooseSound = (instrumentId: string) => {
     const inst = instrumentById(instrumentId)
     if (selected.kind !== 'vocals' && hasTake && !lockedNotes) {
@@ -157,7 +150,59 @@ export function Inspector() {
   const hearOriginal = () => {
     patch({ originalMix: 1, status: 'Original take' })
     audition()
-    notify('Just your recording. Pick a sound again to bring the instrument back.')
+    notify('Just your recording. Add a sound from a pack to bring instruments back.')
+  }
+
+  const audibleIds =
+    selected.kind === 'vocals' || layer.originalMix > 0.9
+      ? selected.kind === 'vocals'
+        ? [layer.instrumentId]
+        : []
+      : [layer.instrumentId, ...stacks].filter((id, index, all) => all.indexOf(id) === index)
+
+  const addVoice = (id: string) => {
+    const inst = instrumentById(id)
+    if (selected.kind === 'vocals') {
+      chooseSound(id)
+      return
+    }
+    if (hasTake && !lockedNotes) {
+      notify('No notes locked yet, so you’re still hearing the recording. Loosen the gate, then add a sound.')
+      return
+    }
+    if (audibleIds.includes(id)) return
+    const next = [...audibleIds, id]
+    patch({
+      instrumentId: next[0],
+      stackIds: next.slice(1),
+      accepted: true,
+      originalMix: hasTake ? ORIGINAL_UNDERLAY : layer.originalMix,
+      name: nameForSound(layer.name, instrumentById(next[0]).label),
+      status: next.map((voice) => instrumentById(voice).label).join(' · '),
+    })
+    void preloadInstrument(id)
+    if (hasTake) audition()
+    notify(
+      hasTake
+        ? `${inst.label} is on this take. Every sound follows the same recording.`
+        : `${inst.label} is ready. Record whenever you want — it will follow the take.`,
+    )
+  }
+
+  const removeVoice = (id: string) => {
+    if (selected.kind === 'vocals') return
+    const next = audibleIds.filter((voice) => voice !== id)
+    if (next.length === 0) {
+      hearOriginal()
+      return
+    }
+    patch({
+      instrumentId: next[0],
+      stackIds: next.slice(1),
+      name: nameForSound(layer.name, instrumentById(next[0]).label),
+      status: next.map((voice) => instrumentById(voice).label).join(' · '),
+    })
+    audition()
   }
 
   const syncAllLayers = () => {
@@ -288,30 +333,61 @@ export function Inspector() {
         </div>
       )}
 
-      <p className="mt-3 text-xs uppercase tracking-widest text-gold">
-        {selected.kind === 'vocals' ? 'This layer’s treatment' : 'Sound on this layer'}
-      </p>
+      <p className="mt-3 text-xs uppercase tracking-widest text-gold">Sound packs</p>
       <p className="mt-0.5 text-[11px] text-mute">
         {selected.kind === 'vocals'
-          ? <>Playing <span className="text-gold">{instrumentById(layer.instrumentId).label}</span> — swap anytime.</>
-          : hasTake
-            ? <>After a take, pick a sound. You hear that instrument with a little of your recording under it.</>
-            : <>Pick a sound, then record. The take will sit under it.</>}
+          ? 'Open Voice and choose how this take sits.'
+          : selected.kind === 'drums'
+            ? 'Open a pack and add kits. They all follow the rhythm you recorded.'
+            : 'Open a pack and add sounds. They all follow the melody you recorded, and your take stays underneath.'}
       </p>
-      <div className="mt-2 grid gap-2">
-        {insts.map((inst) => (
-          <button
-            key={inst.id}
-            type="button"
-            onClick={() => chooseSound(inst.id)}
-            className={`rounded-xl border px-2.5 py-1.5 text-left ${
-              layer.instrumentId === inst.id ? 'border-gold bg-ink' : 'border-line'
-            }`}
-          >
-            <p className="text-sm text-white">{inst.label}</p>
-            <p className="text-[11px] text-mute">{inst.blurb}</p>
-          </button>
-        ))}
+      {selected.kind !== 'vocals' && audibleIds.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {audibleIds.map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => removeVoice(id)}
+              className="rounded-full border border-gold/70 px-2.5 py-1 text-[11px] text-gold"
+              title="Take this sound off the recording"
+            >
+              {instrumentById(id).label} ×
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 flex flex-col gap-2">
+        {SOUND_PACKS.filter((pack) => insts.some((inst) => inst.group === pack.id)).map((pack) => {
+          const options = insts.filter((inst) => inst.group === pack.id)
+          const used = options.filter((inst) => audibleIds.includes(inst.id)).length
+          return (
+            <div
+              key={pack.id}
+              className={`rounded-2xl border px-4 py-4 ${used ? 'border-gold bg-ink' : 'border-line'}`}
+            >
+              <p className="font-display text-2xl leading-none text-white">{pack.label}</p>
+              <p className="mt-1 text-[11px] text-mute">{used ? `${used} on this take` : pack.hint}</p>
+              <label className="mt-3 block text-[11px] text-mute">
+                Add from {pack.label}
+                <select
+                  className="mt-1 w-full rounded-xl border border-line bg-panel px-3 py-2.5 text-sm text-white outline-none focus:border-gold"
+                  value=""
+                  onChange={(e) => {
+                    const id = e.target.value
+                    if (id) addVoice(id)
+                  }}
+                >
+                  <option value="">Choose a sound…</option>
+                  {options.map((inst) => (
+                    <option key={inst.id} value={inst.id} disabled={audibleIds.includes(inst.id)}>
+                      {audibleIds.includes(inst.id) ? `${inst.label} · on this take` : inst.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )
+        })}
       </div>
       {selected.kind === 'drums' && isDirtStyle(layer.instrumentId) && (
         <div className="mt-4 rounded-2xl border border-line p-3">
@@ -376,53 +452,15 @@ export function Inspector() {
       )}
 
       {hasTake && selected.kind !== 'vocals' && (
-        <div className="mt-5">
-          <p className="text-xs uppercase tracking-widest text-mute">On this recording</p>
-          <p className="mt-1 text-[11px] text-mute">
-            Stack another sound on the same take — piano and Rhodes together. Hear original strips them back off.
-          </p>
-          {stacks.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {stacks.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => {
-                    patch({ stackIds: stacks.filter((item) => item !== id), status: `Removed ${instrumentById(id).label}` })
-                    audition()
-                  }}
-                  className="rounded-full border border-gold/70 px-2.5 py-1 text-[11px] text-gold"
-                  title="Remove this stacked sound"
-                >
-                  {instrumentById(id).label} ×
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
-            {insts
-              .filter((inst) => inst.id !== layer.instrumentId && !stacks.includes(inst.id))
-              .map((inst) => (
-                <button
-                  key={`add-${inst.id}`}
-                  type="button"
-                  onClick={() => addAs(inst.id, inst.label)}
-                  className="rounded-full border border-line px-3 py-1 text-xs text-mist hover:border-gold hover:text-gold"
-                >
-                  + {inst.label}
-                </button>
-              ))}
-          </div>
-          <button
-            type="button"
-            onClick={hearOriginal}
-            className={`mt-3 w-full rounded-full border py-1.5 text-xs ${
-              layer.originalMix > 0.9 ? 'border-gold bg-gold/15 text-gold' : 'border-line text-mist hover:border-gold'
-            }`}
-          >
-            Hear original
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={hearOriginal}
+          className={`mt-3 w-full rounded-full border py-2 text-sm ${
+            layer.originalMix > 0.9 ? 'border-gold bg-gold/15 text-gold' : 'border-line text-mist hover:border-gold'
+          }`}
+        >
+          Hear original
+        </button>
       )}
 
       {selected.kind !== 'vocals' && hasTake && (
