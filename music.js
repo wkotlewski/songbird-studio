@@ -129,101 +129,202 @@ function renderBeatbox(notes, duration, bpm, rng) {
   return out
 }
 
-function renderPiano(notes, duration) {
-  const out = silence(duration)
-  for (const note of notes) {
-    const start = Math.floor(note.time * SR)
-    const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.85) * SR))
-    const freq = hzOf(note.midi)
-    const phases = [0, 0, 0, 0, 0, 0]
-    for (let i = 0; i < length; i++) {
-      const t = i / SR
-      let sample = 0
-      for (let harmonic = 1; harmonic <= 6; harmonic++) {
-        phases[harmonic - 1] += (2 * Math.PI * freq * harmonic) / SR
-        sample += (Math.sin(phases[harmonic - 1]) * Math.exp(-t * (1.5 + harmonic * 1.25))) / harmonic
-      }
-      const hammer = t < 0.008 ? 1 - t / 0.008 : 0
-      out[start + i] += sample * 0.55 + hammer * 0.08
-    }
+// The performance stays simple. These are the studio parts built around it:
+// weight, harmony, a backbeat, and a little room. They describe how a part
+// sits in a record, across styles and eras, rather than one current trend.
+const STUDIO = {
+  piano: { partials: 7, stretch: 0.00012, support: 0.3, room: 0.16, warm: 0.22 },
+  guitar: { partner: 0.4, strum: 0.018, room: 0.11, warm: 0.18 },
+  bass: { sub: 0.58, body: 0.46, grit: 0.12, room: 0.04, warm: 0.32 },
+  drums: { hat: 0.2, room: 0.08, warm: 0.28 },
+  choir: { partials: 6, detune: 0.08, room: 0.26, warm: 0.12 },
+}
+
+function addRoom(samples, amount) {
+  if (amount <= 0) return samples
+  const dry = samples.slice()
+  const taps = [[837, 0.34], [1279, 0.24], [1811, 0.16], [2341, 0.1]]
+  for (const [delay, gain] of taps) {
+    const level = gain * amount
+    for (let i = delay; i < samples.length; i++) samples[i] += dry[i - delay] * level
   }
-  return out
+  return samples
+}
+
+function warm(samples, amount) {
+  if (amount <= 0) return samples
+  const drive = 1 + amount * 2.4
+  for (let i = 0; i < samples.length; i++) samples[i] = Math.tanh(samples[i] * drive) * 0.86
+  return samples
+}
+
+function studioFinish(samples, profile) {
+  addRoom(samples, profile.room || 0)
+  warm(samples, profile.warm || 0)
+  return samples
+}
+
+function renderPianoNote(out, note, gain, rng, hammer) {
+  const start = Math.floor(note.time * SR)
+  if (start >= out.length || start < 0) return
+  const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.75) * SR))
+  const base = hzOf(note.midi)
+  const partials = STUDIO.piano.partials
+  const phases = new Float32Array(partials)
+  const steps = new Float32Array(partials)
+  for (let harmonic = 1; harmonic <= partials; harmonic++) {
+    const freq = base * harmonic * Math.sqrt(1 + STUDIO.piano.stretch * harmonic * harmonic)
+    steps[harmonic - 1] = (2 * Math.PI * freq) / SR
+  }
+  for (let i = 0; i < length; i++) {
+    const t = i / SR
+    let sample = 0
+    for (let harmonic = 0; harmonic < partials; harmonic++) {
+      phases[harmonic] += steps[harmonic]
+      sample += Math.sin(phases[harmonic]) * Math.exp(-t * (1.05 + (harmonic + 1) * 0.95)) / (harmonic + 1)
+    }
+    const strike = hammer && t < 0.006 ? (rng() * 2 - 1) * (1 - t / 0.006) * 0.28 : 0
+    const attack = Math.min(1, t / 0.005)
+    out[start + i] += (sample * 0.7 + strike) * attack * gain
+  }
+}
+
+function renderPiano(notes, duration, rng = mulberry32(1)) {
+  const out = silence(duration)
+  const key = guessKey(notes)
+  notes.forEach((note, index) => {
+    const late = (index === 0 ? 0 : (rng() - 0.5) * 0.012)
+    renderPianoNote(out, { ...note, time: note.time + late }, 1, rng, true)
+    if (index % 2 === 0) {
+      const third = transposeDiatonic(note.midi, -2, key)
+      renderPianoNote(out, { ...note, midi: Math.max(48, third), time: note.time + late + 0.012, dur: note.dur * 0.9 }, STUDIO.piano.support, rng, false)
+    }
+  })
+  return studioFinish(out, STUDIO.piano)
+}
+
+function pluckString(out, midi, time, dur, rng, gain) {
+  const start = Math.floor(time * SR)
+  if (start >= out.length || start < 0) return
+  const freq = hzOf(midi)
+  const period = Math.max(2, Math.round(SR / freq))
+  const delay = new Float32Array(period)
+  for (let i = 0; i < period; i++) delay[i] = (rng() * 2 - 1) * Math.exp(-i / (period * 0.28))
+  const length = Math.min(out.length - start, Math.floor(Math.max(dur, 0.55) * SR))
+  const damp = 0.496 - Math.min(0.012, freq / 18000)
+  let index = 0
+  let previous = 0
+  let body = 0
+  for (let i = 0; i < length; i++) {
+    const sample = delay[index]
+    const filtered = (sample + previous) * damp
+    previous = sample
+    delay[index] = filtered
+    index = (index + 1) % period
+    body += 0.06 * (filtered - body)
+    const t = i / SR
+    out[start + i] += (filtered * 0.78 + body * 0.45) * Math.min(1, t / 0.003) * gain
+  }
 }
 
 function renderGuitar(notes, duration, rng) {
   const out = silence(duration)
-  for (const note of notes) {
-    const freq = hzOf(note.midi)
-    const period = Math.max(2, Math.round(SR / freq))
-    const delay = new Float32Array(period)
-    for (let i = 0; i < period; i++) delay[i] = rng() * 2 - 1
-    const length = Math.min(out.length - Math.floor(note.time * SR), Math.floor(Math.max(note.dur, 0.7) * SR))
-    const start = Math.floor(note.time * SR)
-    let index = 0
-    let previous = 0
-    for (let i = 0; i < length; i++) {
-      const sample = delay[index]
-      const filtered = (sample + previous) * 0.5 * 0.994
-      previous = sample
-      delay[index] = filtered
-      index = (index + 1) % period
-      const t = i / SR
-      out[start + i] += filtered * Math.min(1, t / 0.004) * 0.7
-    }
-  }
-  return out
+  const key = guessKey(notes)
+  notes.forEach((note, index) => {
+    const late = index === 0 ? 0 : (rng() - 0.5) * 0.01
+    pluckString(out, note.midi, note.time + late, note.dur, rng, 0.85)
+    const lower = Math.max(40, transposeDiatonic(note.midi, -4, key))
+    pluckString(out, lower, note.time + late + STUDIO.guitar.strum, note.dur * 0.85, rng, STUDIO.guitar.partner)
+  })
+  return studioFinish(out, STUDIO.guitar)
 }
 
 function renderBass(notes, duration) {
   const out = silence(duration)
   for (const note of notes) {
     const start = Math.floor(note.time * SR)
-    const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.35) * SR))
+    if (start >= out.length) continue
+    const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.4) * SR))
     const freq = hzOf(note.midi)
     let phase = 0
     for (let i = 0; i < length; i++) {
       const t = i / SR
       phase += (2 * Math.PI * freq) / SR
-      const sample = Math.sin(phase) * 0.85 + Math.sin(phase * 2) * 0.12
-      out[start + i] += sample * Math.exp(-t * 2.4) * 0.7
+      const fundamental = Math.sin(phase)
+      const sub = note.midi >= 40 ? Math.sin(phase * 0.5) * STUDIO.bass.sub : fundamental * 0.2
+      const grit = Math.tanh(fundamental * 2.1) * STUDIO.bass.grit
+      const attack = Math.min(1, t / 0.01)
+      const release = Math.min(1, Math.max(0, note.dur - t) / 0.07)
+      const hold = 0.62 + 0.38 * Math.exp(-t * 0.7)
+      out[start + i] += (sub + fundamental * STUDIO.bass.body + grit) * attack * release * hold * 0.55
     }
   }
-  return out
+  return studioFinish(out, STUDIO.bass)
 }
 
 function renderHit(kind, rng) {
-  const length = Math.floor(SR * (kind === "hat" ? 0.05 : kind === "snare" ? 0.18 : 0.22))
+  const length = Math.floor(SR * (kind === "hat" ? 0.05 : kind === "snare" ? 0.32 : 0.46))
   const out = new Float32Array(length)
   let phase = 0
   let previous = 0
   for (let i = 0; i < length; i++) {
     const t = i / SR
     if (kind === "kick") {
-      const freq = 48 + 130 * Math.exp(-t * 28)
+      const freq = 47 + 160 * Math.exp(-t * 24)
       phase += (2 * Math.PI * freq) / SR
-      out[i] = Math.sin(phase) * Math.exp(-t * 16) * 0.95
+      const click = t < 0.004 ? (rng() * 2 - 1) * (1 - t / 0.004) * 0.32 : 0
+      out[i] = Math.tanh(Math.sin(phase) * 1.45) * Math.exp(-t * 6.8) * 0.92 + click
     } else if (kind === "snare") {
       const noise = rng() * 2 - 1
-      phase += (2 * Math.PI * 190) / SR
-      out[i] = noise * Math.exp(-t * 22) * 0.55 + Math.sin(phase) * Math.exp(-t * 28) * 0.25
+      phase += (2 * Math.PI * 186) / SR
+      const snap = t < 0.01 ? (rng() * 2 - 1) * (1 - t / 0.01) * 0.45 : 0
+      out[i] = noise * Math.exp(-t * 12) * 0.42 + Math.sin(phase) * Math.exp(-t * 18) * 0.38 + snap
     } else {
       const noise = rng() * 2 - 1
       const high = noise - previous
-      previous = noise
-      out[i] = high * Math.exp(-t * 55) * 0.4
+      previous = noise * 0.65
+      out[i] = high * Math.exp(-t * 46) * 0.55
     }
+  }
+  if (kind === "snare") {
+    const delay = Math.floor(SR * 0.037)
+    for (let i = delay; i < out.length; i++) out[i] += out[i - delay] * 0.2
   }
   return out
 }
 
+function beatGap(hits) {
+  const times = hits.map((hit) => hit.time).sort((a, b) => a - b)
+  const gaps = []
+  for (let i = 1; i < times.length; i++) {
+    const gap = times[i] - times[i - 1]
+    if (gap >= 0.22 && gap <= 1.3) gaps.push(gap)
+  }
+  if (!gaps.length) return 0
+  gaps.sort((a, b) => a - b)
+  return gaps[Math.floor(gaps.length / 2)]
+}
+
 function renderDrums(hits, duration, rng) {
   const out = silence(duration)
-  for (const hit of hits) {
-    const hitSound = renderHit(hit.kind, rng)
-    const start = Math.floor(hit.time * SR)
-    for (let i = 0; i < hitSound.length && start + i < out.length; i++) out[start + i] += hitSound[i]
+  const beat = beatGap(hits)
+  const last = hits.reduce((max, hit) => Math.max(max, hit.time), 0)
+  const all = hits.slice()
+  if (hits.length >= 4 && beat > 0) {
+    const step = beat >= 0.4 ? beat / 2 : beat
+    for (let time = 0; time <= last + 0.001; time += step) {
+      const nudge = time < 0.01 ? 0 : (rng() - 0.5) * 0.008
+      all.push({ time: Math.max(0, time + nudge), kind: "hat" })
+    }
   }
-  return out
+  for (const hit of all) {
+    const nudge = hit.kind === "hat" || hit.time < 0.02 ? 0 : (rng() - 0.5) * 0.01
+    const sound = renderHit(hit.kind, rng)
+    const level = hit.kind === "hat" ? STUDIO.drums.hat : 1
+    const start = Math.floor((hit.time + nudge) * SR)
+    for (let i = 0; i < sound.length && start + i < out.length; i++) out[start + i] += sound[i] * level
+  }
+  return studioFinish(out, STUDIO.drums)
 }
 
 function downsample(samples) {
@@ -479,18 +580,54 @@ function transposeDiatonic(midi, steps, keyRoot) {
   return keyRoot + nextOct * 12 + major[nextIndex]
 }
 
+function vowelWeights(freq) {
+  const weights = []
+  for (let harmonic = 1; harmonic <= STUDIO.choir.partials; harmonic++) {
+    const tone = freq * harmonic
+    const first = Math.exp(-((tone - 730) ** 2) / (2 * 190 * 190))
+    const second = Math.exp(-((tone - 1100) ** 2) / (2 * 230 * 230))
+    weights.push((0.22 + first * 1.45 + second * 0.85) / harmonic)
+  }
+  return weights
+}
+
+function singVowel(out, note, gain, rng) {
+  const start = Math.floor(note.time * SR)
+  if (start >= out.length || start < 0) return
+  const length = Math.min(out.length - start, Math.floor(note.dur * SR))
+  const freq = hzOf(note.midi)
+  const weights = vowelWeights(freq)
+  const phases = new Float32Array(weights.length)
+  const steps = weights.map((_, index) => (2 * Math.PI * freq * (index + 1)) / SR)
+  for (let i = 0; i < length; i++) {
+    const t = i / SR
+    let sample = 0
+    for (let harmonic = 0; harmonic < weights.length; harmonic++) {
+      phases[harmonic] += steps[harmonic]
+      sample += Math.sin(phases[harmonic]) * weights[harmonic]
+    }
+    const attack = Math.min(1, t / 0.045)
+    const release = Math.min(1, Math.max(0, note.dur - t) / 0.09)
+    const breath = (rng() * 2 - 1) * 0.012
+    out[start + i] += (sample * 0.34 + breath) * attack * release * gain
+  }
+}
+
 function renderChoir(notes, duration, keyRoot, rng) {
-  const voices = [0, 2, 4].map((steps, index) => {
-    const shifted = notes.map((note) => ({
-      midi: transposeDiatonic(note.midi, steps, keyRoot) + (index === 0 ? 0 : (index === 1 ? 0.06 : -0.05)),
-      time: note.time,
-      dur: note.dur,
-    }))
-    return renderVoice(shifted, duration, "sing", rng)
-  })
   const out = silence(duration)
-  for (let i = 0; i < out.length; i++) out[i] = voices[0][i] * 0.42 + voices[1][i] * 0.34 + voices[2][i] * 0.3
-  return out
+  ;[0, 2, 4].forEach((steps, index) => {
+    const detune = (index - 1) * STUDIO.choir.detune
+    const stagger = index * 0.014
+    const gain = index === 0 ? 0.52 : 0.36
+    for (const note of notes) {
+      singVowel(out, {
+        midi: transposeDiatonic(note.midi, steps, keyRoot) + detune,
+        time: note.time + stagger,
+        dur: note.dur,
+      }, gain, rng)
+    }
+  })
+  return studioFinish(out, STUDIO.choir)
 }
 
 function coverage(written, detected) {
@@ -543,7 +680,7 @@ function transformAudio(samples, kind, options = {}) {
   }
   const notes = detectNotes(samples)
   if (notes.length < 2) return null
-  if (kind === "Piano") return { samples: finish(renderPiano(notes, duration)), proof: { notes } }
+  if (kind === "Piano") return { samples: finish(renderPiano(notes, duration, rng)), proof: { notes } }
   if (kind === "Guitar") return { samples: finish(renderGuitar(notes, duration, rng)), proof: { notes } }
   if (kind === "Choir") {
     const key = options.key == null ? guessKey(notes) : options.key
