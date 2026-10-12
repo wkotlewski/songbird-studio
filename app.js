@@ -302,6 +302,7 @@ const state = {
   playAt: 0,
   section: null,
   sectionMode: "add",
+  sections: null,
 }
 
 const $ = (id) => document.getElementById(id)
@@ -650,6 +651,7 @@ function capture() {
     playAt: state.playAt,
     section: state.section,
     sectionMode: state.sectionMode,
+    sections: state.sections,
   })
 }
 
@@ -672,6 +674,7 @@ function restore(raw) {
     if (typeof data.playAt === "number") state.playAt = data.playAt
     if ("section" in data) state.section = data.section
     if (data.sectionMode) state.sectionMode = data.sectionMode
+    if ("sections" in data) state.sections = data.sections
   }
   if (!state.layers.some((layer) => layer.id === state.selected)) state.selected = state.layers[0]?.id ?? null
   renderPlanNote()
@@ -868,6 +871,15 @@ function songSeconds(now) {
 }
 
 function songSections() {
+  if (Array.isArray(state.sections) && state.sections.length) {
+    return state.sections.map((section, index) => ({
+      id: section.id,
+      name: section.name || `Part ${index + 1}`,
+      start: section.start,
+      end: section.end,
+      color: BAND_COLOR[section.name] || (index % 2 ? "#F9A8D4" : "#34D399"),
+    }))
+  }
   const shape = SHAPES[state.shape]
   if (shape) {
     return shape.bands.map(([name, start, end], index) => ({
@@ -887,6 +899,83 @@ function songSections() {
     end: (index + 1) / parts,
     color: index % 2 ? "#F59AD4" : "#34D399",
   }))
+}
+
+function ensureCustomSections() {
+  if (Array.isArray(state.sections) && state.sections.length) return state.sections
+  state.sections = songSections().map((section) => ({
+    id: section.id,
+    name: section.name,
+    start: section.start,
+    end: section.end,
+  }))
+  return state.sections
+}
+
+function nameSection(id, raw, commit) {
+  const sections = ensureCustomSections()
+  const section = sections.find((item) => item.id === id)
+  if (!section) return
+  const typed = String(raw ?? "")
+  const cleaned = typed.trim().slice(0, 32)
+  if (commit) {
+    section.name = cleaned || "Part"
+    rememberSong()
+    $("save-status").textContent = `Section named ${section.name}.`
+  } else if (cleaned) {
+    section.name = cleaned
+  }
+  document.querySelectorAll(`.section[data-id="${id}"]`).forEach((button) => {
+    button.textContent = section.name
+    button.title = `${section.name}, ${sectionClock(section)}`
+  })
+  document.querySelectorAll(`.section-name[data-section="${id}"]`).forEach((field) => {
+    if (field !== document.activeElement) field.value = section.name
+  })
+}
+
+function addSection() {
+  const sections = ensureCustomSections()
+  const span = spanSeconds()
+  const at = Math.min(0.98, Math.max(0.02, (state.playAt || 0) / span))
+  let index = sections.findIndex((section) => at > section.start + 0.01 && at < section.end - 0.01)
+  if (index < 0) index = sections.findIndex((section) => section.id === state.section)
+  if (index < 0) index = sections.length - 1
+  const section = sections[index]
+  const minFrac = Math.max(0.04, 2 / span)
+  const cut = at > section.start + minFrac && at < section.end - minFrac ? at : (section.start + section.end) / 2
+  if (cut - section.start < minFrac || section.end - cut < minFrac) {
+    $("save-status").textContent = "That part is too short to split. Move the play line into a longer part."
+    return
+  }
+  snapshot()
+  const created = { id: uid(), name: "New part", start: cut, end: section.end }
+  section.end = cut
+  sections.splice(index + 1, 0, created)
+  state.section = created.id
+  rememberSong()
+  renderRuler()
+  const field = document.querySelector(".section-name")
+  if (field) {
+    field.focus()
+    field.select()
+  }
+  $("save-status").textContent = "New part added. Type a name, then click away."
+}
+
+function removeSection(id) {
+  const sections = ensureCustomSections()
+  if (sections.length < 2) return
+  const index = sections.findIndex((section) => section.id === id)
+  if (index < 0) return
+  snapshot()
+  if (index === 0) sections[1].start = sections[0].start
+  else sections[index - 1].end = sections[index].end
+  sections.splice(index, 1)
+  state.section = sections[Math.max(0, index - 1)].id
+  rememberSong()
+  renderRuler()
+  $("save-status").textContent = `${sections.find((section) => section.id === state.section)?.name || "That part"} now covers the space.`
 }
 
 function activeSection() {
@@ -989,7 +1078,7 @@ function renderPlanNote() {
     return
   }
   if (!state.lengthSec) {
-    note.textContent = "Drag the play line, or click a section to jump there. Open Build to set a length and a shape."
+    note.textContent = "Drag the play line, or click a section to jump there. Add a section, or rename the one you selected. Open Build to set a length and a shape."
     return
   }
   if (!state.shape) {
@@ -1008,24 +1097,26 @@ function renderRuler() {
   marks.push(`<span>${formatClock(total)}</span>`)
   if (state.section && !activeSection()) state.section = null
   const sections = songSections()
+  const current = activeSection()
   const bands = `<div class="shape-row">${sections
     .map((section) => {
       const on = state.section === section.id
-      return `<button class="section ${on ? "on" : ""}" data-action="pick-section" data-id="${esc(section.id)}" style="width:${(section.end - section.start) * 100}%" title="${sectionClock(section)}">${esc(section.name)}</button>`
+      return `<button class="section ${on ? "on" : ""}" data-action="pick-section" data-id="${esc(section.id)}" style="width:${(section.end - section.start) * 100}%" title="${esc(section.name)}, ${sectionClock(section)}">${esc(section.name)}</button>`
     })
     .join("")}</div>`
-  const tools = state.section
-    ? `<div class="section-tools">
-        ${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
+  const tools = `<div class="section-tools">
+        ${current ? `<input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Section name" />` : ""}
+        ${outlinedButton("Add a section", `data-action="add-section"`)}
+        ${current && sections.length > 1 ? outlinedButton("Remove", `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
+        ${current ? `${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
         ${filterChip("Change this part", `data-action="section-mode" data-mode="replace"`, state.sectionMode === "replace")}
-        ${outlinedButton("Whole song", `data-action="whole-song"`)}
+        ${outlinedButton("Whole song", `data-action="whole-song"`)}` : ""}
       </div>`
-    : ""
   const beat = 60 / (state.bpm || 92)
   const ticks = []
   for (let t = 0; t <= total + 0.01; t += beat * 4) ticks.push(`<i style="left:${(t / total) * 100}%"></i>`)
   const zoom = [1, 1.5, 2].map((level) => filterChip(level === 1 ? "Fit" : `${level}×`, `data-action="zoom" data-zoom="${level}" title="Timeline zoom"`, (state.zoom || 1) === level)).join("")
-  $("ruler").innerHTML = `${bands}${tools}<div class="ruler-tools"><div class="beats" aria-hidden="true">${ticks.join("")}</div><div class="zoom">${zoom}</div></div><div class="ruler-marks">${marks.join("")}</div>`
+  $("ruler").innerHTML = `<div class="ruler-layout"><div class="ruler-gutter">Sections</div><div class="ruler-main">${bands}${tools}<div class="ruler-tools"><div class="beats" aria-hidden="true">${ticks.join("")}</div><div class="zoom">${zoom}</div></div><div class="ruler-marks">${marks.join("")}</div></div></div>`
   placePlayhead(state.playAt || 0)
 }
 
@@ -1446,6 +1537,7 @@ function openSong(id) {
   }
   state.playAt = 0
   state.section = null
+  state.sections = song.demo ? null : (Array.isArray(song.sections) ? song.sections : null)
   state.heard = exampleNote
   state.transformNote = ""
   state.transformTone = ""
@@ -1484,6 +1576,7 @@ function rememberSong() {
   state.song.bpm = state.bpm
   state.song.tempoSource = state.tempoSource
   state.song.tempoLocked = state.tempoLocked
+  state.song.sections = state.sections
   state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch }) => ({
     id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch,
   }))
@@ -1714,6 +1807,7 @@ function applyPlan(lengthSec, shapeId, heard) {
   const nextShape = SHAPES[shapeId] ? shapeId : null
   snapshot()
   state.lengthSec = nextLength
+  if (nextShape && nextShape !== state.shape) state.sections = null
   state.shape = nextShape
   state.heard = heard || (nextShape ? planMessage(nextLength, nextShape) : lengthNote(nextLength, false))
   rememberSong()
@@ -2323,6 +2417,8 @@ document.body.addEventListener("click", (event) => {
       $("save-status").textContent = sectionWorkLine()
     }
   }
+  if (action === "add-section") addSection()
+  if (action === "remove-section") removeSection(node.dataset.id)
   if (action === "section-mode") {
     state.sectionMode = node.dataset.mode === "replace" ? "replace" : "add"
     renderRuler()
@@ -2540,6 +2636,13 @@ document.body.addEventListener("input", (event) => {
     }
     nameLayer(node.dataset.rename, node.value, false)
   }
+  if (node.classList?.contains("section-name")) {
+    if (node.dataset.snapped !== "1") {
+      snapshot()
+      node.dataset.snapped = "1"
+    }
+    nameSection(node.dataset.section, node.value, false)
+  }
   if (node.id === "wish") state.wish = node.value
   if (node.id === "bpm") {
     state.bpm = Math.min(200, Math.max(40, Number(node.value) || 92))
@@ -2561,9 +2664,14 @@ document.body.addEventListener("input", (event) => {
 
 document.body.addEventListener("focusout", (event) => {
   const node = fromControl(event)
-  if (!node.classList?.contains("layer-name")) return
-  nameLayer(node.dataset.rename, node.value, true)
-  node.dataset.snapped = ""
+  if (node.classList?.contains("layer-name")) {
+    nameLayer(node.dataset.rename, node.value, true)
+    node.dataset.snapped = ""
+  }
+  if (node.classList?.contains("section-name")) {
+    nameSection(node.dataset.section, node.value, true)
+    node.dataset.snapped = ""
+  }
 })
 
 document.body.addEventListener("pointerdown", (event) => {
@@ -2571,8 +2679,12 @@ document.body.addEventListener("pointerdown", (event) => {
 })
 
 $("timeline").addEventListener("wheel", (event) => {
-  if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-    $("timeline").scrollLeft += event.deltaY
+  const timeline = $("timeline")
+  const mostlyVertical = Math.abs(event.deltaY) > Math.abs(event.deltaX)
+  const canScrollDown = timeline.scrollHeight > timeline.clientHeight + 4
+  if (!mostlyVertical) return
+  if (event.shiftKey || !canScrollDown) {
+    timeline.scrollLeft += event.deltaY
     event.preventDefault()
   }
 }, { passive: false })
