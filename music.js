@@ -210,10 +210,10 @@ function studioFinish(samples, profile, era) {
   return samples
 }
 
-function renderPianoNote(out, note, gain, rng, hammer) {
+function renderPianoNote(out, note, gain, rng, hammer, exact) {
   const start = Math.floor(note.time * SR)
   if (start >= out.length || start < 0) return
-  const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.75) * SR))
+  const length = Math.min(out.length - start, Math.floor((exact ? note.dur : Math.max(note.dur, 0.75)) * SR))
   const base = hzOf(note.midi)
   const partials = STUDIO.piano.partials
   const phases = new Float32Array(partials)
@@ -235,28 +235,29 @@ function renderPianoNote(out, note, gain, rng, hammer) {
   }
 }
 
-function renderPiano(notes, duration, rng = mulberry32(1), era) {
+function renderPiano(notes, duration, rng = mulberry32(1), era, style = {}) {
   const out = silence(duration)
   const key = guessKey(notes)
+  const exact = !!style.exact
   notes.forEach((note, index) => {
     const late = (index === 0 ? 0 : (rng() - 0.5) * 0.012)
-    renderPianoNote(out, { ...note, time: note.time + late }, 1, rng, true)
-    if (index % 2 === 0) {
+    renderPianoNote(out, { ...note, time: note.time + late }, 1, rng, true, exact)
+    if (!style.plain && index % 2 === 0) {
       const third = transposeDiatonic(note.midi, -2, key)
-      renderPianoNote(out, { ...note, midi: Math.max(48, third), time: note.time + late + 0.012, dur: note.dur * 0.9 }, STUDIO.piano.support, rng, false)
+      renderPianoNote(out, { ...note, midi: Math.max(48, third), time: note.time + late + 0.012, dur: note.dur * 0.9 }, STUDIO.piano.support, rng, false, exact)
     }
   })
   return studioFinish(out, STUDIO.piano, era)
 }
 
-function pluckString(out, midi, time, dur, rng, gain) {
+function pluckString(out, midi, time, dur, rng, gain, exact) {
   const start = Math.floor(time * SR)
   if (start >= out.length || start < 0) return
   const freq = hzOf(midi)
   const period = Math.max(2, Math.round(SR / freq))
   const delay = new Float32Array(period)
   for (let i = 0; i < period; i++) delay[i] = (rng() * 2 - 1) * Math.exp(-i / (period * 0.28))
-  const length = Math.min(out.length - start, Math.floor(Math.max(dur, 0.55) * SR))
+  const length = Math.min(out.length - start, Math.floor((exact ? dur : Math.max(dur, 0.55)) * SR))
   const damp = 0.496 - Math.min(0.012, freq / 18000)
   let index = 0
   let previous = 0
@@ -285,11 +286,13 @@ function renderGuitar(notes, duration, rng, style = {}) {
   const key = guessKey(notes)
   const electric = !!style.electric
   const modern = style.era === "modern"
+  const exact = !!style.exact
   notes.forEach((note, index) => {
     const late = index === 0 ? 0 : (rng() - 0.5) * 0.01
-    pluckString(out, note.midi, note.time + late, note.dur, rng, electric ? 0.95 : 0.85)
+    pluckString(out, note.midi, note.time + late, note.dur, rng, electric ? 0.95 : 0.85, exact)
+    if (style.plain) return
     const lower = Math.max(40, transposeDiatonic(note.midi, -4, key))
-    pluckString(out, lower, note.time + late + STUDIO.guitar.strum, note.dur * 0.85, rng, STUDIO.guitar.partner * (electric ? 0.62 : 1))
+    pluckString(out, lower, note.time + late + STUDIO.guitar.strum, note.dur * 0.85, rng, STUDIO.guitar.partner * (electric ? 0.62 : 1), exact)
   })
   if (electric) drive(out, modern ? 0.62 : 0.28)
   const profile = electric
@@ -298,7 +301,7 @@ function renderGuitar(notes, duration, rng, style = {}) {
   return studioFinish(out, profile, style.era)
 }
 
-function renderRhodes(notes, duration, rng, era) {
+function renderRhodes(notes, duration, rng, era, style = {}) {
   const out = silence(duration)
   const modern = era === "modern"
   const rate = modern ? 0.7 : 5.1
@@ -307,7 +310,7 @@ function renderRhodes(notes, duration, rng, era) {
     const late = index === 0 ? 0 : (rng() - 0.5) * 0.01
     const start = Math.floor((note.time + late) * SR)
     if (start >= out.length || start < 0) return
-    const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.7) * SR))
+    const length = Math.min(out.length - start, Math.floor((style.exact ? note.dur : Math.max(note.dur, 0.7)) * SR))
     const freq = hzOf(note.midi)
     let bodyPhase = 0
     let tinePhase = 0
@@ -325,12 +328,12 @@ function renderRhodes(notes, duration, rng, era) {
   return studioFinish(out, { room: modern ? 0.05 : 0.24, warm: modern ? 0.08 : 0.36 }, era)
 }
 
-function renderHorn(notes, duration, era) {
+function renderHorn(notes, duration, era, style = {}) {
   const out = silence(duration)
   for (const note of notes) {
     const start = Math.floor(note.time * SR)
     if (start >= out.length || start < 0) continue
-    const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.4) * SR))
+    const length = Math.min(out.length - start, Math.floor((style.exact ? note.dur : Math.max(note.dur, 0.4)) * SR))
     const freq = hzOf(Math.min(76, Math.max(52, note.midi)))
     let phase = 0
     for (let i = 0; i < length; i++) {
@@ -346,12 +349,12 @@ function renderHorn(notes, duration, era) {
   return studioFinish(out, { room: 0.24, warm: 0.18 }, era)
 }
 
-function renderBass(notes, duration, era) {
+function renderBass(notes, duration, era, style = {}) {
   const out = silence(duration)
   for (const note of notes) {
     const start = Math.floor(note.time * SR)
     if (start >= out.length) continue
-    const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.4) * SR))
+    const length = Math.min(out.length - start, Math.floor((style.exact ? note.dur : Math.max(note.dur, 0.4)) * SR))
     const freq = hzOf(note.midi)
     let phase = 0
     for (let i = 0; i < length; i++) {
@@ -721,10 +724,11 @@ function singVowel(out, note, gain, rng) {
   }
 }
 
-function renderChoir(notes, duration, keyRoot, rng, era) {
+function renderChoir(notes, duration, keyRoot, rng, era, style = {}) {
   const out = silence(duration)
-  ;[0, 2, 4].forEach((steps, index) => {
-    const detune = (index - 1) * STUDIO.choir.detune
+  const parts = style.plain ? [0] : [0, 2, 4]
+  parts.forEach((steps, index) => {
+    const detune = style.plain ? 0 : (index - 1) * STUDIO.choir.detune
     const stagger = index * 0.014
     const gain = index === 0 ? 0.52 : 0.36
     for (const note of notes) {
@@ -769,6 +773,60 @@ function toEngineRate(samples, sampleRate) {
   return out
 }
 
+function triadUnder(midi, key) {
+  let root = midi
+  while (root > 67) root -= 12
+  while (root < 48) root += 12
+  const tones = [root, transposeDiatonic(root, 2, key), transposeDiatonic(root, 4, key)]
+  const seen = new Set()
+  return tones.filter((tone) => {
+    const pitch = Math.round(tone)
+    if (seen.has(pitch)) return false
+    seen.add(pitch)
+    return true
+  })
+}
+
+function beatsInside(note, bpm) {
+  const beat = 60 / Math.max(40, bpm)
+  const end = note.time + Math.max(note.dur, 0.12)
+  let time = Math.round(note.time / beat) * beat
+  if (time < note.time - beat * 0.35) time += beat
+  const hits = []
+  while (time < end - 0.03) {
+    hits.push(Math.max(0, time))
+    time += beat
+  }
+  if (!hits.length) hits.push(note.time)
+  return { hits, beat }
+}
+
+function arrangePerformance(notes, options = {}) {
+  let figure = options.figure === "chords" ? "chords" : "solo"
+  let touch = options.touch === "beat" ? "beat" : options.touch === "strum" ? "strum" : "hold"
+  if (options.kind === "Bass") figure = "solo"
+  if (figure === "solo" || options.kind === "Bass") {
+    if (touch === "strum") touch = "hold"
+  }
+  const bpm = options.bpm || 92
+  const key = guessKey(notes)
+  const out = []
+  notes.forEach((note, index) => {
+    const tones = figure === "chords" ? triadUnder(note.midi, key) : [note.midi]
+    const pulse = touch === "beat" ? beatsInside(note, bpm) : null
+    const times = pulse ? pulse.hits : [note.time]
+    const dur = pulse ? Math.max(0.12, Math.min(note.dur, pulse.beat * 0.62)) : note.dur
+    times.forEach((time) => {
+      const ordered = touch === "strum" && index % 2 === 1 ? [...tones].reverse() : tones
+      ordered.forEach((midi, stringIndex) => {
+        const gap = touch === "strum" ? stringIndex * 0.03 : 0
+        out.push({ midi, time: time + gap, dur: Math.max(0.1, dur - gap) })
+      })
+    })
+  })
+  return { notes: out, figure, touch, exact: touch === "beat" }
+}
+
 function transformAudio(samples, kind, options = {}) {
   samples = toEngineRate(samples, options.sampleRate || SR)
   const cap = SR * 40
@@ -795,19 +853,25 @@ function transformAudio(samples, kind, options = {}) {
       notes = detectNotes(samples).map((note) => ({ ...note, midi: Math.max(36, note.midi - 12) }))
     }
     if (!notes.length) return null
-    return { samples: finish(renderBass(notes, duration, era)), proof: { notes } }
+    const arranged = options.figure ? arrangePerformance(notes, { ...options, kind: "Bass" }) : null
+    const play = arranged ? arranged.notes : notes
+    const style = arranged ? { plain: true, exact: arranged.exact } : {}
+    return { samples: finish(renderBass(play, duration, era, style)), proof: { notes }, figure: arranged }
   }
   const notes = detectNotes(samples)
   if (notes.length < 2) return null
-  if (kind === "Piano") return { samples: finish(renderPiano(notes, duration, rng, era)), proof: { notes } }
-  if (kind === "Rhodes") return { samples: finish(renderRhodes(notes, duration, rng, era)), proof: { notes } }
-  if (kind === "Electric guitar") return { samples: finish(renderGuitar(notes, duration, rng, { electric: true, era })), proof: { notes } }
-  if (kind === "Acoustic guitar" || kind === "Guitar") return { samples: finish(renderGuitar(notes, duration, rng, { era: kind === "Guitar" ? undefined : era })), proof: { notes } }
+  const arranged = options.figure ? arrangePerformance(notes, { ...options, kind }) : null
+  const play = arranged ? arranged.notes : notes
+  const style = arranged ? { plain: true, exact: arranged.exact } : {}
+  if (kind === "Piano") return { samples: finish(renderPiano(play, duration, rng, era, style)), proof: { notes }, figure: arranged }
+  if (kind === "Rhodes") return { samples: finish(renderRhodes(play, duration, rng, era, style)), proof: { notes }, figure: arranged }
+  if (kind === "Electric guitar") return { samples: finish(renderGuitar(play, duration, rng, { electric: true, era, ...style })), proof: { notes }, figure: arranged }
+  if (kind === "Acoustic guitar" || kind === "Guitar") return { samples: finish(renderGuitar(play, duration, rng, { era: kind === "Guitar" ? undefined : era, ...style })), proof: { notes }, figure: arranged }
   if (kind === "Choir") {
     const key = options.key == null ? guessKey(notes) : options.key
-    return { samples: finish(renderChoir(notes, duration, key, rng, era)), proof: { notes, key } }
+    return { samples: finish(renderChoir(play, duration, key, rng, era, style)), proof: { notes, key }, figure: arranged }
   }
-  if (kind === "Horn") return { samples: finish(renderHorn(notes, duration, era)), proof: { notes } }
+  if (kind === "Horn") return { samples: finish(renderHorn(play, duration, era, style)), proof: { notes }, figure: arranged }
   return null
 }
 

@@ -36,6 +36,17 @@ const PACKAGES = [
   { id: "Choir", name: "Choir", line: "Voices around the melody." },
 ]
 
+const FIGURES = [
+  { id: "solo", name: "Solo", line: "Single notes. One note of the tune at a time." },
+  { id: "chords", name: "Chords", line: "A chord built from each note of the tune." },
+]
+
+const TOUCHES = [
+  { id: "hold", name: "Hold", line: "The note or chord lasts with the tune." },
+  { id: "strum", name: "Strum", line: "Chord tones arrive one after another. Down, then up." },
+  { id: "beat", name: "On the beat", line: "It hits again on each beat." },
+]
+
 const LENGTHS = [
   [30, "0:30"],
   [60, "1:00"],
@@ -255,6 +266,8 @@ const state = {
   shareFor: null,
   deleteFor: null,
   era: "today",
+  figure: "solo",
+  touch: "hold",
   songs: loadSongs(),
   song: null,
   layers: [],
@@ -1294,8 +1307,14 @@ function renderInspector() {
       <p class="ask">Time and vibe</p>
       <p class="hint">${esc(period.line)}</p>
       <div class="choices">${PERIODS.map((era) => filterChip(era.name, `data-action="pick-era" data-era="${era.id}" ${locked}`, state.era === era.id)).join("")}</div>
+      <p class="ask">Notes</p>
+      <p class="hint">${esc((FIGURES.find((item) => item.id === state.figure) || FIGURES[0]).line)} Drums stay a kit. Bass stays on single notes.</p>
+      <div class="choices">${FIGURES.map((item) => filterChip(item.name, `data-action="pick-figure" data-figure="${item.id}" ${locked}`, state.figure === item.id)).join("")}</div>
+      <p class="ask">How it plays</p>
+      <p class="hint">${esc((TOUCHES.find((item) => item.id === state.touch) || TOUCHES[0]).line)}</p>
+      <div class="choices">${TOUCHES.filter((item) => state.figure === "chords" || item.id !== "strum").map((item) => filterChip(item.name, `data-action="pick-touch" data-touch="${item.id}" ${locked}`, state.touch === item.id)).join("")}</div>
       <p class="ask">Sound</p>
-      <div class="mix-boxes parts">${PACKAGES.map((pack) => planButton(pack.name, pack.line, `data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}`, !!(current && current.sound === pack.id))).join("")}</div>
+      <div class="mix-boxes parts">${PACKAGES.map((pack) => planButton(pack.name, pack.line, `data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}`, !!(current && current.sound === pack.id && (!current.figure || current.figure === state.figure) && (!current.touch || current.touch === state.touch)))).join("")}</div>
       ${note}
       ${magicLog()}`
   } else if (state.panel === "build") {
@@ -1454,8 +1473,8 @@ function rememberSong() {
   state.song.bpm = state.bpm
   state.song.tempoSource = state.tempoSource
   state.song.tempoLocked = state.tempoLocked
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch,
   }))
   saveSongs()
   $("save-status").textContent = "Saved just now"
@@ -1795,6 +1814,37 @@ function sourceForTransform(selected, sound, layers) {
   return { layer: selected, redirected: false }
 }
 
+function playingChoice(sound) {
+  if (!sound || sound === "Drums") return null
+  const figure = state.figure === "chords" ? "chords" : "solo"
+  const touch = state.touch === "beat" ? "beat" : state.touch === "strum" ? "strum" : "hold"
+  if (sound === "Bass" || figure === "solo") return { figure: "solo", touch: touch === "strum" ? "hold" : touch }
+  return { figure, touch }
+}
+
+function playingWords(playing) {
+  if (!playing) return ""
+  const notes = playing.figure === "chords" ? "chords" : "solo"
+  const touch = playing.touch === "beat" ? "on the beat" : playing.touch === "strum" ? "strummed" : "held"
+  return `${notes}, ${touch}`
+}
+
+function syncPlaying(layer) {
+  if (!layer?.figure) return
+  state.figure = layer.figure === "chords" ? "chords" : "solo"
+  state.touch = layer.touch === "beat" ? "beat" : layer.touch === "strum" ? "strum" : "hold"
+}
+
+function retuneSelected() {
+  const selected = state.layers.find((item) => item.id === state.selected)
+  if (selected && selected.sourceId && PACKAGES.some((item) => item.id === selected.sound)) {
+    addTransformedLayer(selected.sound)
+    return true
+  }
+  renderInspector()
+  return false
+}
+
 function addTransformedLayer(sound) {
   if (state.transforming) return
   const layers = state.layers.filter((layer) => buffers.get(layer.id + ":audio"))
@@ -1822,7 +1872,13 @@ function addTransformedLayer(sound) {
       copy.set(audio.getChannelData(0))
       const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
       const pack = PACKAGES.find((item) => item.id === sound)
-      const made = SongbirdMusic.transformAudio(copy, sound, { bpm: state.bpm, sampleRate: audio.sampleRate, era: period.id })
+      const playing = playingChoice(sound)
+      const made = SongbirdMusic.transformAudio(copy, sound, {
+        bpm: state.bpm,
+        sampleRate: audio.sampleRate,
+        era: period.id,
+        ...(playing ? { figure: playing.figure, touch: playing.touch } : {}),
+      })
       if (!made) {
         state.transformNote = `Couldn't find ${missingPart(sound)} in ${origin.name}. The original is unchanged.`
         state.transformTone = "warn"
@@ -1831,7 +1887,8 @@ function addTransformedLayer(sound) {
         snapshot()
         const colors = { Piano: "#f0a202", Rhodes: "#7ee0c8", "Acoustic guitar": "#ff8ab0", "Electric guitar": "#ff4d8d", Guitar: "#ff8ab0", Horn: "#F9A8D4", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
         const label = pack ? pack.name : sound
-        const from = `from ${origin.name} · ${period.name}`
+        const played = playingWords(playing)
+        const from = [`from ${origin.name}`, period.name, played].filter(Boolean).join(" · ")
         const replacing = selected.sourceId && selected.id !== origin.id
         const id = replacing ? selected.id : uid()
         const layer = replacing ? selected : {
@@ -1848,6 +1905,8 @@ function addTransformedLayer(sound) {
         }
         layer.name = label
         layer.sound = sound
+        layer.figure = playing ? playing.figure : ""
+        layer.touch = playing ? playing.touch : ""
         layer.from = from
         layer.color = colors[sound] || "#7aa2ff"
         layer.peaks = peaksFromSamples(made.samples)
@@ -1859,9 +1918,10 @@ function addTransformedLayer(sound) {
         buffers.set(id + ":audio", audioBuffer(made.samples, SongbirdMusic.sampleRate))
         state.selected = id
         state.arrived = id
+        const bassNote = state.figure === "chords" && sound === "Bass" ? " Bass stays on single notes." : ""
         const heard = replacing
-          ? `${origin.name} is now ${label}, ${period.name}. The original recording is still its own layer.`
-          : `${label}, ${period.name}, was added from ${origin.name}. The original layer is still there.`
+          ? `${origin.name} is now ${label}, ${period.name}${played ? `, ${played}` : ""}. The original recording is still its own layer.${bassNote}`
+          : `${label}, ${period.name}${played ? `, ${played}` : ""}, was added from ${origin.name}. The original layer is still there.${bassNote}`
         state.transformNote = `${heard} Playing them together.`
         state.transformTone = ""
         $("save-status").textContent = state.transformNote
@@ -2258,6 +2318,7 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "select-layer") {
     state.selected = node.dataset.id
+    syncPlaying(state.layers.find((item) => item.id === state.selected))
     if (state.panel !== "transform") {
       state.panel = "mix"
       showInspector()
@@ -2268,6 +2329,7 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "pick-transform-layer") {
     state.selected = node.dataset.id
+    syncPlaying(state.layers.find((item) => item.id === state.selected))
     state.panel = "transform"
     renderTracks()
     renderInspector()
@@ -2364,12 +2426,16 @@ document.body.addEventListener("click", (event) => {
   if (action === "pick-era") {
     const period = PERIODS.find((item) => item.id === node.dataset.era)
     if (period) state.era = period.id
-    const selected = state.layers.find((item) => item.id === state.selected)
-    if (selected && selected.sourceId && PACKAGES.some((item) => item.id === selected.sound)) {
-      addTransformedLayer(selected.sound)
-      return
-    }
-    renderInspector()
+    if (retuneSelected()) return
+  }
+  if (action === "pick-figure") {
+    state.figure = node.dataset.figure === "chords" ? "chords" : "solo"
+    if (state.figure === "solo" && state.touch === "strum") state.touch = "hold"
+    if (retuneSelected()) return
+  }
+  if (action === "pick-touch") {
+    state.touch = node.dataset.touch === "beat" ? "beat" : node.dataset.touch === "strum" ? "strum" : "hold"
+    if (retuneSelected()) return
   }
   if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
   if (action === "apply-mix") applyMix(node.dataset.preset)
