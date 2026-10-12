@@ -265,7 +265,7 @@ const state = {
   zoom: 1,
   arming: false,
   mix: null,
-  fine: false,
+  fine: true,
   lengthSec: null,
   shape: null,
   intent: null,
@@ -1982,8 +1982,13 @@ function play(fromSec) {
   playFrom = from
   state.playAt = from
   playStarted = ctx.currentTime
-  const playIcon = $("play-btn")?.querySelector(".glyph")
-  if (playIcon) playIcon.textContent = "■"
+  const playButton = $("play-btn")
+  if (playButton) {
+    playButton.classList.add("is-on")
+    playButton.setAttribute("aria-label", "Stop")
+    const playIcon = playButton.querySelector(".glyph")
+    if (playIcon) playIcon.textContent = "■"
+  }
   beginSky("play")
   const span = state.lengthSec || Math.max(...candidates.map((layer) => buffers.get(layer.id + ":audio").duration))
   let started = 0
@@ -2112,8 +2117,13 @@ function stopPlayback() {
   activeSources = []
   mixNodes.clear()
   endSky()
-  const playIcon = $("play-btn")?.querySelector(".glyph")
-  if (playIcon) playIcon.textContent = "▶"
+  const playButton = $("play-btn")
+  if (playButton) {
+    playButton.classList.remove("is-on")
+    playButton.setAttribute("aria-label", "Play")
+    const playIcon = playButton.querySelector(".glyph")
+    if (playIcon) playIcon.textContent = "▶"
+  }
 }
 
 function fromControl(event) {

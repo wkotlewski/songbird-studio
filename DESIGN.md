@@ -45,15 +45,33 @@ Spacing is 4, 8, 16, 24, and 32 pixels (`--space-1` through `--space-5`).
 
 Radius is 12, 20, and 28 pixels. Buttons and chips are fully rounded. Cards, dock items, and plans use 28. The studio canvas uses 20.
 
-## Controls
+## UI cleanup
 
-- `.btn-primary` is mint with dark text.
-- `.btn-secondary` is a transparent surface with a mint outline and off-white text.
-- `.btn-danger` is an amber warning. It is not pink.
-- `.icon-btn` is a 44px mint circle. `#rec-btn` and `.mic` are pink circles. Recording adds the `hot` state. Disabled record fades.
-- `.chip.on` is the mint selected state for Record First, Play Live, monitor, length, and zoom.
-- Sliders use a dark track and a pink thumb. Left and right on a layer is stereo pan. It does not scroll the timeline.
-- Touch targets are at least 44 pixels. Keyboard focus uses `:focus-visible`.
+Use this when a control stops looking like a control. Glass is for panes, song cards, and the studio bar. It is not for buttons, chips, or sliders. A grey wash or a transparent fill makes a button look like text.
+
+The board in `site/assets/songbird-design-system.png` is the shape reference. Mint fills a primary action. A dark green surface with a mint outline is the secondary action. Pink is the record circle and the slider thumb. Delete stays amber so it is not the record button.
+
+| Control | Class | Look |
+|---|---|---|
+| Primary | `button.btn-primary` | Mint pill, dark text, 44px tall |
+| Secondary | `button.btn-secondary` | `#10352C` pill, mint outline, off-white text |
+| Choice card | `button.plan`, `button.tile`, `button.dock-btn` | 28px corners, dark green fill, mint outline. Selected (`.on`) turns mint |
+| Chip | `button.chip` | Same pill as secondary. `.on` is mint |
+| Play | `#play-btn` | 44px mint circle. While playing, `.is-on` is a dark circle with a mint ring and a square |
+| Record | `#rec-btn`, `button.mic` | Pink circle. Recording adds a pink ring |
+| Undo, redo, close | `button.icon-btn` | 44px dark circle, mint outline |
+| Mute and solo | `button.mini` | 36px circle. `.on` is mint |
+| Delete | `button.btn-danger` | Amber outline, not pink |
+| Slider | `input[type=range].slider` | Light track, pink thumb. Not a text field |
+
+Rules:
+
+- Do not add button classes to the glass selector.
+- Do not style `.field input` in a way that also matches `input[type=range]`.
+- Range inputs keep `appearance: none` only together with a visible track and a 22px thumb.
+- Play must change to a stop mark and a ring while audio is running. Record must show a ring while the microphone is open.
+- Mix always shows the volume, bass, treble, left/right, and space sliders, plus a fader on each channel strip.
+- Corners stay 12, 20, or 28, or a full pill. Do not leave a control on the browser's square default.
 
 ## Studio canvas
 
