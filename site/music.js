@@ -1396,6 +1396,55 @@ function fillWithSection(data, sampleRate, options) {
   return { samples, loops: Math.ceil(total / sliceLen) }
 }
 
+function starterAudio(options = {}) {
+  const bpm = Math.max(40, Math.min(200, options.bpm || 96))
+  const beat = 60 / bpm
+  const bars = Math.max(1, options.bars || 4)
+  const duration = Math.min(40, bars * 4 * beat)
+  const key = ((options.key ?? 0) % 12 + 12) % 12
+  const rng = mulberry32(key * 17 + Math.round(bpm))
+  const kind = options.kind === "snaps" || options.kind === "guitar" || options.kind === "piano" ? options.kind : "claps"
+  if (kind === "claps" || kind === "snaps") {
+    const hits = []
+    const count = Math.max(4, Math.floor(duration / beat))
+    for (let i = 0; i < count; i++) {
+      if (i % 4 === 1 || i % 4 === 3) hits.push({ time: i * beat, kind: "snare" })
+    }
+    const drums = finish(renderDrums(hits, duration, rng, "today"))
+    if (kind === "snaps") {
+      for (let i = 0; i < drums.length; i++) drums[i] *= 0.62
+    }
+    return { samples: drums, sampleRate: SR, bpm, kind }
+  }
+  const progression = [
+    [0, 4, 7],
+    [7, 11, 14],
+    [9, 12, 16],
+    [5, 9, 12],
+  ]
+  const notes = []
+  const bar = beat * 4
+  const cycles = Math.max(1, Math.ceil(duration / (bar * 4)))
+  for (let cycle = 0; cycle < cycles; cycle++) {
+    progression.forEach((chord, index) => {
+      const time = (cycle * 4 + index) * bar
+      if (time >= duration - 0.08) return
+      chord.forEach((interval, stringIndex) => {
+        const gap = kind === "guitar" ? stringIndex * 0.034 : 0
+        notes.push({
+          midi: 60 + key + interval,
+          time: time + gap,
+          dur: Math.max(0.2, bar * 0.9 - gap),
+        })
+      })
+    })
+  }
+  const samples = kind === "guitar"
+    ? renderGuitar(notes, duration, rng, { era: "today", plain: true, exact: true })
+    : renderPiano(notes, duration, rng, "today", { plain: true, exact: true })
+  return { samples: finish(samples), sampleRate: SR, bpm, kind }
+}
+
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
@@ -1408,4 +1457,5 @@ globalThis.SongbirdMusic = {
   coverage,
   fillWithSection,
   tuneVoice,
+  starterAudio,
 }
