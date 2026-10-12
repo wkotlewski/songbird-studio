@@ -363,6 +363,7 @@ h2 { font: var(--type-section); }
 }
 .shape-row .section.on { color: var(--ink); background: var(--mint); outline: 2px solid var(--text); outline-offset: 1px; }
 .section-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; align-items: center; }
+.section-guide { flex: 1 0 100%; margin: 0; }
 .section-name {
   width: 11em;
   min-height: 36px;

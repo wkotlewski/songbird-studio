@@ -1236,6 +1236,7 @@ function renderRuler() {
     })
     .join("")}</div>`
   const tools = `<div class="section-tools">
+        <p class="hint section-guide">Record a section. Loop it for the song length you want, then add another layer. You can still add, rename, or remove sections.</p>
         ${current ? `<input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Section name" />` : ""}
         ${outlinedButton("Add a section", `data-action="add-section"`)}
         ${current && sections.length > 1 ? outlinedButton("Remove", `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
@@ -1627,6 +1628,7 @@ function renderInspector() {
     const suggestions = INTENTS.find((item) => item.id === state.intent)
     body = `${head("Shape this song")}
       <p class="hint">Say how long you want it, and whether it should stay even, soften at the edges, or build to a climax. Songbird loops what you record to that length. The preset changes loudness over the song. It does not rewrite the recording.</p>
+      <p class="hint">Record a section, loop it for this length, then stack another layer on top. You can still add, rename, or remove sections.</p>
       <label class="field">What do you want this song to do?
         <textarea id="wish" rows="3" placeholder="3 minutes, soft intro, build up, then soften at the end">${esc(state.wish)}</textarea>
       </label>
@@ -2077,7 +2079,7 @@ function useWish() {
 
 function sectionWorkLine() {
   const section = activeSection()
-  if (!section) return "Drag the play line, or click a section to jump there. Until you select a part, new layers cover the whole song."
+  if (!section) return "Drag the play line, or click a section to jump there. Until you select a part, new layers cover the whole song. Record a section, loop it for the length you want, then add another layer."
   const how = state.sectionMode === "replace" ? "Change this part replaces what is already there." : "Add onto this part keeps what is already there."
   return `${section.name}, ${sectionClock(section)}. ${how} Fill layer with this section repeats that part across the selected layer. Undo puts the layer back.`
 }
