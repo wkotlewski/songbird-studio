@@ -1049,7 +1049,9 @@ function renderTracks() {
     return
   }
   const span = spanSeconds()
-  box.innerHTML = state.layers
+  const soloing = state.layers.some((item) => item.solo)
+  const banner = soloing ? `<p class="hearing-note">Solo is on. Bright layers are playing. Dim layers are quiet.</p>` : ""
+  box.innerHTML = banner + state.layers
     .map((layer) => {
       const range = layer.range
       const boxStyle = range
@@ -1059,13 +1061,17 @@ function renderTracks() {
         .map((gap) => `<i class="gap" style="left:${(gap.start / span) * 100}%;width:${((gap.end - gap.start) / span) * 100}%"></i>`)
         .join("")
       const edited = Boolean(layer.from)
-      const waveColor = layer.id === state.selected ? "#F9A8D4" : "#34D399"
-      return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""} ${edited ? "edited" : "original"}" data-id="${layer.id}">
+      const hear = hearingMark(layer)
+      const waveColor = !hear.className || hear.className === "hearing"
+        ? (layer.id === state.selected ? "#F9A8D4" : "#34D399")
+        : "rgba(255,251,242,0.28)"
+      return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""} ${hear.className} ${edited ? "edited" : "original"}" data-id="${layer.id}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
         <div class="track-label">
           <input class="layer-name" data-rename="${layer.id}" value="${esc(layer.name)}" maxlength="40" aria-label="Name this layer" />
           <button class="track-meta" data-action="select-layer" data-id="${layer.id}">
             <small class="role">${edited ? "Edited" : "Original"}</small>
             <small>${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
+            ${hear.label ? `<small class="hear-state">${hear.label}</small>` : ""}
           </button>
         </div>
         <div class="lane">${gaps}${wave(shapedPeaks(layer), waveColor, layer.id, boxStyle)}</div>
@@ -1188,14 +1194,19 @@ function renderMix(head, layer) {
   const low = current.low ?? 0
   const high = current.high ?? 0
   const space = current.space ?? 0
-  const strips = state.layers.map((item) => `<div class="strip ${item.id === current.id ? "on" : ""}">
+  const soloing = state.layers.some((item) => item.solo)
+  const strips = state.layers.map((item) => {
+    const hear = hearingMark(item)
+    return `<div class="strip ${item.id === current.id ? "on" : ""} ${hear.className}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
       <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
+      ${hear.label ? `<span class="hear-state">${hear.label}</span>` : ""}
       <input class="fader slider" type="range" min="0" max="1" step="0.01" value="${item.gain ?? 0.8}" data-mix="1" data-action="set-gain" data-id="${item.id}" aria-label="${esc(item.name)} volume" />
       <div class="strip-buttons">
         ${iconButton("volume_off", `class="mini" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}"${item.mute ? " selected" : ""}`, item.mute)}
         ${iconButton("hearing", `class="mini" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}"`, item.solo)}
       </div>
-    </div>`).join("")
+    </div>`
+  }).join("")
   const fine = state.fine ? `<div class="fine-body">
       <p class="hint">${esc(current.name)} · ${esc(current.sound || "Layer")}</p>
       ${slider("Volume", "gain", 0, 1, 0.01, gain, current.id, mixReadout("gain", gain))}
@@ -1206,7 +1217,7 @@ function renderMix(head, layer) {
       <p class="hint">Bass and treble are tone. Left and right is where it sits in the speakers. Space is room around the sound. Scrolling the timeline still moves through the song.</p>
     </div>` : ""
   return `${head("Mix")}
-    <p class="hint">Pick a sound you want. The faders are the mixer. Fine tune is for the few things people usually adjust.</p>
+    <p class="hint">${soloing ? "Solo is on. Bright strips are playing. Dim strips are quiet." : "Pick a sound you want. The faders are the mixer. Fine tune is for the few things people usually adjust."}</p>
     <label class="field">Layer name
       <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
     </label>
@@ -1976,6 +1987,14 @@ function audible(layer) {
   if (!layer || layer.mute) return false
   if (state.layers.some((item) => item.solo)) return !!layer.solo
   return true
+}
+
+function hearingMark(layer) {
+  const on = audible(layer)
+  const soloing = state.layers.some((item) => item.solo)
+  if (!on) return { className: "quiet", label: layer.mute ? "Muted" : "Quiet" }
+  if (soloing || layer.solo) return { className: "hearing", label: "Solo" }
+  return { className: "", label: "" }
 }
 
 function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
