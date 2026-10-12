@@ -17,6 +17,7 @@
         <div>
           <p class="brand">Songbird</p>
           <h1>My Music</h1>
+          <p class="hint library-lead">A hum, a clap, or a beatbox can become a song. Play an example, or start your own.</p>
         </div>
         <button class="icon-btn" data-action="new-song" aria-label="Create new song" title="Create new song"><span aria-hidden="true">+</span></button>
       </header>
@@ -37,7 +38,7 @@
         <button class="icon-btn mobile-only" data-action="show-library" aria-label="My Music" title="My Music"><span aria-hidden="true">⌂</span></button>
         <div class="title-block">
           <input id="song-title" aria-label="Song title" value="Untitled song" />
-          <p id="save-status">Prototype · recordings stay in this tab</p>
+          <p id="save-status">Recordings stay in this browser tab</p>
           <div id="project-actions" class="project-actions"></div>
         </div>
         <div class="transport">
@@ -53,7 +54,7 @@
         <button class="chip on" id="click-btn" data-action="toggle-click" aria-pressed="true" title="Metronome click">Click</button>
       </header>
 
-      <p class="note">Open an example and press play. A transform keeps the original and adds a new layer made from it.</p>
+      <p class="note">Press play. The original stays on its own layer. Transform adds a new part made from it.</p>
 
       <div class="stage">
         <canvas id="sky" class="sky" aria-hidden="true"></canvas>
@@ -68,11 +69,11 @@
 
       <p class="legal">© 2026 Whitney Kotlewski. All rights reserved.</p>
       <div class="dock">
-        <button class="dock-btn" data-action="panel" data-panel="record"><span class="plan-copy"><b>Record</b><span>Make a sound</span></span></button>
-        <button class="dock-btn" data-action="panel" data-panel="transform"><span class="plan-copy"><b>Transform</b><span>Turn it into something new</span></span></button>
-        <button class="dock-btn" data-action="panel" data-panel="build"><span class="plan-copy"><b>Build</b><span>Add more layers</span></span></button>
-        <button class="dock-btn" data-action="panel" data-panel="mix"><span class="plan-copy"><b>Mix</b><span>Balance and enhance</span></span></button>
-        <button class="dock-btn" data-action="panel" data-panel="finish"><span class="plan-copy"><b>Finish</b><span>Master and make video</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="record"><span class="plan-copy"><b>Record</b><span>Hum, clap, or tap</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="transform"><span class="plan-copy"><b>Transform</b><span>Turn this layer into an instrument</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="build"><span class="plan-copy"><b>Build</b><span>Length and shape</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="mix"><span class="plan-copy"><b>Mix</b><span>Balance what you hear</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="finish"><span class="plan-copy"><b>Finish</b><span>Download the song</span></span></button>
       </div>
     </main>
 

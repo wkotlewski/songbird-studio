@@ -150,6 +150,8 @@ body.sheet-open::before {
   z-index: 15;
 }
 
+.lib-head > div { flex: 1; min-width: 0; }
+.library-lead { margin: 6px 0 0; max-width: 28em; }
 .lib-head, .studio-bar {
   display: flex;
   align-items: center;
