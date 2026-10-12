@@ -277,6 +277,7 @@ let recTimer
 let recStarted = 0
 let pendingBlob = null
 let recordOrigin = 0
+let recordedSeconds = 0
 let playing = false
 let playStarted = 0
 let playFrom = 0
@@ -971,11 +972,33 @@ function songWideSections() {
   }))
 }
 
+function recordGuide() {
+  const live = state.recording || state.counting
+  const pending = !live && !!pendingBlob
+  if (!live && !pending) return null
+  const elapsed = state.recording && recStarted
+    ? Math.max(0, (performance.now() - recStarted) / 1000)
+    : pending
+      ? recordedSeconds
+      : 0
+  const loopLen = Math.max(60, elapsed)
+  return {
+    origin: Math.max(0, recordOrigin || 0),
+    elapsed,
+    loopLen,
+    loopAt: Math.max(0, recordOrigin || 0) + loopLen,
+  }
+}
+
 function spanSeconds() {
   let total = state.lengthSec || 0
   for (const layer of state.layers) {
     const end = layer.range?.end || layer.lengthSec || 0
     if (end > total) total = end
+  }
+  const guide = recordGuide()
+  if (guide && guide.loopAt > total) {
+    total = guide.elapsed > 60 ? Math.ceil(guide.loopAt / 10) * 10 : guide.loopAt
   }
   return total || state.span || 40
 }
@@ -1378,9 +1401,82 @@ function shapedPeaks(layer) {
   return out
 }
 
+function recordingTrack() {
+  const guide = recordGuide()
+  if (!guide) return ""
+  const clock = state.counting
+    ? `Loop ends ${formatClock(guide.loopAt)}`
+    : `${formatClock(guide.elapsed)} recorded · loop ends ${formatClock(guide.loopAt)}`
+  return `<div class="track recording-live" aria-label="Recording">
+      <div class="track-label">
+        <div class="label-top"><span class="layer-name">Recording</span></div>
+        <div class="track-meta">
+          <small class="role">This take</small>
+          <small id="rec-layer-clock">${clock}</small>
+        </div>
+      </div>
+      <div class="lane" id="rec-lane"></div>
+    </div>`
+}
+
+function paintRecordGuide() {
+  const guide = recordGuide()
+  const lane = $("rec-lane")
+  if (!guide || !lane) return
+  const span = Math.max(0.05, spanSeconds())
+  if (!lane.querySelector(".rec-loop")) {
+    lane.innerHTML = `<i class="rec-loop"></i><i class="rec-so-far"></i><i class="rec-end"><span></span></i>`
+  }
+  const loop = lane.querySelector(".rec-loop")
+  const soFar = lane.querySelector(".rec-so-far")
+  const end = lane.querySelector(".rec-end")
+  const label = end?.querySelector("span")
+  const origin = (guide.origin / span) * 100
+  const loopWidth = (guide.loopLen / span) * 100
+  const heard = (Math.min(guide.elapsed, guide.loopLen) / span) * 100
+  if (loop) {
+    loop.style.left = `${origin}%`
+    loop.style.width = `${Math.max(0.4, loopWidth)}%`
+  }
+  if (soFar) {
+    soFar.style.left = `${origin}%`
+    soFar.style.width = `${state.counting ? 0 : Math.max(0.3, heard)}%`
+  }
+  if (end) {
+    end.style.left = `${origin + loopWidth}%`
+    end.title = guide.elapsed < 59.5
+      ? `Keeping this take loops it to ${formatClock(guide.loopAt)}.`
+      : `This take ends at ${formatClock(guide.loopAt)}.`
+  }
+  if (label) {
+    label.textContent = guide.elapsed < 59.5 ? `Loop ends ${formatClock(guide.loopAt)}` : `Ends ${formatClock(guide.loopAt)}`
+    const nearEnd = (guide.loopAt / span) > 0.78
+    label.style.left = nearEnd ? "auto" : "6px"
+    label.style.right = nearEnd ? "6px" : "auto"
+  }
+  const clock = $("rec-layer-clock")
+  if (clock) {
+    clock.textContent = state.counting
+      ? `Loop ends ${formatClock(guide.loopAt)}`
+      : `${formatClock(guide.elapsed)} recorded · loop ends ${formatClock(guide.loopAt)}`
+  }
+}
+
+function syncRecordGuide() {
+  const guide = recordGuide()
+  if (!guide) return
+  if (guide.loopAt > (state.span || 0) + 0.35 || !$("rec-lane")) {
+    renderRuler()
+    renderTracks()
+    return
+  }
+  paintRecordGuide()
+}
+
 function renderTracks() {
   const box = $("tracks")
-  if (!state.layers.length) {
+  const guideRow = recordingTrack()
+  if (!state.layers.length && !guideRow) {
     box.innerHTML = `<p class="empty">Make your first sound. Record, then keep the take on the timeline.</p>`
     return
   }
@@ -1416,8 +1512,9 @@ function renderTracks() {
         <div class="lane">${gaps}${wave(shapedPeaks(layer), waveColor, layer.id, boxStyle)}</div>
       </div>`
     })
-    .join("")
+    .join("") + guideRow
   placePlayhead(state.playAt || 0)
+  paintRecordGuide()
 }
 
 function slider(label, key, min, max, step, value, id, readout) {
@@ -2057,6 +2154,7 @@ async function keepTake(name, stayOpen) {
   const occupied = layer.range ? layer.range.end : layer.lengthSec
   if (!state.lengthSec || state.lengthSec < occupied) state.lengthSec = occupied
   recordOrigin = 0
+  recordedSeconds = 0
   pendingBlob = null
   rememberSong()
   renderTracks()
@@ -2166,6 +2264,12 @@ function cancelRecord() {
   }
   releaseMic()
   endSky()
+  if (!pendingBlob) {
+    recordOrigin = 0
+    recordedSeconds = 0
+  }
+  renderRuler()
+  renderTracks()
   renderInspector()
 }
 
@@ -2180,6 +2284,8 @@ async function countIn() {
   const beat = 60 / Math.max(40, state.bpm || 92)
   state.counting = true
   state.countBeat = 0
+  renderRuler()
+  renderTracks()
   renderInspector()
   $("save-status").textContent = `Tempo ${state.bpm}. Then a count of four.`
   const countStart = ctx.currentTime + beat + 0.12
@@ -2248,6 +2354,7 @@ async function toggleRecord() {
     if (event.data.size) recChunks.push(event.data)
   }
   media.onstop = () => {
+    recordedSeconds = recStarted ? Math.max(0, (performance.now() - recStarted) / 1000) : 0
     pendingBlob = new Blob(recChunks, { type: media.mimeType || "audio/webm" })
     state.recording = false
     state.counting = false
@@ -2257,6 +2364,8 @@ async function toggleRecord() {
     else stopClick()
     releaseMic()
     endSky()
+    renderRuler()
+    renderTracks()
     void finishRecording(media._wasTempo)
   }
   media.start()
@@ -2275,7 +2384,9 @@ async function toggleRecord() {
       ? `00:${String(seconds).padStart(2, "0")} · listening for the tempo`
       : `00:${String(seconds).padStart(2, "0")} · recording`
     node.classList.remove("count-beat")
+    syncRecordGuide()
   }, 250)
+  syncRecordGuide()
   $("save-status").textContent = hearSong && !tempoPass
     ? "You can hear the song. Only the microphone is recorded."
     : `Recording at ${state.bpm}. Only the microphone is recorded.`
@@ -3690,6 +3801,10 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "discard-take") {
     pendingBlob = null
+    recordedSeconds = 0
+    recordOrigin = 0
+    renderRuler()
+    renderTracks()
     renderInspector()
   }
   if (action === "read-wish") {
