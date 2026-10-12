@@ -2346,6 +2346,11 @@ document.body.addEventListener("click", (event) => {
   if (action === "pick-era") {
     const period = PERIODS.find((item) => item.id === node.dataset.era)
     if (period) state.era = period.id
+    const selected = state.layers.find((item) => item.id === state.selected)
+    if (selected && selected.sourceId && PACKAGES.some((item) => item.id === selected.sound)) {
+      addTransformedLayer(selected.sound)
+      return
+    }
     renderInspector()
   }
   if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
