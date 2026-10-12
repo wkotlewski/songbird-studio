@@ -46,6 +46,7 @@
 html, body {
   margin: 0;
   height: 100%;
+  overflow: hidden;
   color: var(--text);
   background-color: #071C17;
   background-image: linear-gradient(rgba(4, 10, 14, 0.38), rgba(4, 10, 14, 0.38)), url("assets/emerald-blush-mist.jpg");
@@ -118,14 +119,22 @@ button:disabled { opacity: 0.42; cursor: not-allowed; }
 }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-.app { min-height: 100dvh; }
+.app { height: 100dvh; max-height: 100dvh; min-height: 0; overflow: hidden; }
 .pane { min-width: 0; }
 
 body[data-screen="library"] #studio,
 body[data-screen="library"] #inspector { display: none; }
 body[data-screen="studio"] #library { display: none; }
 
-#library, #studio { display: flex; flex-direction: column; min-height: 100dvh; background: transparent; }
+#library, #studio {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
 #library, #inspector, .studio-bar, .dock, .mobile-nav, .note, .song, .strip, .magic-log, .empty, .track-label {
   background: rgba(8, 14, 18, 0.46);
   backdrop-filter: blur(28px) saturate(1.5);
@@ -156,6 +165,7 @@ body.sheet-open::before {
 }
 
 .lib-head > div { flex: 1; min-width: 0; }
+.lib-head, .search, .mobile-nav, #library > .legal, #studio > .legal { flex-shrink: 0; }
 .library-lead { margin: 6px 0 0; max-width: 28em; }
 .lib-head, .studio-bar {
   display: flex;
@@ -163,6 +173,12 @@ body.sheet-open::before {
   flex-wrap: wrap;
   gap: 10px;
   padding: 16px 16px 8px;
+}
+.studio-bar {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .brand { margin: 0; color: var(--mint); font: var(--type-meta); letter-spacing: 0.14em; text-transform: uppercase; }
 h1 { margin: 0; font: var(--type-screen); }
@@ -204,7 +220,15 @@ h2 { font: var(--type-section); }
 
 .song { border-color: rgba(255, 251, 242, 0.22); }
 
-.song-list { padding: 8px 16px 96px; display: flex; flex-direction: column; gap: 10px; }
+.song-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .song {
   display: flex;
   flex-wrap: wrap;
@@ -233,7 +257,11 @@ h2 { font: var(--type-section); }
 .share-box { flex: 1 0 100%; }
 .share-row { display: flex; gap: 8px; align-items: center; }
 .share-row input { flex: 1; min-width: 0; }
-.project-actions { margin-top: 8px; }
+.project-actions {
+  margin-top: 8px;
+  max-height: min(42dvh, calc(100dvh - 220px));
+  overflow-y: auto;
+}
 .swatch { width: 52px; height: 52px; border-radius: 12px; flex: none; }
 .song-copy { flex: 1; min-width: 0; }
 .song b, .song .meta, .song .byline { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -269,8 +297,8 @@ h2 { font: var(--type-section); }
 
 .stage {
   position: relative;
-  flex: 1;
-  min-height: 220px;
+  flex: 1 0 auto;
+  min-height: min(220px, 34dvh);
   margin: 0 12px;
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -590,6 +618,7 @@ body[data-sound] .stage {
   display: grid;
   grid-template-columns: repeat(5, minmax(92px, 1fr));
   gap: 8px;
+  flex: 0 0 auto;
   overflow-x: auto;
   padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
 }
@@ -728,19 +757,23 @@ input[type="range"].fader {
     transform: translateX(110%);
   }
   body.sheet-open #inspector { transform: translateX(0); }
-  .stage { min-height: 360px; }
+  .stage { min-height: min(360px, 40dvh); }
 }
 
 @media (min-width: 1100px) {
   .app {
     display: grid;
     grid-template-columns: 300px minmax(0, 1fr) 340px;
+    grid-template-rows: minmax(0, 1fr);
     height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
   }
   body[data-screen="library"] #studio,
   body[data-screen="library"] #inspector,
   body[data-screen="studio"] #library { display: flex; }
-  #library, #studio, #inspector { min-height: 0; height: 100dvh; }
+  #library, #studio, #inspector { min-height: 0; height: 100%; max-height: 100%; overflow: hidden; }
+  #inspector { overflow-y: auto; }
   #inspector {
     position: static;
     transform: none;
