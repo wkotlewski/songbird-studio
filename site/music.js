@@ -927,21 +927,23 @@ function makeExample(id) {
       shape: "chorus",
       intent: "chorus",
       bpm: 108,
-      blurb: "Ella's Happy Song keeps her humming and her claps. A 1960s piano and drum kit are made from them, and the chorus lifts.",
+      blurb: "Ella's Happy Song is a hummed soul hook with a leap and a breath. A 1960s piano plays it as single notes, chords hit on the beat, and her claps become the kit.",
       build(rng) {
         const bpm = 108
-        const { notes, duration } = notesFrom("C4 E4 G4 G4 A4 G4 F4 E4 D4 E4 F4 G4 E4 D4 C4 C4 E4 G4 A4 G4 F4 E4 D4 C4", bpm)
+        const { notes, duration } = notesFrom("R/1 E4/0.5 G4/0.5 A4/1.5 G4/0.5 E4/1 D4/1 C4/2 R/1 E4/1 G4/0.5 A4/0.5 C5/1.5 A4/0.5 G4/2 R/1 G4/0.5 A4/0.5 C5/1 G4/1 E4/1.5 D4/0.5 C4/2 E4/1 G4/2 R/1 C5/1 A4/1 G4/2 E4/1", bpm)
         const hum = renderVoice(notes, duration, "hum", rng)
         const claps = renderTicks(clapTimes(bpm, Math.ceil(duration / (60 / bpm)), rng, 0.018), duration, rng, false)
-        const piano = transformAudio(hum, "Piano", { rng, era: "1960", bpm })
+        const piano = transformAudio(hum, "Piano", { rng, era: "1960", bpm, figure: "solo", touch: "hold" })
+        const chords = transformAudio(hum, "Piano", { rng, era: "1960", bpm, figure: "chords", touch: "beat" })
         const drums = transformAudio(claps, "Drums", { bpm, rng, era: "1960" })
         return {
           duration,
           layers: balance([
-            layer("Ella's humming", "Voice", "original", "#1fbfa7", 0.78, 0.08, hum, { high: 2, space: 0.08 }),
-            layer("1960s piano", "Piano", "from the humming · 1960s", "#f0a202", 0.4, 0.22, piano.samples, { space: 0.16 }),
-            layer("Ella's claps", "Claps", "original", "#ffd89a", 0.24, -0.18, claps, { space: 0.04 }),
-            layer("1960s kit", "Drums", "from the claps · 1960s", "#3d7eff", 0.48, 0, drums.samples, { low: 2, high: 1, space: 0.02 }),
+            layer("Ella's humming", "Voice", "original", "#1fbfa7", 0.76, 0.08, hum, { high: 2, space: 0.08 }),
+            layer("1960s piano", "Piano", "from the humming · 1960s · solo, held", "#f0a202", 0.38, 0.2, piano.samples, { space: 0.12 }),
+            layer("1960s chords", "Piano", "from the humming · 1960s · chords, on the beat", "#e8b86d", 0.26, -0.16, chords.samples, { space: 0.08, low: 1 }),
+            layer("Ella's claps", "Claps", "original", "#ffd89a", 0.2, -0.22, claps, { space: 0.04 }),
+            layer("1960s kit", "Drums", "from the claps · 1960s", "#3d7eff", 0.46, 0, drums.samples, { low: 2, high: 1, space: 0.02 }),
           ]),
           proof: { melody: coverage(notes, piano.proof.notes), drums: drums.proof.hits },
         }
@@ -952,21 +954,21 @@ function makeExample(id) {
       shape: "arc",
       intent: "soft",
       bpm: 72,
-      blurb: "Grandpa's Sunday Song keeps his humming. A 1920s horn and choir, and a far-away parlor piano, are made from that same tune. It starts soft and eases out.",
+      blurb: "Grandpa's Sunday Song is a slow hummed tune with a long high note and a breath. A 1920s horn plays it solo, the choir holds chords, and a parlor piano holds chords behind him.",
       build(rng) {
         const bpm = 72
-        const { notes, duration } = notesFrom("G4/2 B4/2 D5/2 C5/2 B4/2 A4/2 G4/2 G4/2 A4/2 B4/2 D5/2 D5/2 C5/2 B4/2 A4/2 G4/2 G4/2 D4/2 E4/2 G4/2", bpm)
+        const { notes, duration } = notesFrom("D4/1.5 G4/2 B4/0.5 D5/2 R/1 C5/1.5 A4/1 B4/1.5 G4/3 R/1 D4/1 G4/1.5 A4/0.5 B4/2 A4/1 G4/3", bpm)
         const hum = renderVoice(notes, duration, "hum", rng)
-        const horn = transformAudio(hum, "Horn", { rng, era: "1920", bpm })
-        const choir = transformAudio(hum, "Choir", { key: 7, rng, era: "1920", bpm })
-        const piano = transformAudio(hum, "Piano", { rng, era: "1900", bpm })
+        const horn = transformAudio(hum, "Horn", { rng, era: "1920", bpm, figure: "solo", touch: "hold" })
+        const choir = transformAudio(hum, "Choir", { rng, era: "1920", bpm, figure: "chords", touch: "hold" })
+        const piano = transformAudio(hum, "Piano", { rng, era: "1900", bpm, figure: "chords", touch: "hold" })
         return {
           duration,
           layers: balance([
-            layer("Grandpa's humming", "Voice", "original", "#1fbfa7", 0.64, 0, hum, { high: 1, space: 0.12 }),
-            layer("1920s horn", "Horn", "from the humming · 1920s", "#F9A8D4", 0.4, -0.24, horn.samples, { space: 0.32 }),
-            layer("1920s choir", "Choir", "from the humming · 1920s", "#b44dff", 0.36, 0.34, choir.samples, { space: 0.55, high: -1 }),
-            layer("Parlor piano", "Piano", "from the humming · 1900s", "#f0a202", 0.26, 0.06, piano.samples, { space: 0.4, high: -2 }),
+            layer("Grandpa's humming", "Voice", "original", "#1fbfa7", 0.66, 0, hum, { high: 1, space: 0.14 }),
+            layer("1920s horn", "Horn", "from the humming · 1920s · solo, held", "#F9A8D4", 0.4, -0.22, horn.samples, { space: 0.32 }),
+            layer("1920s choir", "Choir", "from the humming · 1920s · chords, held", "#b44dff", 0.32, 0.34, choir.samples, { space: 0.55, high: -1 }),
+            layer("Parlor piano", "Piano", "from the humming · 1900s · chords, held", "#f0a202", 0.24, 0.06, piano.samples, { space: 0.42, high: -2 }),
           ]),
           proof: { melody: coverage(notes, horn.proof.notes), choir: coverage(notes, choir.proof.notes) },
         }
@@ -977,22 +979,26 @@ function makeExample(id) {
       shape: "chorus",
       intent: "chorus",
       bpm: 96,
-      blurb: "Our Family Song keeps two voices and the claps. A 1970s Rhodes and drum kit sit around them, and the chorus is louder than the verse.",
+      blurb: "Our Family Song is two people humming one hook, one low and one answering. A 1970s Rhodes strums chords, the low hum becomes bass on the beat, and the claps become the kit.",
       build(rng) {
         const bpm = 96
-        const lower = notesFrom("C4/2 E4/2 G4/2 E4/2 F4/2 E4/2 D4/2 C4/2 G3/2 A3/2 C4/2 E4/2 D4/2 C4/2", bpm)
-        const higher = notesFrom("E4/2 G4/2 B4/2 G4/2 A4/2 G4/2 F4/2 E4/2 B4/2 C5/2 E5/2 D5/2 C5/2 B4/2", bpm)
+        const lower = notesFrom("C4/1.5 R/0.5 E4/1 G4/2 R/1 A4/1 G4/1 E4/1 C4/2 R/1 D4/1 C4/2 R/2 G4/1 E4/1 C4/1.5 R/0.5 D4/1 C4/2 R/1 G4/1 E4/1 C4/2 D4/1 C4/2", bpm)
+        const higher = notesFrom("R/2 G4/0.5 B4/0.5 D5/1.5 C5/0.5 B4/1 G4/2 R/1 A4/1 G4/2 E4/1 R/1 D5/1 C5/1.5 B4/0.5 A4/1 G4/2 E4/2 R/2 D5/1 C5/1 B4/1 A4/1 G4/2 E4/2", bpm)
+        const lowVoice = renderVoice(lower.notes, lower.duration, "hum", rng)
+        const highVoice = renderVoice(higher.notes, higher.duration, "sing", rng)
         const claps = renderTicks(clapTimes(bpm, Math.ceil(lower.duration / (60 / bpm)), rng, 0.016), lower.duration, rng, false)
-        const rhodes = transformAudio(renderVoice(higher.notes, higher.duration, "sing", rng), "Rhodes", { rng, era: "1970", bpm })
+        const rhodes = transformAudio(highVoice, "Rhodes", { rng, era: "1970", bpm, figure: "chords", touch: "strum" })
+        const bass = transformAudio(lowVoice, "Bass", { rng, era: "1970", bpm, figure: "solo", touch: "beat" })
         const drums = transformAudio(claps, "Drums", { bpm, rng, era: "1970" })
         return {
           duration: lower.duration,
           layers: balance([
-            layer("Lower voice", "Voice", "original", "#1fbfa7", 0.66, -0.28, renderVoice(lower.notes, lower.duration, "hum", rng), { space: 0.1 }),
-            layer("Higher voice", "Voice", "original", "#7ee0c8", 0.6, 0.3, renderVoice(higher.notes, higher.duration, "sing", rng), { high: 1, space: 0.12 }),
-            layer("1970s Rhodes", "Rhodes", "from the higher voice · 1970s", "#7ee0c8", 0.34, 0.08, rhodes.samples, { space: 0.28 }),
-            layer("Family claps", "Claps", "original", "#ffd89a", 0.24, -0.08, claps),
-            layer("1970s kit", "Drums", "from the claps · 1970s", "#3d7eff", 0.5, 0, drums.samples, { low: 1, space: 0.06 }),
+            layer("Lower voice", "Voice", "original", "#1fbfa7", 0.58, -0.28, lowVoice, { space: 0.08 }),
+            layer("Higher voice", "Voice", "original", "#7ee0c8", 0.62, 0.28, highVoice, { high: 1, space: 0.1 }),
+            layer("1970s Rhodes", "Rhodes", "from the higher voice · 1970s · chords, strummed", "#7ee0c8", 0.3, 0.06, rhodes.samples, { space: 0.3 }),
+            layer("1970s bass", "Bass", "from the lower voice · 1970s · on the beat", "#d98a00", 0.4, 0, bass.samples, { low: 3, high: -2 }),
+            layer("Family claps", "Claps", "original", "#ffd89a", 0.18, -0.1, claps),
+            layer("1970s kit", "Drums", "from the claps · 1970s", "#3d7eff", 0.42, 0, drums.samples, { low: 1, space: 0.06 }),
           ]),
           proof: { drums: drums.proof.hits, melody: coverage(higher.notes, rhodes.proof.notes) },
         }
@@ -1003,21 +1009,23 @@ function makeExample(id) {
       shape: "arc",
       intent: "soft",
       bpm: 84,
-      blurb: "Summer Memories keeps the hummed tune and the soft taps. A 1990s acoustic guitar and a quiet kit are made from them, and the song eases in and out.",
+      blurb: "Summer Memories is a hummed line with gaps, like someone remembering a chorus. A 1990s guitar plays it solo, another strums chords, and soft taps become a quiet kit.",
       build(rng) {
         const bpm = 84
-        const { notes, duration } = notesFrom("A4 C5 B4 A4 G4 A4 B4 G4 A4 C5 D5 C5 B4 A4 G4 A4 B4 C5 D5 C5 B4 A4 G4 A4", bpm)
+        const { notes, duration } = notesFrom("E4/2 R/0.5 G4/0.5 B4/1.5 A4/0.5 G4/1 E4/2 R/1 C5/1.5 B4/0.5 A4/1 G4/2 E4/2 R/1 D5/1 C5/1.5 B4/0.5 A4/1 G4/1 E4/2 R/1 G4/1 E4/2 R/4", bpm)
         const hum = renderVoice(notes, duration, "hum", rng)
         const taps = renderTicks(clapTimes(bpm, Math.ceil(duration / (60 / bpm)), rng, 0.02), duration, rng, true)
-        const guitar = transformAudio(hum, "Acoustic guitar", { rng, era: "1990", bpm })
+        const guitar = transformAudio(hum, "Acoustic guitar", { rng, era: "1990", bpm, figure: "solo", touch: "hold" })
+        const strum = transformAudio(hum, "Acoustic guitar", { rng, era: "1990", bpm, figure: "chords", touch: "strum" })
         const drums = transformAudio(taps, "Drums", { bpm, rng, era: "1990" })
         return {
           duration,
           layers: balance([
-            layer("Hummed memory", "Voice", "original", "#1fbfa7", 0.58, 0.04, hum, { space: 0.18 }),
-            layer("1990s guitar", "Acoustic guitar", "from the humming · 1990s", "#ff8ab0", 0.4, -0.26, guitar.samples, { space: 0.22 }),
-            layer("Soft taps", "Claps", "original", "#ffd89a", 0.22, 0.16, taps, { space: 0.08 }),
-            layer("Quiet kit", "Drums", "from the taps · 1990s", "#3d7eff", 0.3, -0.04, drums.samples, { high: -1, space: 0.1 }),
+            layer("Hummed memory", "Voice", "original", "#1fbfa7", 0.6, 0.04, hum, { space: 0.18 }),
+            layer("1990s guitar", "Acoustic guitar", "from the humming · 1990s · solo, held", "#ff8ab0", 0.36, -0.22, guitar.samples, { space: 0.16 }),
+            layer("1990s strum", "Acoustic guitar", "from the humming · 1990s · chords, strummed", "#f0a202", 0.28, 0.2, strum.samples, { space: 0.28 }),
+            layer("Soft taps", "Claps", "original", "#ffd89a", 0.18, 0.12, taps, { space: 0.08 }),
+            layer("Quiet kit", "Drums", "from the taps · 1990s", "#3d7eff", 0.28, -0.04, drums.samples, { high: -1, space: 0.1 }),
           ]),
           proof: { melody: coverage(notes, guitar.proof.notes), drums: drums.proof.hits },
         }
@@ -1028,28 +1036,30 @@ function makeExample(id) {
       shape: "chorus",
       intent: "chorus",
       bpm: 104,
-      blurb: "A Brighter Day keeps the hook, the beatbox, and the claps. An 1980s Rhodes, bass, drums, and choir are made from them. The last chorus is the biggest.",
+      blurb: "A Brighter Day is a hummed pop hook that jumps and repeats. An 1980s guitar plays it solo, Rhodes strums chords, the choir holds them, and the beatbox becomes bass on the beat.",
       build(rng) {
         const bpm = 104
-        const hook = notesFrom("E4 G4 A4 B4 A4 G4 E4 D4 C4 E4 G4 A4 G4 E4 D4 C4 E4 G4 C5 B4 A4 G4 E4", bpm)
-        const bassNotes = notesFrom("C2/2 G2/2 A2/2 G2/2 F2/2 E2/2 G2/2 C2/2 A2/2 G2/2 C2/2", bpm)
+        const hook = notesFrom("G4/0.5 G4/0.5 C5/1 R/0.5 E4/0.5 G4/1 A4/0.5 C5/1.5 G4/2 R/1 C5/0.5 D5/1 C5/0.5 A4/1 G4/0.5 E4/1.5 G4/2 R/1 G4/0.5 A4/0.5 C5/1 E5/1.5 D5/0.5 C5/1 A4/1 G4/1 E4/1 C5/1.5 G4/2.5 R/1 G4/2", bpm)
+        const bassNotes = notesFrom("C2/2 G2/1 R/1 A2/1 F2/1 C2/2 R/1 G2/1 A2/1 E2/1 C2/2 G2/1.5 R/0.5 F2/1 E2/1 C2/2 G2/1 C2/2 R/1 A2/1 G2/1 C2/2 R/4", bpm)
         const beatbox = renderBeatbox(bassNotes.notes, hook.duration, bpm, rng)
         const hum = renderVoice(hook.notes, hook.duration, "sing", rng)
         const claps = renderTicks(clapTimes(bpm, Math.ceil(hook.duration / (60 / bpm)), rng, 0.015), hook.duration, rng, false)
-        const bass = transformAudio(beatbox, "Bass", { rng, era: "1980", bpm })
+        const guitar = transformAudio(hum, "Electric guitar", { rng, era: "1980", bpm, figure: "solo", touch: "hold" })
+        const rhodes = transformAudio(hum, "Rhodes", { rng, era: "1980", bpm, figure: "chords", touch: "strum" })
+        const choir = transformAudio(hum, "Choir", { rng, era: "1980", bpm, figure: "chords", touch: "hold" })
+        const bass = transformAudio(beatbox, "Bass", { rng, era: "1980", bpm, figure: "solo", touch: "beat" })
         const drums = transformAudio(claps, "Drums", { bpm, rng, era: "1980" })
-        const choir = transformAudio(hum, "Choir", { key: 0, rng, era: "1980", bpm })
-        const rhodes = transformAudio(hum, "Rhodes", { rng, era: "1980", bpm })
         return {
           duration: hook.duration,
           layers: balance([
-            layer("Hook", "Voice", "original", "#1fbfa7", 0.74, 0.06, hum, { high: 2, space: 0.08 }),
-            layer("1980s Rhodes", "Rhodes", "from the hook · 1980s", "#7ee0c8", 0.26, -0.18, rhodes.samples, { space: 0.22 }),
-            layer("1980s choir", "Choir", "from the hook · 1980s", "#b44dff", 0.28, 0.32, choir.samples, { space: 0.48 }),
-            layer("Beatbox", "Beatbox", "original", "#f0a202", 0.24, -0.08, beatbox, { space: 0.02 }),
-            layer("1980s bass", "Bass", "from the beatbox · 1980s", "#d98a00", 0.4, 0, bass.samples, { low: 3, high: -2 }),
-            layer("Claps", "Claps", "original", "#ffd89a", 0.16, 0.14, claps),
-            layer("1980s kit", "Drums", "from the claps · 1980s", "#3d7eff", 0.38, 0, drums.samples, { low: 1, high: 1, space: 0.04 }),
+            layer("Hook", "Voice", "original", "#1fbfa7", 0.7, 0.06, hum, { high: 2, space: 0.08 }),
+            layer("1980s guitar", "Electric guitar", "from the hook · 1980s · solo, held", "#ff4d8d", 0.28, -0.2, guitar.samples, { space: 0.1, high: 1 }),
+            layer("1980s Rhodes", "Rhodes", "from the hook · 1980s · chords, strummed", "#7ee0c8", 0.24, 0.16, rhodes.samples, { space: 0.24 }),
+            layer("1980s choir", "Choir", "from the hook · 1980s · chords, held", "#b44dff", 0.26, 0.32, choir.samples, { space: 0.48 }),
+            layer("Beatbox", "Beatbox", "original", "#f0a202", 0.2, -0.08, beatbox, { space: 0.02 }),
+            layer("1980s bass", "Bass", "from the beatbox · 1980s · on the beat", "#d98a00", 0.4, 0, bass.samples, { low: 3, high: -2 }),
+            layer("Claps", "Claps", "original", "#ffd89a", 0.14, 0.14, claps),
+            layer("1980s kit", "Drums", "from the claps · 1980s", "#3d7eff", 0.36, 0, drums.samples, { low: 1, high: 1, space: 0.04 }),
           ]),
           proof: {
             bass: coverage(bassNotes.notes, bass.proof.notes),

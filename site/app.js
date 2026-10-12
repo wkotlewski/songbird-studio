@@ -1,9 +1,9 @@
 const STARTERS = [
-  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, line: "A hymn. His hum stays, with a 1920s horn and choir." },
-  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, line: "Two voices and claps, with a 1970s Rhodes and kit." },
-  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, line: "A hummed memory, with a 1990s guitar and a quiet kit." },
-  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, line: "A child's hum and claps, as 1960s piano and drums." },
-  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, line: "A hook, a beatbox, and claps, finished in an 1980s mix." },
+  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, line: "A slow hummed tune. Horn solo, choir and piano chords." },
+  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, line: "Two hummed parts. Rhodes strum, bass on the beat." },
+  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, line: "A hummed chorus with gaps. Guitar solo and strum." },
+  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, line: "A hummed soul hook. Piano solo, chords on the beat." },
+  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, line: "A hummed pop hook. Guitar, strummed Rhodes, bass." },
 ]
 
 const INPUTS = [
