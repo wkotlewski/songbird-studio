@@ -1259,6 +1259,55 @@ function makeExample(id) {
   }
 }
 
+function heardAt(data, sampleRate, options, time) {
+  const rangeStart = options.rangeStart
+  const rangeEnd = options.rangeEnd
+  if (time < rangeStart || time >= rangeEnd) return 0
+  for (const gap of options.gaps || []) {
+    if (time >= gap.start && time < gap.end) return 0
+  }
+  const into = time - rangeStart
+  const window = Math.max(0.05, rangeEnd - rangeStart)
+  const duration = data.length / sampleRate
+  const loops = duration >= 0.05 && duration < window - 0.05
+  const at = loops ? into % duration : into
+  if (!loops && at >= duration) return 0
+  let index = Math.floor(at * sampleRate)
+  if (index < 0) index = 0
+  if (index >= data.length) index = data.length - 1
+  return data[index]
+}
+
+function fillWithSection(data, sampleRate, options) {
+  const song = Math.max(0.05, options.songLength || 0)
+  const rangeStart = options.rangeStart ?? 0
+  const rangeEnd = options.rangeEnd ?? song
+  const start = Math.max(options.sectionStart ?? 0, rangeStart)
+  const end = Math.min(options.sectionEnd ?? song, rangeEnd)
+  if (end - start < 0.08) return null
+  const sliceLen = Math.max(1, Math.round((end - start) * sampleRate))
+  const total = Math.max(sliceLen, Math.round(song * sampleRate))
+  if (sliceLen >= total - Math.round(sampleRate * 0.05)) return { unchanged: true }
+  const slice = new Float32Array(sliceLen)
+  const heard = { rangeStart, rangeEnd, gaps: options.gaps || [] }
+  let peak = 0
+  for (let i = 0; i < sliceLen; i++) {
+    const sample = heardAt(data, sampleRate, heard, start + i / sampleRate)
+    slice[i] = sample
+    peak = Math.max(peak, Math.abs(sample))
+  }
+  if (peak < 0.00002) return null
+  const fade = Math.min(Math.floor(sampleRate * 0.006), Math.floor(sliceLen / 6))
+  for (let i = 0; i < fade; i++) {
+    const gain = i / fade
+    slice[i] *= gain
+    slice[sliceLen - 1 - i] *= gain
+  }
+  const samples = new Float32Array(total)
+  for (let i = 0; i < total; i++) samples[i] = slice[i % sliceLen]
+  return { samples, loops: Math.ceil(total / sliceLen) }
+}
+
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
@@ -1269,4 +1318,5 @@ globalThis.SongbirdMusic = {
   detectNotes,
   detectOnsets,
   coverage,
+  fillWithSection,
 }
