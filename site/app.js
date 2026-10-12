@@ -690,9 +690,19 @@ function setScreen(screen) {
   document.body.dataset.screen = screen
 }
 
+function syncDock() {
+  const open = document.body.classList.contains("sheet-open")
+  document.querySelectorAll(".dock-btn").forEach((button) => {
+    const on = open && button.dataset.panel === state.panel
+    button.classList.toggle("on", on)
+    button.setAttribute("aria-pressed", on ? "true" : "false")
+  })
+}
+
 function showInspector() {
   document.body.classList.remove("inspector-closed")
   document.body.classList.add("sheet-open")
+  syncDock()
 }
 
 function setPanel(panel) {
@@ -704,6 +714,7 @@ function setPanel(panel) {
 function closePanel() {
   document.body.classList.remove("sheet-open")
   document.body.classList.add("inspector-closed")
+  syncDock()
 }
 
 function shareDetail(song) {
@@ -1545,8 +1556,11 @@ function openSong(id) {
   state.arrived = null
   undoStack = []
   redoStack = []
+  state.panel = "mix"
   closePanel()
   setScreen("studio")
+  const timeline = $("timeline")
+  if (timeline) timeline.scrollTop = 0
   renderPlanNote()
   renderRuler()
   renderTracks()
@@ -2723,6 +2737,7 @@ renderRuler()
 renderTracks()
 renderInspector()
 if (window.matchMedia("(min-width: 1100px)").matches) document.body.classList.add("sheet-open")
+syncDock()
 sky.reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
 seedStars()
 paintSky(0, 0)
