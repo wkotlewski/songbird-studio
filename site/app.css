@@ -692,6 +692,18 @@ input[type="range"].fader {
 .mix-boxes { display: grid; gap: 8px; min-width: 0; max-width: 100%; }
 .mix-boxes.parts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .mix-boxes .plan { min-height: 78px; margin: 0; }
+.mix-channels { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mix-channel {
+  border: 1px solid rgba(255, 251, 242, 0.22);
+  border-radius: 16px;
+  padding: 10px 12px 6px;
+  min-width: 0;
+}
+.mix-channel.on { border-color: rgba(52, 211, 153, 0.9); }
+.mix-channel-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mix-channel-top .strip-name { flex: 1; min-width: 0; text-align: left; font-size: 14px; font-weight: 700; }
+.mix-channel .field { margin: 8px 0 0; }
+.mix-channel .hear-state { margin-top: 6px; }
 .strips { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 4px; }
 .strip {
   flex: 0 0 84px;
