@@ -13,18 +13,26 @@ const INPUTS = [
   ["instrument", "Instrument"],
 ]
 
-const ERAS = [
-  { id: "old", name: "Old school", line: "Warmer, softer, more room." },
-  { id: "modern", name: "Modern", line: "Closer, brighter, tighter." },
+const PERIODS = [
+  { id: "1900", name: "1900s", line: "Parlor. Soft, warm, and far away." },
+  { id: "1920", name: "1920s", line: "Jazz room. Round, with a little life." },
+  { id: "1950", name: "1950s", line: "Rock and roll. Tighter, with some push." },
+  { id: "1960", name: "1960s", line: "Soul. Warm and close." },
+  { id: "1970", name: "1970s", line: "Studio. Wider, with a little chorus." },
+  { id: "1980", name: "1980s", line: "Pop. Bright, drier, more chorus." },
+  { id: "1990", name: "1990s", line: "Alternative. Drier and a bit darker." },
+  { id: "2000", name: "2000s", line: "Pop. Close, bright, and pressed." },
+  { id: "today", name: "Today", line: "Present day. Closest and clearest." },
 ]
 
 const PACKAGES = [
-  { id: "Piano", name: "Acoustic piano", line: "Piano under the tune." },
+  { id: "Piano", name: "Acoustic piano", line: "The tune, played as piano." },
   { id: "Rhodes", name: "Rhodes", line: "Electric piano keys." },
-  { id: "Acoustic guitar", name: "Acoustic guitar", line: "A guitar under the tune." },
-  { id: "Electric guitar", name: "Electric guitar", line: "Amp guitar under the tune." },
-  { id: "Drums", name: "Drums", line: "A kit from the claps." },
-  { id: "Bass", name: "Bass", line: "Low notes that hold." },
+  { id: "Acoustic guitar", name: "Acoustic guitar", line: "The tune, on acoustic guitar." },
+  { id: "Electric guitar", name: "Electric guitar", line: "The tune, through an amp." },
+  { id: "Horn", name: "Horn", line: "The tune, on a horn." },
+  { id: "Drums", name: "Drums", line: "A kit from the rhythm in this layer." },
+  { id: "Bass", name: "Bass", line: "The tune, dropped down low." },
   { id: "Choir", name: "Choir", line: "Voices around the melody." },
 ]
 
@@ -246,7 +254,7 @@ const state = {
   query: "",
   shareFor: null,
   deleteFor: null,
-  era: "old",
+  era: "today",
   songs: loadSongs(),
   song: null,
   layers: [],
@@ -1103,7 +1111,7 @@ function mixFamily(layer) {
   if (/choir/.test(text)) return "choir"
   if (/drum|clap/.test(text)) return "drums"
   if (/bass|beatbox/.test(text)) return "bass"
-  if (/guitar|piano|rhodes|keyboard|string|brass|synth|instrument/.test(text)) return "instrument"
+  if (/guitar|piano|rhodes|horn|keyboard|string|brass|synth|instrument/.test(text)) return "instrument"
   if (/voice|hum|sing|hook/.test(text)) return "vocal"
   return "instrument"
 }
@@ -1268,14 +1276,16 @@ function renderInspector() {
     const note = state.transformNote
       ? `<p class="${state.transformTone === "warn" ? "warn" : "hint"}">${esc(state.transformNote)}</p>`
       : ""
+    const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
     body = `${head("Magic Transform")}
-      <p class="hint">${esc(sectionWorkLine())} Your original stays. Pick old school or modern, then a package. Highlighted packages fit the layer you picked.</p>
-      ${sources.length ? `<p class="ask">Listen to</p>
+      <p class="hint">${esc(sectionWorkLine())} ${current ? `${esc(current.name)} is the layer you are changing.` : "Select a layer."} Pick a time, then a sound. The original recording stays. If you select a sound you already added, picking again switches that sound.</p>
+      ${sources.length ? `<p class="ask">This layer</p>
         <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer first, or open an example.</p>`}
-      <p class="ask">Old school or modern</p>
-      <div class="mix-boxes parts">${ERAS.map((era) => planButton(era.name, era.line, `data-action="pick-era" data-era="${era.id}" ${locked}`, state.era === era.id)).join("")}</div>
-      <p class="ask">Package</p>
-      <div class="mix-boxes parts">${PACKAGES.map((pack) => planButton(`✦ ${pack.name}`, pack.line, `data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}`, !!(current && transformFit(current, pack.id)))).join("")}</div>
+      <p class="ask">Time and vibe</p>
+      <p class="hint">${esc(period.line)}</p>
+      <div class="choices">${PERIODS.map((era) => filterChip(era.name, `data-action="pick-era" data-era="${era.id}" ${locked}`, state.era === era.id)).join("")}</div>
+      <p class="ask">Sound</p>
+      <div class="mix-boxes parts">${PACKAGES.map((pack) => planButton(pack.name, pack.line, `data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}`, !!(current && current.sound === pack.id))).join("")}</div>
       ${note}
       ${magicLog()}`
   } else if (state.panel === "build") {
@@ -1430,8 +1440,8 @@ function rememberSong() {
   state.song.bpm = state.bpm
   state.song.tempoSource = state.tempoSource
   state.song.tempoLocked = state.tempoLocked
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId,
   }))
   saveSongs()
   $("save-status").textContent = "Saved just now"
@@ -1782,9 +1792,10 @@ function addTransformedLayer(sound) {
     renderInspector()
     return
   }
-  const source = sourceForTransform(selected, sound, layers)
+  const origin = state.layers.find((item) => item.id === selected.sourceId) || selected
+  const audioId = origin.id
   state.transforming = true
-  state.transformNote = `Listening to ${source.layer.name}…`
+  state.transformNote = `Listening to ${origin.name}…`
   state.transformTone = ""
   $("save-status").textContent = state.transformNote
   renderInspector()
@@ -1792,29 +1803,25 @@ function addTransformedLayer(sound) {
   if (ctx.resume) void ctx.resume()
   window.setTimeout(() => {
     try {
-      const audio = buffers.get(source.layer.id + ":audio")
+      const audio = buffers.get(audioId + ":audio")
       const copy = new Float32Array(audio.length)
       copy.set(audio.getChannelData(0))
-      const era = state.era === "modern" ? "modern" : "old"
-      const eraName = era === "modern" ? "modern" : "old school"
+      const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
       const pack = PACKAGES.find((item) => item.id === sound)
-      const made = SongbirdMusic.transformAudio(copy, sound, { bpm: state.bpm, sampleRate: audio.sampleRate, era })
+      const made = SongbirdMusic.transformAudio(copy, sound, { bpm: state.bpm, sampleRate: audio.sampleRate, era: period.id })
       if (!made) {
-        state.transformNote = `Couldn't find ${missingPart(sound)} in ${source.layer.name}. The original is unchanged.`
+        state.transformNote = `Couldn't find ${missingPart(sound)} in ${origin.name}. The original is unchanged.`
         state.transformTone = "warn"
         $("save-status").textContent = state.transformNote
       } else {
         snapshot()
-        const id = uid()
-        const colors = { Piano: "#f0a202", Rhodes: "#7ee0c8", "Acoustic guitar": "#ff8ab0", "Electric guitar": "#ff4d8d", Guitar: "#ff8ab0", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
+        const colors = { Piano: "#f0a202", Rhodes: "#7ee0c8", "Acoustic guitar": "#ff8ab0", "Electric guitar": "#ff4d8d", Guitar: "#ff8ab0", Horn: "#F9A8D4", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
         const label = pack ? pack.name : sound
-        const layer = {
+        const from = `from ${origin.name} · ${period.name}`
+        const replacing = selected.sourceId && selected.id !== origin.id
+        const id = replacing ? selected.id : uid()
+        const layer = replacing ? selected : {
           id,
-          name: label,
-          sound,
-          from: `from ${source.layer.name} · ${eraName}`,
-          color: colors[sound] || "#7aa2ff",
-          peaks: peaksFromSamples(made.samples),
           gain: 0.7,
           pan: 0.15,
           low: 0,
@@ -1823,16 +1830,24 @@ function addTransformedLayer(sound) {
           mute: false,
           solo: false,
           live: true,
+          sourceId: origin.id,
         }
-        const landed = applySectionToLayer(layer)
+        layer.name = label
+        layer.sound = sound
+        layer.from = from
+        layer.color = colors[sound] || "#7aa2ff"
+        layer.peaks = peaksFromSamples(made.samples)
+        layer.sourceId = origin.id
+        if (!replacing) {
+          applySectionToLayer(layer)
+          state.layers.push(layer)
+        }
         buffers.set(id + ":audio", audioBuffer(made.samples, SongbirdMusic.sampleRate))
-        state.layers.push(layer)
         state.selected = id
         state.arrived = id
-        const where = landed ? (state.sectionMode === "replace" ? ` It replaces ${landed.name}.` : ` It lands on ${landed.name}.`) : ""
-        const heard = source.redirected
-          ? `${label}, ${eraName}, was added from ${source.layer.name}.${where} There isn't ${missingPart(sound)} in ${selected.name}, so Songbird used ${source.layer.name}.`
-          : `${label}, ${eraName}, was added from ${source.layer.name}.${where} The original layer is still there.`
+        const heard = replacing
+          ? `${origin.name} is now ${label}, ${period.name}. The original recording is still its own layer.`
+          : `${label}, ${period.name}, was added from ${origin.name}. The original layer is still there.`
         state.transformNote = `${heard} Playing them together.`
         state.transformTone = ""
         $("save-status").textContent = state.transformNote
@@ -2329,7 +2344,8 @@ document.body.addEventListener("click", (event) => {
     setPanel("record")
   }
   if (action === "pick-era") {
-    state.era = node.dataset.era === "modern" ? "modern" : "old"
+    const period = PERIODS.find((item) => item.id === node.dataset.era)
+    if (period) state.era = period.id
     renderInspector()
   }
   if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
