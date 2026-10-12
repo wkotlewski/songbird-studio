@@ -768,11 +768,13 @@ function songCard(song) {
         ${outlinedButton("Share", `data-action="share-song" data-id="${song.id}"`)}
         ${dangerButton("Delete", `data-action="ask-delete" data-id="${song.id}"`)}
       </div>`
+  const byline = song.author ? (song.demo ? `${song.author} · Original` : song.author) : ""
   return `<article class="song">
         <button class="song-open" data-action="open-song" data-id="${song.id}">
           <span class="swatch" style="background:linear-gradient(135deg,#34D399,#F9A8D4)"></span>
-          <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(meta)}</span>${song.credit ? `<span class="credit">${esc(song.credit)}</span>` : ""}</span>
+          <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(meta)}</span></span>
           <span class="badge">${badge}</span>
+          ${byline ? `<span class="byline">${esc(byline)}</span>` : ""}
         </button>
         ${manage}
         ${renderShareBox(song)}
@@ -2034,7 +2036,10 @@ function showSongCredit() {
     author.value = song?.author || ""
     author.readOnly = !!song?.demo
   }
-  if (credit) credit.textContent = song?.credit || ""
+  if (credit) {
+    credit.textContent = song?.credit || ""
+    credit.title = song?.credit || ""
+  }
 }
 
 function syncPlaying(layer) {
