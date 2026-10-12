@@ -852,6 +852,25 @@ function arrangePerformance(notes, options = {}) {
   return { notes: out, figure, touch, exact: touch === "beat" }
 }
 
+function pocketHits(bpm, duration, pocket) {
+  const beat = 60 / Math.max(40, bpm || 92)
+  const count = Math.max(4, Math.floor((duration - 0.04) / beat))
+  const hits = []
+  for (let i = 0; i < count; i++) {
+    const time = i * beat
+    const place = i % 4
+    if (pocket === "boom") {
+      if (place === 0) hits.push({ time, kind: "kick" })
+      if (place === 1 || place === 3) hits.push({ time, kind: "snare" })
+      if (place === 1) hits.push({ time: time + beat * 0.5, kind: "kick" })
+    } else {
+      if (place === 0 || place === 2) hits.push({ time, kind: "kick" })
+      if (place === 1 || place === 3) hits.push({ time, kind: "snare" })
+    }
+  }
+  return hits
+}
+
 function transformAudio(samples, kind, options = {}) {
   samples = toEngineRate(samples, options.sampleRate || SR)
   const cap = SR * 40
@@ -869,8 +888,9 @@ function transformAudio(samples, kind, options = {}) {
         hits = melody.map((note, index) => ({ time: note.time, kind: index % 2 === 0 ? "kick" : "snare" }))
       }
     }
+    if (options.pocket === "backbeat" || options.pocket === "boom") hits = pocketHits(bpm, duration, options.pocket)
     if (hits.length < 2) return null
-    return { samples: finish(renderDrums(hits, duration, rng, era)), proof: { hits } }
+    return { samples: finish(renderDrums(hits, duration, rng, era)), proof: { hits, pocket: options.pocket || "played" } }
   }
   if (kind === "Bass") {
     let notes = detectNotes(samples, { minHz: 40, maxHz: 180, lowpass: 220, minEnergy: 0.00015 })
@@ -1090,13 +1110,129 @@ function makeExample(id) {
         }
       },
     },
+    gospel: {
+      lengthSec: 34,
+      shape: "chorus",
+      intent: "chorus",
+      bpm: 84,
+      blurb: "Open Hands is an original gospel song by Whitney Kotlewski. A sung verse and chorus stay the vocal. Choir and piano hold chords behind, claps become a backbeat, and a low hum becomes bass. It is not a copy of an existing song.",
+      build(rng) {
+        const bpm = 84
+        const verse = "R/1 D4/1 F4/0.5 G4/1 Bb4/1.5 A4/0.5 G4/1 D4/1.5 R/1 F4/0.5 A4/1 C5/1.5 G4/0.5 F4/1 D4/2.5 R/1 D4/0.5 F4/0.5 A4/1 G4/1 F4/1 D4/2 R/1"
+        const chorus = "G4/0.5 Bb4/0.5 D5/1.5 C5/0.5 Bb4/1 G4/1 F4/1 D4/1 R/1 G4/0.5 A4/0.5 C5/1 D5/1.5 C5/0.5 A4/1 G4/2 R/1 D4/1 F4/0.5 G4/0.5 Bb4/1 D5/1.5 C5/0.5 Bb4/1 G4/2"
+        const { notes, duration } = notesFrom(`${verse} ${chorus}`, bpm)
+        const bassLine = notesFrom("G2/4 C2/4 G2/4 D2/4 G2/4 C2/4 G2/2 D2/2 C2/4 G2/4 D2/4 G2/4 C2/2 G2/2", bpm)
+        const voice = renderVoice(notes, duration, "sing", rng)
+        const low = renderVoice(bassLine.notes, bassLine.duration, "bass", rng)
+        const claps = renderTicks(clapTimes(bpm, Math.ceil(duration / (60 / bpm)), rng, 0.012), duration, rng, false)
+        const choir = transformAudio(voice, "Choir", { rng, era: "1970", bpm, figure: "chords", touch: "hold" })
+        const piano = transformAudio(voice, "Piano", { rng, era: "1960", bpm, figure: "chords", touch: "hold" })
+        const bass = transformAudio(low, "Bass", { rng, era: "1970", bpm, figure: "solo", touch: "beat" })
+        const drums = transformAudio(claps, "Drums", { bpm, rng, era: "1970", pocket: "backbeat" })
+        return {
+          duration,
+          lengthSec: Math.max(15, Math.round(duration)),
+          sections: [
+            { id: "gospel-verse", name: "Verse", start: 0, end: 0.5 },
+            { id: "gospel-chorus", name: "Chorus", start: 0.5, end: 1 },
+          ],
+          layers: balance([
+            layer("Sung vocal", "Voice", "original", "#1fbfa7", 0.92, 0, voice, { high: 2.5, space: 0.12 }),
+            layer("Gospel choir", "Choir", "behind the singing · 1970s · chords, held", "#b44dff", 0.24, 0.28, choir.samples, { space: 0.46 }),
+            layer("Gospel piano", "Piano", "behind the singing · 1960s · chords, held", "#f0a202", 0.18, -0.12, piano.samples, { space: 0.2 }),
+            layer("Low hum", "Voice", "original", "#7ee0c8", 0.16, 0, low, { low: 2, high: -3 }),
+            layer("Gospel bass", "Bass", "from the low hum · 1970s · on the beat", "#d98a00", 0.28, 0, bass.samples, { low: 3, high: -2 }),
+            layer("Claps", "Claps", "original", "#ffd89a", 0.14, 0.16, claps),
+            layer("Gospel kit", "Drums", "from the claps · backbeat · 1970s", "#3d7eff", 0.26, 0, drums.samples, { low: 2, space: 0.04 }),
+          ]),
+          proof: { melody: coverage(notes, choir.proof.notes), bass: coverage(bassLine.notes, bass.proof.notes), drums: drums.proof.hits },
+        }
+      },
+    },
+    pop: {
+      lengthSec: 38,
+      shape: "chorus",
+      intent: "chorus",
+      bpm: 100,
+      blurb: "After Midnight is an original pop song by Whitney Kotlewski. The sung hook stays the vocal. Rhodes and guitar play chords behind it, a beatbox becomes bass, and claps become a backbeat. It is not a copy of an existing song.",
+      build(rng) {
+        const bpm = 100
+        const verse = "R/0.5 E4/0.5 G4/1 C5/1.5 R/0.5 G4/0.5 E4/1 A4/1.5 G4/1 R/1 C5/0.5 E5/1 D5/0.5 C5/1 G4/1 E4/2 R/1 E4/0.5 G4/0.5 C5/1 E4/1 G4/1.5 R/0.5 A4/0.5 C5/1 G4/1 E4/0.5 R/1 G4/1 C5/1.5 E4/0.5 G4/1 C5/1 E4/2"
+        const chorus = "E4/0.5 G4/0.5 C5/1 E5/1 D5/0.5 C5/1 G4/1.5 R/1 E4/1 G4/0.5 C5/1 E5/1.5 D5/0.5 C5/1 A4/1 G4/1 E4/0.5 R/1 E4/0.5 G4/0.5 C5/1 E5/1.5 D5/0.5 C5/1 G4/1 R/1 E4/1 G4/1 C5/1 E5/1 D5/0.5 C5/0.5 G4/1 E4/1 C5/1 G4/1"
+        const { notes, duration } = notesFrom(`${verse} ${chorus}`, bpm)
+        const bassLine = notesFrom("C2/2 G2/2 E2/2 C2/2 A2/2 G2/2 C2/2 E2/2 C2/2 G2/2 F2/2 E2/2 C2/2 G2/2 C2/2 R/2 A2/2 G2/2 C2/2 E2/2 C2/2 G2/2 F2/2 E2/2 C2/4 G2/2 C2/2 A2/2 G2/2 C2/2 R/2", bpm)
+        const voice = renderVoice(notes, duration, "sing", rng)
+        const beatbox = renderBeatbox(bassLine.notes, duration, bpm, rng)
+        const claps = renderTicks(clapTimes(bpm, Math.ceil(duration / (60 / bpm)), rng, 0.01), duration, rng, false)
+        const rhodes = transformAudio(voice, "Rhodes", { rng, era: "2000", bpm, figure: "chords", touch: "strum" })
+        const guitar = transformAudio(voice, "Electric guitar", { rng, era: "2000", bpm, figure: "chords", touch: "beat" })
+        const bass = transformAudio(beatbox, "Bass", { rng, era: "2000", bpm, figure: "solo", touch: "beat" })
+        const drums = transformAudio(claps, "Drums", { bpm, rng, era: "2000", pocket: "backbeat" })
+        return {
+          duration,
+          lengthSec: Math.max(15, Math.round(duration)),
+          sections: [
+            { id: "pop-verse", name: "Verse", start: 0, end: 0.5 },
+            { id: "pop-chorus", name: "Chorus", start: 0.5, end: 1 },
+          ],
+          layers: balance([
+            layer("Sung hook", "Voice", "original", "#1fbfa7", 0.92, 0, voice, { high: 2.5, space: 0.08 }),
+            layer("Pop Rhodes", "Rhodes", "behind the singing · 2000s · chords, strummed", "#7ee0c8", 0.18, 0.16, rhodes.samples, { space: 0.2 }),
+            layer("Pop guitar", "Electric guitar", "behind the singing · 2000s · chords, on the beat", "#ff4d8d", 0.16, -0.18, guitar.samples, { high: 1, space: 0.06 }),
+            layer("Beatbox", "Beatbox", "original", "#f0a202", 0.12, -0.06, beatbox),
+            layer("Pop bass", "Bass", "from the beatbox · 2000s · on the beat", "#d98a00", 0.28, 0, bass.samples, { low: 3, high: -2 }),
+            layer("Claps", "Claps", "original", "#ffd89a", 0.12, 0.14, claps),
+            layer("Pop kit", "Drums", "from the claps · backbeat · 2000s", "#3d7eff", 0.26, 0, drums.samples, { low: 1, high: 1, space: 0.04 }),
+          ]),
+          proof: { melody: coverage(notes, rhodes.proof.notes), bass: coverage(bassLine.notes, bass.proof.notes), drums: drums.proof.hits },
+        }
+      },
+    },
+    hiphop: {
+      lengthSec: 30,
+      shape: "chorus",
+      intent: "chorus",
+      bpm: 96,
+      blurb: "Side Street is an original hip-hop song by Whitney Kotlewski. A rhythmic sung hook stays the vocal. Claps become a boom-bap kit, a beatbox becomes bass, and Rhodes stabs chords behind. It is not a copy of an existing song.",
+      build(rng) {
+        const bpm = 96
+        const verse = "C4/0.5 R/0.5 Eb4/0.5 C4/1 G4/1 R/1 Bb4/0.5 C4/1 R/2 C4/0.5 R/0.5 G4/1 Bb4/0.5 R/0.5 C4/1 R/1 Eb4/0.5 C4/1 G4/1.5 R/1 Eb4/0.5 C4/0.5 G4/1 Bb4/1 C4/1 R/1 Eb4/1 C4/1"
+        const chorus = "Eb4/0.5 C4/0.5 G4/1 R/0.5 Bb4/1 C4/1 R/1 Eb4/0.5 G4/1 C4/1 R/0.5 Eb4/0.5 G4/0.5 C5/1 Bb4/1 G4/0.5 R/0.5 C4/1 R/1 Eb4/1 C4/0.5 G4/1 Bb4/0.5 C4/0.5 Eb4/1 G4/1 C4/1 R/1 Bb4/1 C4/1"
+        const { notes, duration } = notesFrom(`${verse} ${chorus}`, bpm)
+        const bassLine = notesFrom("C2/2 Eb2/1 G2/1 R/1 Bb1/1 C2/2 R/1 C2/1.5 Eb2/0.5 G2/1 Bb1/1 C2/2 R/1 Eb2/1 G2/1 C2/2 Bb1/2 C2/2 R/1 G2/1 Eb2/1 C2/2 Bb1/1 C2/2 R/1 C2/2 Eb2/2 G2/1 Bb1/1 C2/2 R/1 Eb2/2 C2/4", bpm)
+        const voice = renderVoice(notes, duration, "sing", rng)
+        const beatbox = renderBeatbox(bassLine.notes, duration, bpm, rng)
+        const claps = renderTicks(clapTimes(bpm, Math.ceil(duration / (60 / bpm)), rng, 0.01), duration, rng, false)
+        const rhodes = transformAudio(voice, "Rhodes", { rng, era: "today", bpm, figure: "chords", touch: "beat" })
+        const bass = transformAudio(beatbox, "Bass", { rng, era: "today", bpm, figure: "solo", touch: "beat" })
+        const drums = transformAudio(claps, "Drums", { bpm, rng, era: "today", pocket: "boom" })
+        return {
+          duration,
+          lengthSec: Math.max(15, Math.round(duration)),
+          sections: [
+            { id: "hip-verse", name: "Verse", start: 0, end: 0.5 },
+            { id: "hip-chorus", name: "Chorus", start: 0.5, end: 1 },
+          ],
+          layers: balance([
+            layer("Sung hook", "Voice", "original", "#1fbfa7", 0.9, 0.04, voice, { high: 2, space: 0.06 }),
+            layer("Hip-hop chords", "Rhodes", "behind the singing · today · chords, on the beat", "#7ee0c8", 0.16, 0.18, rhodes.samples, { space: 0.1 }),
+            layer("Beatbox", "Beatbox", "original", "#f0a202", 0.14, -0.08, beatbox),
+            layer("Hip-hop bass", "Bass", "from the beatbox · today · on the beat", "#d98a00", 0.3, 0, bass.samples, { low: 4, high: -2 }),
+            layer("Claps", "Claps", "original", "#ffd89a", 0.1, 0.12, claps),
+            layer("Boom-bap kit", "Drums", "from the claps · boom-bap · today", "#3d7eff", 0.32, 0, drums.samples, { low: 2, high: 1, space: 0.02 }),
+          ]),
+          proof: { melody: coverage(notes, rhodes.proof.notes), bass: coverage(bassLine.notes, bass.proof.notes), drums: drums.proof.hits },
+        }
+      },
+    },
   }
   const song = songs[id]
   if (!song) return null
   const made = song.build(mulberry32(hashSeed(id)))
   return {
     sampleRate: SR,
-    lengthSec: song.lengthSec,
+    lengthSec: made.lengthSec || song.lengthSec,
+    sections: made.sections || null,
     shape: song.shape,
     intent: song.intent,
     bpm: song.bpm,

@@ -1,9 +1,14 @@
+const CREDIT = "Original song by Whitney Kotlewski. Not a copy of an existing song or recording."
+
 const STARTERS = [
-  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, line: "Sung jazz vocals. Horn and piano chords behind." },
-  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, line: "Two sung parts. Rhodes and bass behind them." },
-  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, line: "A sung rock riff. Guitar chords and bass behind." },
-  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, line: "Sung soul vocals. Piano chords on the beat." },
-  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, line: "Sung gospel vocals. Rhodes, choir, and bass behind." },
+  { id: "gospel", title: "Open Hands", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: `Original gospel song by Whitney Kotlewski. ${CREDIT.slice(CREDIT.indexOf("Not"))}`, line: "Sung gospel verse and chorus. Choir, piano, and a backbeat behind." },
+  { id: "pop", title: "After Midnight", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: `Original pop song by Whitney Kotlewski. ${CREDIT.slice(CREDIT.indexOf("Not"))}`, line: "Sung pop hook. Rhodes, guitar, bass, and a backbeat behind." },
+  { id: "hiphop", title: "Side Street", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: `Original hip-hop song by Whitney Kotlewski. ${CREDIT.slice(CREDIT.indexOf("Not"))}`, line: "Sung hip-hop hook. Boom-bap kit, bass, and chord stabs behind." },
+  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "Sung jazz vocals. Horn and piano chords behind." },
+  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "Two sung parts. Rhodes and bass behind them." },
+  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "A sung rock riff. Guitar chords and bass behind." },
+  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "Sung soul vocals. Piano chords on the beat." },
+  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "Sung gospel vocals. Rhodes, choir, and bass behind." },
 ]
 
 const INPUTS = [
@@ -46,6 +51,12 @@ const TOUCHES = [
   { id: "hold", name: "Hold", line: "The note or chord lasts with the tune." },
   { id: "strum", name: "Strum", line: "Chord tones arrive one after another. Down, then up." },
   { id: "beat", name: "On the beat", line: "It hits again on each beat." },
+]
+
+const POCKETS = [
+  { id: "played", name: "As played", line: "The kit follows the hits in this layer." },
+  { id: "backbeat", name: "Backbeat", line: "Kick on 1 and 3. Snare on 2 and 4." },
+  { id: "boom", name: "Boom-bap", line: "Kick on 1 and the offbeat. Snare on 2 and 4." },
 ]
 
 const LENGTHS = [
@@ -269,6 +280,7 @@ const state = {
   era: "today",
   figure: "solo",
   touch: "hold",
+  pocket: "played",
   songs: loadSongs(),
   song: null,
   layers: [],
@@ -759,7 +771,7 @@ function songCard(song) {
   return `<article class="song">
         <button class="song-open" data-action="open-song" data-id="${song.id}">
           <span class="swatch" style="background:linear-gradient(135deg,#34D399,#F9A8D4)"></span>
-          <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(meta)}</span></span>
+          <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(meta)}</span>${song.credit ? `<span class="credit">${esc(song.credit)}</span>` : ""}</span>
           <span class="badge">${badge}</span>
         </button>
         ${manage}
@@ -770,7 +782,7 @@ function songCard(song) {
 function renderSongs() {
   const q = state.query.trim().toLowerCase()
   const list = $("song-list")
-  const songs = state.songs.filter((song) => `${song.title} ${song.line || ""}`.toLowerCase().includes(q))
+  const songs = state.songs.filter((song) => `${song.title} ${song.line || ""} ${song.author || ""} ${song.credit || ""}`.toLowerCase().includes(q))
   if (!songs.length) {
     list.innerHTML = `<p class="empty">Make your first sound.</p>`
     return
@@ -856,6 +868,8 @@ function deleteSong(id) {
     setScreen("library")
     closePanel()
     if ($("song-title")) $("song-title").value = "Untitled song"
+    if ($("song-author")) $("song-author").value = ""
+    if ($("song-credit")) $("song-credit").textContent = ""
     renderTracks()
     renderInspector()
   }
@@ -1483,6 +1497,9 @@ function renderInspector() {
       <p class="ask">How it plays</p>
       <p class="hint">${esc((TOUCHES.find((item) => item.id === state.touch) || TOUCHES[0]).line)}</p>
       <div class="choices">${TOUCHES.filter((item) => state.figure === "chords" || item.id !== "strum").map((item) => filterChip(item.name, `data-action="pick-touch" data-touch="${item.id}" ${locked}`, state.touch === item.id)).join("")}</div>
+      <p class="ask">Drum pocket</p>
+      <p class="hint">${esc((POCKETS.find((item) => item.id === state.pocket) || POCKETS[0]).line)} This shapes a drum layer. Singing stays a voice.</p>
+      <div class="choices">${POCKETS.map((item) => filterChip(item.name, `data-action="pick-pocket" data-pocket="${item.id}" ${locked}`, state.pocket === item.id)).join("")}</div>
       <p class="ask">Sound</p>
       <div class="mix-boxes parts">${PACKAGES.map((pack) => planButton(pack.name, pack.line, `data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}`, pack.id === "Vocals" ? !!(current && isVocalLayer(current) && !current.sourceId) : !!(current && current.sound === pack.id && (!current.figure || current.figure === state.figure) && (!current.touch || current.touch === state.touch)))).join("")}</div>
       ${note}
@@ -1558,6 +1575,7 @@ function openSong(id) {
   dropLayerAudio()
   state.song = song
   $("song-title").value = song.title
+  showSongCredit()
   let exampleNote = ""
   if (song.demo) {
     const made = SongbirdMusic.makeExample(song.id)
@@ -1589,6 +1607,7 @@ function openSong(id) {
     state.tempoLocked = true
     $("bpm").value = made.bpm
     exampleNote = made.blurb
+    state.sections = Array.isArray(made.sections) ? made.sections : null
   } else {
     state.layers = song.layers ?? []
   }
@@ -1605,7 +1624,7 @@ function openSong(id) {
   }
   state.playAt = 0
   state.section = null
-  state.sections = song.demo ? null : (Array.isArray(song.sections) ? song.sections : null)
+    if (!song.demo) state.sections = Array.isArray(song.sections) ? song.sections : null
   state.heard = exampleNote
   state.transformNote = ""
   state.transformTone = ""
@@ -1641,6 +1660,8 @@ function newSong() {
 function rememberSong() {
   if (!state.song || state.song.demo) return
   state.song.title = $("song-title").value.trim() || "Untitled song"
+  state.song.author = $("song-author")?.value.trim() || ""
+  if (!state.song.demo) state.song.credit = state.song.author ? `Author: ${state.song.author}. Original recording in this browser.` : ""
   state.song.lengthSec = state.lengthSec
   state.song.shape = state.shape
   state.song.intent = state.intent
@@ -1648,8 +1669,8 @@ function rememberSong() {
   state.song.tempoSource = state.tempoSource
   state.song.tempoLocked = state.tempoLocked
   state.song.sections = state.sections
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket,
   }))
   saveSongs()
   $("save-status").textContent = "Saved just now"
@@ -2005,7 +2026,19 @@ function playingWords(playing) {
   return `${notes}, ${touch}`
 }
 
+function showSongCredit() {
+  const song = state.song
+  const author = $("song-author")
+  const credit = $("song-credit")
+  if (author) {
+    author.value = song?.author || ""
+    author.readOnly = !!song?.demo
+  }
+  if (credit) credit.textContent = song?.credit || ""
+}
+
 function syncPlaying(layer) {
+  if (layer?.pocket === "boom" || layer?.pocket === "backbeat" || layer?.pocket === "played") state.pocket = layer.pocket
   if (!layer?.figure) return
   state.figure = layer.figure === "chords" ? "chords" : "solo"
   state.touch = layer.touch === "beat" ? "beat" : layer.touch === "strum" ? "strum" : "hold"
@@ -2095,6 +2128,7 @@ function addTransformedLayer(sound) {
         sampleRate: audio.sampleRate,
         era: period.id,
         ...(playing ? { figure: playing.figure, touch: playing.touch } : {}),
+        ...(sound === "Drums" ? { pocket: state.pocket } : {}),
       })
       if (!made) {
         state.transformNote = `Couldn't find ${missingPart(sound)} in ${origin.name}. The original is unchanged.`
@@ -2105,7 +2139,8 @@ function addTransformedLayer(sound) {
         const colors = { Piano: "#f0a202", Rhodes: "#7ee0c8", "Acoustic guitar": "#ff8ab0", "Electric guitar": "#ff4d8d", Guitar: "#ff8ab0", Horn: "#F9A8D4", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
         const label = pack ? pack.name : sound
         const played = playingWords(playing)
-        const from = [`from ${origin.name}`, period.name, played].filter(Boolean).join(" · ")
+        const pocketLabel = sound !== "Drums" ? "" : state.pocket === "boom" ? "boom-bap" : state.pocket === "backbeat" ? "backbeat" : ""
+        const from = [`from ${origin.name}`, period.name, played, pocketLabel].filter(Boolean).join(" · ")
         const replacing = selected.sourceId && selected.id !== origin.id
         const id = replacing ? selected.id : uid()
         const layer = replacing ? selected : {
@@ -2124,6 +2159,7 @@ function addTransformedLayer(sound) {
         layer.sound = sound
         layer.figure = playing ? playing.figure : ""
         layer.touch = playing ? playing.touch : ""
+        layer.pocket = sound === "Drums" ? state.pocket : ""
         layer.from = from
         layer.color = colors[sound] || "#7aa2ff"
         layer.peaks = peaksFromSamples(made.samples)
@@ -2443,7 +2479,7 @@ function stopPlayback() {
 
 function fromControl(event) {
   const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target]
-  return path.find((item) => item?.dataset?.action || item?.id === "search" || item?.id === "song-title" || item?.id === "wish" || item?.id === "bpm" || item?.classList?.contains?.("layer-name") || item?.classList?.contains?.("share-email")) || event.target
+  return path.find((item) => item?.dataset?.action || item?.id === "search" || item?.id === "song-title" || item?.id === "song-author" || item?.id === "wish" || item?.id === "bpm" || item?.classList?.contains?.("layer-name") || item?.classList?.contains?.("share-email")) || event.target
 }
 
 document.body.addEventListener("click", (event) => {
@@ -2666,6 +2702,15 @@ document.body.addEventListener("click", (event) => {
     state.touch = node.dataset.touch === "beat" ? "beat" : node.dataset.touch === "strum" ? "strum" : "hold"
     if (retuneSelected()) return
   }
+  if (action === "pick-pocket") {
+    state.pocket = node.dataset.pocket === "boom" ? "boom" : node.dataset.pocket === "backbeat" ? "backbeat" : "played"
+    const selected = state.layers.find((item) => item.id === state.selected)
+    if (selected?.sound === "Drums" && selected.sourceId) {
+      addTransformedLayer("Drums")
+      return
+    }
+    renderInspector()
+  }
   if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
   if (action === "apply-mix") applyMix(node.dataset.preset)
   if (action === "toggle-fine") {
@@ -2742,7 +2787,10 @@ document.body.addEventListener("input", (event) => {
     state.query = node.value
     renderSongs()
   }
-  if (node.id === "song-title") rememberSong()
+  if (node.id === "song-title" || node.id === "song-author") {
+    rememberSong()
+    showSongCredit()
+  }
   if (node.classList?.contains("layer-name")) {
     if (node.dataset.snapped !== "1" && node.value.trim() !== node.dataset.previous) {
       snapshot()
