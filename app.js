@@ -265,7 +265,7 @@ const state = {
   zoom: 1,
   arming: false,
   mix: null,
-  fine: false,
+  fine: true,
   lengthSec: null,
   shape: null,
   intent: null,
@@ -485,12 +485,6 @@ function paintSky(now, level) {
   const { ctx, width, height } = fitted
   const awake = !!document.body.dataset.sound
   ctx.clearRect(0, 0, width, height)
-  const wash = ctx.createLinearGradient(0, 0, width, height)
-  wash.addColorStop(0, "rgba(7, 28, 23, 0.08)")
-  wash.addColorStop(0.55, "rgba(16, 53, 44, 0.05)")
-  wash.addColorStop(1, "rgba(7, 28, 23, 0.16)")
-  ctx.fillStyle = wash
-  ctx.fillRect(0, 0, width, height)
   for (let i = 0; i < CLOUDS.length; i++) {
     const cloud = CLOUDS[i]
     const drift = sky.reduced ? 0 : Math.sin(now / 4200 + i) * 0.035
@@ -498,7 +492,7 @@ function paintSky(now, level) {
     const cy = (cloud.y + Math.cos(now / 5100 + i) * (sky.reduced ? 0 : 0.02)) * height
     const radius = Math.max(width, height) * (0.22 + level * 0.18)
     const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
-    const alpha = (awake ? 0.05 + level * 0.22 : 0.035).toFixed(3)
+    const alpha = awake ? (0.015 + level * 0.06).toFixed(3) : "0"
     glow.addColorStop(0, `rgba(${cloud.color},${alpha})`)
     glow.addColorStop(1, `rgba(${cloud.color},0)`)
     ctx.fillStyle = glow
@@ -1988,8 +1982,13 @@ function play(fromSec) {
   playFrom = from
   state.playAt = from
   playStarted = ctx.currentTime
-  const playIcon = $("play-btn")?.querySelector(".glyph")
-  if (playIcon) playIcon.textContent = "■"
+  const playButton = $("play-btn")
+  if (playButton) {
+    playButton.classList.add("is-on")
+    playButton.setAttribute("aria-label", "Stop")
+    const playIcon = playButton.querySelector(".glyph")
+    if (playIcon) playIcon.textContent = "■"
+  }
   beginSky("play")
   const span = state.lengthSec || Math.max(...candidates.map((layer) => buffers.get(layer.id + ":audio").duration))
   let started = 0
@@ -2118,8 +2117,13 @@ function stopPlayback() {
   activeSources = []
   mixNodes.clear()
   endSky()
-  const playIcon = $("play-btn")?.querySelector(".glyph")
-  if (playIcon) playIcon.textContent = "▶"
+  const playButton = $("play-btn")
+  if (playButton) {
+    playButton.classList.remove("is-on")
+    playButton.setAttribute("aria-label", "Play")
+    const playIcon = playButton.querySelector(".glyph")
+    if (playIcon) playIcon.textContent = "▶"
+  }
 }
 
 function fromControl(event) {
