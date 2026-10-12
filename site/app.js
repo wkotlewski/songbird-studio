@@ -1,9 +1,9 @@
 const STARTERS = [
-  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, line: "A slow hummed tune. Horn solo, choir and piano chords." },
-  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, line: "Two hummed parts. Rhodes strum, bass on the beat." },
-  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, line: "A hummed chorus with gaps. Guitar solo and strum." },
-  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, line: "A hummed soul hook. Piano solo, chords on the beat." },
-  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, line: "A hummed pop hook. Guitar, strummed Rhodes, bass." },
+  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, line: "A slow jazz hum. Horn solo, choir and piano chords." },
+  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, line: "A pentatonic call and answer. Rhodes strum, bass on the beat." },
+  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, line: "A hummed rock riff. Guitar solo, chords, and bass." },
+  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, line: "A soul hum with blue notes. Piano solo, chords on the beat." },
+  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, line: "A gospel hum. Strummed Rhodes, choir, and bass." },
 ]
 
 const INPUTS = [
