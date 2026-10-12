@@ -1563,9 +1563,9 @@ function renderMix(head, layer) {
       ${slider("Space", "space", 0, 1, 0.01, space, current.id, mixReadout("space", space))}
       <p class="hint">Bass and treble are tone. Space is room around the sound.</p>
     </div>` : ""
-  return `${head("Mix")}
-    <p class="ask">Mixer</p>
-    <p class="hint">${soloing ? "Solo is on. Bright layers are playing. Dim layers are quiet. M mutes. S solos." : "Volume and left-right are on each layer. M mutes. S solos."}</p>
+  return `${head("Mix all layers")}
+    <p class="ask">Every layer</p>
+    <p class="hint">${soloing ? "Solo is on. Bright layers are playing. Dim layers are quiet. M mutes. S solos." : "Mix is for every layer at once. Volume and left-right are on each one. M mutes. S solos."}</p>
     <div class="mix-channels">${channels}</div>
     <label class="field">Layer name
       <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
@@ -1728,7 +1728,7 @@ function renderInspector() {
     const instruments = PACKAGES.filter((pack) => pack.id !== "Vocals" && pack.id !== "Choir")
     const vocalPath = state.role !== "instrument"
     body = `${head("Magic")}
-      <p class="hint">${current ? `${esc(current.name)} is selected.` : "Record a layer first."} Hit Magic again for another idea. A description can steer it.</p>
+      <p class="hint">${current ? `${esc(current.name)} is selected.` : "Record a layer first."} Hit Magic again for another idea. A description can steer it. Mix, after this, is for every layer.</p>
       ${sources.length ? `<p class="ask">This layer</p>
         <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer, or add a starter from Record.</p>`}
       <label class="field">Describe it, if you want
@@ -1737,6 +1737,7 @@ function renderInspector() {
       <div class="magic-actions">
         ${filledButton(state.transforming ? "Working…" : "Magic", `data-action="magic-again" ${locked}`)}
         ${outlinedButton("Revert to original", `data-action="revert-original" ${locked}`)}
+        ${outlinedButton("Next: Mix all layers", `data-action="next-mix"`)}
       </div>
       ${note}
       <details class="package-more">
@@ -1801,7 +1802,7 @@ function renderInspector() {
     const secs = shapingLength ? String(shapingLength % 60).padStart(2, "0") : ""
     const suggestions = INTENTS.find((item) => item.id === state.intent)
     body = `${head("Shape this layer")}
-      <p class="hint">${shaping ? `${esc(shaping.name)} is selected.` : "Keep a recording first."} A kept recording becomes 1:00 on that layer. Length and shape change this layer. Select a section of it and delete that part if you don't want it.</p>
+      <p class="hint">${shaping ? `${esc(shaping.name)} is selected.` : "Keep a recording first."} It starts at 1:00. Shape this layer, then Transform. Mix is for every layer together.</p>
       <label class="field">What do you want this layer to do?
         <textarea id="wish" rows="3" placeholder="3 minutes, soft intro, build up, then soften at the end">${esc(state.wish)}</textarea>
       </label>
@@ -1820,9 +1821,9 @@ function renderInspector() {
         const shape = SHAPES[id]
         return planButton(shape.name, shape.line, `data-action="apply-shape" data-shape="${id}"`, (shaping?.shape || state.shape) === id, curve(id))
       }).join("")}` : ""}
-      <p class="ask">Add another layer</p>
-      <p class="hint">Record from the mic, or go back to Record and pick a vibe.</p>
-      ${filledButton("Record from the mic", `data-action="add-and-record" data-input="hum"`)}`
+      ${filledButton("Next: Transform", `data-action="next-transform"`)}
+      <p class="hint">Transform changes this layer. After that, Mix sets every layer together.</p>
+      ${outlinedButton("Record another layer", `data-action="add-and-record" data-input="hum"`)}`
   } else if (state.panel === "finish") {
     body = `${head("Finish your song")}
       <div class="seg">${filterChip("Audio", "", true)}${outlinedButton("Video", `data-action="video-note"`)}</div>
@@ -2060,13 +2061,13 @@ async function keepTake(name, stayOpen) {
   rememberSong()
   renderTracks()
   renderRuler()
-  if (!stayOpen) closePanel()
+  if (!stayOpen) setPanel("build")
   const tempo = state.tempoSource ? ` Tempo is ${state.bpm} from ${state.tempoSource}.` : ""
   const where = startedAt > 0.2 ? ` It starts at ${formatClock(startedAt)}.` : ""
   const filled = layer.lengthSec === 60 && decoded.buffer.duration < 59.5
     ? ` ${layer.name} is 1:00. The recording loops to fill it.`
     : ` ${layer.name} is ${formatClock(layer.lengthSec)}.`
-  $("save-status").textContent = `Take kept.${filled}${where} Select a section if you want to delete part of this layer.${tempo}`
+  $("save-status").textContent = `Take kept.${filled}${where} Shape this layer, then Transform. Mix is for every layer.${tempo}`
   wakeSky()
 }
 
@@ -3629,7 +3630,7 @@ document.body.addEventListener("click", (event) => {
   if (action === "select-layer") {
     state.selected = node.dataset.id
     syncPlaying(state.layers.find((item) => item.id === state.selected))
-    if (state.panel !== "transform") {
+    if (state.panel !== "transform" && state.panel !== "build" && state.panel !== "record") {
       state.panel = "mix"
       showInspector()
     }
@@ -3679,6 +3680,14 @@ document.body.addEventListener("click", (event) => {
     renderInspector()
   }
   if (action === "keep-take") void keepTake()
+  if (action === "next-transform") {
+    setPanel("transform")
+    $("save-status").textContent = "Transform this layer. Mix, after this, is for every layer."
+  }
+  if (action === "next-mix") {
+    setPanel("mix")
+    $("save-status").textContent = "Mix is for every layer."
+  }
   if (action === "discard-take") {
     pendingBlob = null
     renderInspector()
