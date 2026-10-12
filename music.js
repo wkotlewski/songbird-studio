@@ -904,6 +904,7 @@ function transformAudio(samples, kind, options = {}) {
     }
     if (options.pattern && options.pattern.hits && options.pattern.hits.length) hits = patternHits(bpm, duration, options.pattern)
     else if (options.pocket === "backbeat" || options.pocket === "boom") hits = pocketHits(bpm, duration, options.pocket)
+    if (hits.length < 2) hits = pocketHits(bpm, duration, "backbeat")
     if (hits.length < 2) return null
     return { samples: finish(renderDrums(hits, duration, rng, era)), proof: { hits, pocket: options.pocket || "played" } }
   }
@@ -919,7 +920,7 @@ function transformAudio(samples, kind, options = {}) {
     return { samples: finish(renderBass(play, duration, era, style)), proof: { notes }, figure: arranged }
   }
   const notes = detectNotes(samples)
-  if (notes.length < 2) return null
+  if (!notes.length) return null
   const arranged = options.figure ? arrangePerformance(notes, { ...options, kind }) : null
   const play = arranged ? arranged.notes : notes
   const style = arranged ? { plain: true, exact: arranged.exact } : {}
