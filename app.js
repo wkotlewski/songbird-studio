@@ -927,7 +927,7 @@ function deleteSong(id) {
 }
 
 function layoutTimeline() {
-  const total = state.lengthSec || 40
+  const total = spanSeconds()
   const width = Math.round(Math.max(980, Math.round(total * 8) + 180) * (state.zoom || 1))
   state.span = total
   state.trackWidth = width
@@ -936,15 +936,11 @@ function layoutTimeline() {
   return { total, width }
 }
 
-function spanSeconds() {
-  return state.lengthSec || state.span || 40
-}
-
 function songSeconds(now) {
   return playFrom + Math.max(0, now - playStarted)
 }
 
-function songSections() {
+function songWideSections() {
   if (Array.isArray(state.sections) && state.sections.length) {
     return state.sections.map((section, index) => ({
       id: section.id,
@@ -975,9 +971,57 @@ function songSections() {
   }))
 }
 
+function spanSeconds() {
+  let total = state.lengthSec || 0
+  for (const layer of state.layers) {
+    const end = layer.range?.end || layer.lengthSec || 0
+    if (end > total) total = end
+  }
+  return total || state.span || 40
+}
+
+function layerSpan(layer) {
+  const song = spanSeconds()
+  if (!layer) return { start: 0, length: song, song }
+  if (layer.range && layer.range.end > layer.range.start) {
+    return { start: layer.range.start, length: layer.range.end - layer.range.start, song }
+  }
+  return { start: 0, length: layer.lengthSec || song, song }
+}
+
+function songSections() {
+  const layer = selectedLayer()
+  if (layer?.sections?.length) {
+    const box = layerSpan(layer)
+    return layer.sections.map((section, index) => ({
+      id: section.id,
+      name: section.name || `Part ${index + 1}`,
+      start: (box.start + section.start * box.length) / box.song,
+      end: (box.start + section.end * box.length) / box.song,
+      color: BAND_COLOR[section.name] || (index % 2 ? "#F9A8D4" : "#34D399"),
+    }))
+  }
+  return songWideSections()
+}
+
+function ensureLayerSections(layer) {
+  if (Array.isArray(layer.sections) && layer.sections.length) return layer.sections
+  const box = layerSpan(layer)
+  const wide = songWideSections()
+  const mapped = wide.map((section) => {
+    const start = Math.max(0, Math.min(1, (section.start * box.song - box.start) / box.length))
+    const end = Math.max(0, Math.min(1, (section.end * box.song - box.start) / box.length))
+    return { id: section.id, name: section.name, start, end }
+  }).filter((section) => section.end - section.start > 0.02)
+  layer.sections = mapped.length ? mapped : [{ id: uid(), name: "Part 1", start: 0, end: 1 }]
+  return layer.sections
+}
+
 function ensureCustomSections() {
+  const layer = selectedLayer()
+  if (layer) return ensureLayerSections(layer)
   if (Array.isArray(state.sections) && state.sections.length) return state.sections
-  state.sections = songSections().map((section) => ({
+  state.sections = songWideSections().map((section) => ({
     id: section.id,
     name: section.name,
     start: section.start,
@@ -999,9 +1043,10 @@ function nameSection(id, raw, commit) {
   } else if (cleaned) {
     section.name = cleaned
   }
+  const shown = songSections().find((item) => item.id === id) || section
   document.querySelectorAll(`.section[data-id="${id}"]`).forEach((button) => {
     button.textContent = section.name
-    button.title = `${section.name}, ${sectionClock(section)}`
+    button.title = `${section.name}, ${sectionClock(shown)}`
   })
   document.querySelectorAll(`.section-name[data-section="${id}"]`).forEach((field) => {
     if (field !== document.activeElement) field.value = section.name
@@ -1009,14 +1054,17 @@ function nameSection(id, raw, commit) {
 }
 
 function addSection() {
+  const layer = selectedLayer()
   const sections = ensureCustomSections()
-  const span = spanSeconds()
-  const at = Math.min(0.98, Math.max(0.02, (state.playAt || 0) / span))
+  const box = layer ? layerSpan(layer) : { start: 0, length: spanSeconds() }
+  const at = layer
+    ? Math.min(0.98, Math.max(0.02, ((state.playAt || 0) - box.start) / box.length))
+    : Math.min(0.98, Math.max(0.02, (state.playAt || 0) / spanSeconds()))
   let index = sections.findIndex((section) => at > section.start + 0.01 && at < section.end - 0.01)
   if (index < 0) index = sections.findIndex((section) => section.id === state.section)
   if (index < 0) index = sections.length - 1
   const section = sections[index]
-  const minFrac = Math.max(0.04, 2 / span)
+  const minFrac = Math.max(0.04, 2 / box.length)
   const cut = at > section.start + minFrac && at < section.end - minFrac ? at : (section.start + section.end) / 2
   if (cut - section.start < minFrac || section.end - cut < minFrac) {
     $("save-status").textContent = "That part is too short to split. Move the play line into a longer part."
@@ -1038,18 +1086,37 @@ function addSection() {
 }
 
 function removeSection(id) {
+  const layer = selectedLayer()
   const sections = ensureCustomSections()
-  if (sections.length < 2) return
+  if (sections.length < 2) {
+    $("save-status").textContent = layer
+      ? `Add a section to split ${layer.name}, then delete the part you don't want.`
+      : "Add a section first."
+    return
+  }
   const index = sections.findIndex((section) => section.id === id)
   if (index < 0) return
-  snapshot()
+  const section = sections[index]
+  snapshot(layer ? [layer.id] : [])
+  if (layer) {
+    const box = layerSpan(layer)
+    layer.gaps = mergeGaps([...(layer.gaps || []), {
+      start: box.start + section.start * box.length,
+      end: box.start + section.end * box.length,
+    }])
+  }
+  const removed = section.name || "That part"
   if (index === 0) sections[1].start = sections[0].start
   else sections[index - 1].end = sections[index].end
   sections.splice(index, 1)
   state.section = sections[Math.max(0, index - 1)].id
   rememberSong()
   renderRuler()
-  $("save-status").textContent = `${sections.find((section) => section.id === state.section)?.name || "That part"} now covers the space.`
+  renderTracks()
+  if (playing && layer) play(state.playAt || 0)
+  $("save-status").textContent = layer
+    ? `${removed} is out of ${layer.name}. The rest stays in time. Undo puts it back.`
+    : `${sections.find((item) => item.id === state.section)?.name || "That part"} now covers the space.`
 }
 
 function activeSection() {
@@ -1280,10 +1347,10 @@ function renderRuler() {
     })
     .join("")}</div>`
   const tools = `<div class="section-tools">
-        <p class="hint section-guide">Record a section. Loop it for the song length you want, then add another layer. You can still add, rename, or remove sections.</p>
+        <p class="hint section-guide">A kept recording becomes 1:00 on that layer. Select a section of the layer and delete it if you don't want that part.</p>
         ${current ? `<input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Section name" />` : ""}
         ${outlinedButton("Add a section", `data-action="add-section"`)}
-        ${current && sections.length > 1 ? outlinedButton("Remove", `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
+        ${current ? outlinedButton("Delete section", `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
         ${current ? `${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
         ${filterChip("Change this part", `data-action="section-mode" data-mode="replace"`, state.sectionMode === "replace")}
         ${outlinedButton("Fill layer with this section", `data-action="fill-section"`)}
@@ -1304,7 +1371,8 @@ function shapedPeaks(layer) {
   const out = []
   for (let i = 0; i < count; i++) {
     const frac = count === 1 ? 0 : i / (count - 1)
-    const level = state.shape ? levelAt(state.shape, frac) : 1
+    const shapeId = layer.shape || state.shape
+    const level = shapeId ? levelAt(shapeId, frac) : 1
     out.push(Math.max(0.08, Math.min(1, src[i % src.length] * level)))
   }
   return out
@@ -1727,19 +1795,20 @@ function renderInspector() {
       </details>
       ${magicLog()}`
   } else if (state.panel === "build") {
-    const mins = state.lengthSec ? Math.floor(state.lengthSec / 60) : ""
-    const secs = state.lengthSec ? String(state.lengthSec % 60).padStart(2, "0") : ""
+    const shaping = selectedLayer()
+    const shapingLength = shaping?.lengthSec || state.lengthSec
+    const mins = shapingLength ? Math.floor(shapingLength / 60) : ""
+    const secs = shapingLength ? String(shapingLength % 60).padStart(2, "0") : ""
     const suggestions = INTENTS.find((item) => item.id === state.intent)
-    body = `${head("Shape this song")}
-      <p class="hint">Say how long you want it, and whether it should stay even, soften at the edges, or build to a climax. Songbird loops what you record to that length. The preset changes loudness over the song. It does not rewrite the recording.</p>
-      <p class="hint">Record a section, loop it for this length, then stack another layer on top. You can still add, rename, or remove sections.</p>
-      <label class="field">What do you want this song to do?
+    body = `${head("Shape this layer")}
+      <p class="hint">${shaping ? `${esc(shaping.name)} is selected.` : "Keep a recording first."} A kept recording becomes 1:00 on that layer. Length and shape change this layer. Select a section of it and delete that part if you don't want it.</p>
+      <label class="field">What do you want this layer to do?
         <textarea id="wish" rows="3" placeholder="3 minutes, soft intro, build up, then soften at the end">${esc(state.wish)}</textarea>
       </label>
       ${filledButton("Use what I said", `data-action="read-wish"`)}
       ${state.heard ? `<p class="hint">${esc(state.heard)}</p>` : ""}
       <p class="ask">How long do you want it?</p>
-      <div class="choices">${LENGTHS.map(([seconds, label, tag]) => filterChip(`${label}${tag ? ` ${tag}` : ""}`, `data-action="apply-length" data-seconds="${seconds}"`, state.lengthSec === seconds)).join("")}</div>
+      <div class="choices">${LENGTHS.map(([seconds, label, tag]) => filterChip(`${label}${tag ? ` ${tag}` : ""}`, `data-action="apply-length" data-seconds="${seconds}"`, shapingLength === seconds)).join("")}</div>
       <div class="length-entry">
         <label class="field">Minutes<input id="len-min" type="number" min="0" max="8" value="${mins}" aria-label="Minutes" /></label>
         <label class="field">Seconds<input id="len-sec" type="number" min="0" max="59" value="${secs}" aria-label="Seconds" /></label>
@@ -1749,7 +1818,7 @@ function renderInspector() {
       <div class="choices">${INTENTS.map((item) => filterChip(item.title, `data-action="pick-intent" data-intent="${item.id}"`, state.intent === item.id)).join("")}</div>
       ${suggestions ? `<p class="hint">${esc(suggestions.detail)}</p>${suggestions.shapes.map((id) => {
         const shape = SHAPES[id]
-        return planButton(shape.name, shape.line, `data-action="apply-shape" data-shape="${id}"`, state.shape === id, curve(id))
+        return planButton(shape.name, shape.line, `data-action="apply-shape" data-shape="${id}"`, (shaping?.shape || state.shape) === id, curve(id))
       }).join("")}` : ""}
       <p class="ask">Add another layer</p>
       <p class="hint">Record from the mic, or go back to Record and pick a vibe.</p>
@@ -1783,6 +1852,24 @@ function audioBuffer(samples, sampleRate) {
   const buffer = ctx.createBuffer(1, samples.length, sampleRate)
   buffer.getChannelData(0).set(samples)
   return buffer
+}
+
+function tilePhrase(buffer, seconds) {
+  const rate = buffer.sampleRate
+  const src = buffer.getChannelData(0)
+  const total = Math.max(1, Math.round(Math.max(0.05, seconds) * rate))
+  if (Math.abs(src.length - total) < rate * 0.05) return buffer
+  if (src.length > total) return audioBuffer(src.subarray(0, total), rate)
+  const made = SongbirdMusic.fillWithSection(src, rate, {
+    songLength: seconds,
+    rangeStart: 0,
+    rangeEnd: buffer.duration,
+    sectionStart: 0,
+    sectionEnd: buffer.duration,
+    gaps: [],
+  })
+  if (!made || made.unchanged || !made.samples) return buffer
+  return audioBuffer(made.samples, rate)
 }
 
 function dropLayerAudio() {
@@ -1898,8 +1985,8 @@ function rememberSong() {
   state.song.tempoSource = state.tempoSource
   state.song.tempoLocked = state.tempoLocked
   state.song.sections = state.sections
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections,
   }))
   saveSongs()
   $("save-status").textContent = "Saved just now"
@@ -1956,24 +2043,30 @@ async function keepTake(name, stayOpen) {
   layer.peaks = decoded.peaks
   if (name === "Claps" || name === "Beatbox") layer.from = "your pulse"
   const startedAt = recordOrigin
-  if (startedAt <= 0.2 && !stayOpen) applySectionToLayer(layer)
-  buffers.set(layer.id + ":audio", decoded.buffer)
-  if (startedAt > 0.2) {
-    layer.range = { start: startedAt, end: startedAt + decoded.buffer.duration }
-    layer.from = [layer.from, `from ${formatClock(startedAt)}`].filter(Boolean).join(" · ")
-  }
+  const target = decoded.buffer.duration >= 60 ? decoded.buffer.duration : 60
+  const tiled = tilePhrase(decoded.buffer, target)
+  buffers.set(layer.id + ":audio", tiled)
+  layer.peaks = peaksFromSamples(tiled.getChannelData(0))
+  layer.lengthSec = Math.max(15, Math.round(tiled.duration))
+  layer.sections = [{ id: uid(), name: "Part 1", start: 0, end: 1 }]
+  state.section = layer.sections[0].id
+  const origin = startedAt > 0.2 ? startedAt : 0
+  layer.range = { start: origin, end: origin + layer.lengthSec }
+  if (origin > 0) layer.from = [layer.from, `from ${formatClock(origin)}`].filter(Boolean).join(" · ")
+  const occupied = layer.range ? layer.range.end : layer.lengthSec
+  if (!state.lengthSec || state.lengthSec < occupied) state.lengthSec = occupied
   recordOrigin = 0
   pendingBlob = null
   rememberSong()
   renderTracks()
+  renderRuler()
   if (!stayOpen) closePanel()
   const tempo = state.tempoSource ? ` Tempo is ${state.bpm} from ${state.tempoSource}.` : ""
-  const landed = !layer.range
-    ? ""
-    : startedAt > 0.2
-      ? ` It starts at ${formatClock(startedAt)}.`
-      : (state.sectionMode === "replace" ? ` It replaces ${activeSection()?.name || "that part"}.` : ` It lands on ${activeSection()?.name || "that part"}.`)
-  $("save-status").textContent = `Take kept. Your original recording is safe.${landed}${tempo}`
+  const where = startedAt > 0.2 ? ` It starts at ${formatClock(startedAt)}.` : ""
+  const filled = layer.lengthSec === 60 && decoded.buffer.duration < 59.5
+    ? ` ${layer.name} is 1:00. The recording loops to fill it.`
+    : ` ${layer.name} is ${formatClock(layer.lengthSec)}.`
+  $("save-status").textContent = `Take kept.${filled}${where} Select a section if you want to delete part of this layer.${tempo}`
   wakeSky()
 }
 
@@ -2188,8 +2281,53 @@ async function toggleRecord() {
   renderInspector()
 }
 
+function shapeSelectedLayer(lengthSec, shapeId, heard) {
+  const layer = selectedLayer()
+  if (!layer || !buffers.get(layer.id + ":audio")) {
+    $("save-status").textContent = "Keep a recording on a layer first."
+    return
+  }
+  const nextLength = clampLength(lengthSec || layer.lengthSec || 60)
+  snapshot([layer.id])
+  const source = buffers.get(layer.id + ":audio")
+  const tiled = tilePhrase(source, nextLength)
+  buffers.set(layer.id + ":audio", tiled)
+  layer.peaks = peaksFromSamples(tiled.getChannelData(0))
+  layer.lengthSec = nextLength
+  if (layer.range) layer.range = { start: layer.range.start, end: layer.range.start + nextLength }
+  if (shapeId && SHAPES[shapeId]) {
+    layer.shape = shapeId
+    state.shape = shapeId
+    layer.sections = SHAPES[shapeId].bands.map(([name, start, end], index) => ({
+      id: `${layer.id}-${shapeId}-${index}`,
+      name,
+      start,
+      end,
+    }))
+    state.section = layer.sections[0].id
+  } else if (!layer.sections?.length) {
+    layer.sections = [{ id: uid(), name: "Part 1", start: 0, end: 1 }]
+    state.section = layer.sections[0].id
+  }
+  const occupied = layer.range ? layer.range.end : nextLength
+  state.lengthSec = Math.max(state.lengthSec || 0, occupied)
+  state.heard = heard
+  rememberSong()
+  renderPlanNote()
+  renderRuler()
+  renderTracks()
+  renderInspector()
+  $("save-status").textContent = heard
+  if (playing) play(state.playAt || 0)
+}
+
 function applyPlan(lengthSec, shapeId, heard) {
-  const nextLength = clampLength(lengthSec || state.lengthSec || 180)
+  const layer = selectedLayer()
+  if (layer && buffers.get(layer.id + ":audio")) {
+    shapeSelectedLayer(lengthSec, shapeId, heard)
+    return
+  }
+  const nextLength = clampLength(lengthSec || state.lengthSec || 60)
   const nextShape = SHAPES[shapeId] ? shapeId : null
   snapshot()
   state.lengthSec = nextLength
@@ -2222,9 +2360,10 @@ function useWish() {
   const limit = [wish.tooLong ? "8:00 is the longest song here." : "", wish.tooShort ? "The shortest song here is 0:15." : ""].filter(Boolean).join(" ")
   if (wish.intent) state.intent = wish.intent
   if (wish.shape) {
-    const assumed = !wish.lengthSec && !state.lengthSec
-    const length = wish.lengthSec || state.lengthSec || 180
-    const assumedNote = assumed ? "I used 3:00, a common song length. " : ""
+    const layer = selectedLayer()
+    const assumed = !wish.lengthSec && !layer?.lengthSec && !state.lengthSec
+    const length = wish.lengthSec || layer?.lengthSec || state.lengthSec || 60
+    const assumedNote = assumed ? "I used 1:00. " : ""
     applyPlan(length, wish.shape, `${assumedNote}${limit ? `${limit} ` : ""}${planMessage(length, wish.shape)}`)
     return
   }
@@ -2248,7 +2387,7 @@ function useWish() {
 
 function sectionWorkLine() {
   const section = activeSection()
-  if (!section) return "Drag the play line, or click a section to jump there. Until you select a part, new layers cover the whole song. Record a section, loop it for the length you want, then add another layer."
+  if (!section) return "Drag the play line, or click a section of this layer. A kept recording is 1:00. Add a section, then delete the part you don't want."
   const how = state.sectionMode === "replace" ? "Change this part replaces what is already there." : "Add onto this part keeps what is already there."
   return `${section.name}, ${sectionClock(section)}. ${how} Fill layer with this section repeats that part across the selected layer. Undo puts the layer back.`
 }
@@ -3038,9 +3177,10 @@ function refreshMix(layer) {
   nodes.dry.gain.setValueAtTime(1 - space * 0.35, now)
   nodes.wet.gain.setValueAtTime(space * 0.5, now)
   if (nodes.echo) nodes.echo.gain.setValueAtTime(Math.min(0.5, layer.echo || 0), now)
-  const span = nodes.span || state.lengthSec || 1
+  const span = nodes.span || layer.lengthSec || state.lengthSec || 1
   const elapsed = songSeconds(now)
-  if (state.shape && state.lengthSec) scheduleShape(nodes.gain, layer.gain, state.shape, now, span, elapsed)
+  const shapeId = layer.shape || state.shape
+  if (shapeId && (layer.lengthSec || state.lengthSec)) scheduleShape(nodes.gain, layer.gain, shapeId, now, span, elapsed)
   else nodes.gain.gain.setValueAtTime(layer.gain, now)
   if (nodes.gate) {
     nodes.gate.gain.cancelScheduledValues(now)
@@ -3123,7 +3263,8 @@ function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
   pan.connect(verb)
   verb.connect(wet)
   wet.connect(destination)
-  if (state.shape && state.lengthSec) scheduleShape(gain, layer.gain ?? 0.8, state.shape, when, span, from)
+  const shapeId = layer.shape || (state.lengthSec ? state.shape : null)
+  if (shapeId) scheduleShape(gain, layer.gain ?? 0.8, shapeId, when, layer.lengthSec || span, from)
   else gain.gain.setValueAtTime(layer.gain ?? 0.8, when)
   scheduleHoles(hole, layer.gaps, when, from)
   const begin = when + Math.max(0, rangeStart - from)
@@ -3178,7 +3319,7 @@ function play(fromSec, options = {}) {
     if (playIcon) playIcon.textContent = "■"
   }
   beginSky(state.recording ? "record" : "play")
-  const span = state.lengthSec || Math.max(...candidates.map((layer) => buffers.get(layer.id + ":audio").duration))
+  const span = spanSeconds()
   let started = 0
   let ended = 0
   for (const layer of candidates) {
@@ -3270,7 +3411,7 @@ async function downloadMix() {
     if (note) note.textContent = message
     return
   }
-  const span = state.lengthSec || Math.max(...live.map((layer) => buffers.get(layer.id + ":audio").duration))
+  const span = spanSeconds()
   const rate = ac().sampleRate
   $("save-status").textContent = "Making the song file…"
   if (note) note.textContent = "Making the song file…"
@@ -3493,6 +3634,7 @@ document.body.addEventListener("click", (event) => {
       showInspector()
     }
     renderTracks()
+    renderRuler()
     if (state.panel === "mix" && !window.matchMedia("(min-width: 1100px)").matches) setPanel("mix")
     else renderInspector()
   }
@@ -3570,9 +3712,10 @@ document.body.addEventListener("click", (event) => {
     state.intent = node.dataset.intent
     const intent = INTENTS.find((item) => item.id === state.intent)
     if (intent?.shapes.length === 1) {
-      const assumed = !state.lengthSec
-      const length = state.lengthSec || 180
-      const intro = assumed ? "I used 3:00, a common song length. " : ""
+      const layer = selectedLayer()
+      const assumed = !layer?.lengthSec && !state.lengthSec
+      const length = layer?.lengthSec || state.lengthSec || 60
+      const intro = assumed ? "I used 1:00. " : ""
       applyPlan(length, intent.shapes[0], `${intro}${planMessage(length, intent.shapes[0])}`)
     } else {
       state.heard = state.intent === "climax"
@@ -3583,9 +3726,10 @@ document.body.addEventListener("click", (event) => {
     }
   }
   if (action === "apply-shape") {
-    const assumed = !state.lengthSec
-    const length = state.lengthSec || 180
-    const intro = assumed ? "I used 3:00, a common song length. " : ""
+    const layer = selectedLayer()
+    const assumed = !layer?.lengthSec && !state.lengthSec
+    const length = layer?.lengthSec || state.lengthSec || 60
+    const intro = assumed ? "I used 1:00. " : ""
     applyPlan(length, node.dataset.shape, `${intro}${planMessage(length, node.dataset.shape)}`)
   }
   if (action === "add-and-record") {
