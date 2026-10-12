@@ -48,6 +48,31 @@ const POCKETS = [
   { id: "boom", name: "Boom-bap", line: "Kick on 1 and the offbeat. Snare on 2 and 4." },
 ]
 
+const KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+const WHITE_KEYS = [0, 2, 4, 5, 7, 9, 11]
+const BLACK_KEYS = [
+  { pc: 1, left: "9.2%" },
+  { pc: 3, left: "23.4%" },
+  { pc: 6, left: "51.8%" },
+  { pc: 8, left: "66%" },
+  { pc: 10, left: "80.2%" },
+]
+
+const MAGIC_PRESETS = [
+  { words: ["vocal", "sing", "voice", "hum"], role: "vocals", vocalType: "solo", pitch: "correct", room: "small", reverb: true, echo: false, label: "Your voice, gently tuned" },
+  { words: ["autotune", "tuned"], role: "vocals", vocalType: "solo", pitch: "autotune", room: "small", reverb: true, echo: false, label: "Autotune on your voice" },
+  { words: ["background", "harmony"], role: "vocals", vocalType: "background", pitch: "correct", room: "medium", reverb: true, echo: false, label: "Background vocals" },
+  { words: ["choir"], role: "vocals", vocalType: "choir", pitch: "correct", room: "large", reverb: true, echo: false, label: "Choir from the notes it heard" },
+  { words: ["piano", "chord", "keys"], role: "instrument", instrument: "Piano", figure: "chords", touch: "hold", pitch: "correct", room: "medium", reverb: true, echo: false, label: "Piano chords" },
+  { words: ["piano", "solo"], role: "instrument", instrument: "Piano", figure: "solo", touch: "hold", pitch: "correct", room: "small", reverb: true, echo: false, label: "Piano solo" },
+  { words: ["guitar", "strum"], role: "instrument", instrument: "Acoustic guitar", figure: "chords", touch: "strum", pitch: "correct", room: "medium", reverb: true, echo: false, label: "Guitar strums" },
+  { words: ["rhodes", "electric piano"], role: "instrument", instrument: "Rhodes", figure: "chords", touch: "hold", pitch: "correct", room: "medium", reverb: true, echo: false, label: "Rhodes chords" },
+  { words: ["electric"], role: "instrument", instrument: "Electric guitar", figure: "chords", touch: "beat", pitch: "correct", room: "small", reverb: false, echo: false, label: "Electric guitar on the beat" },
+  { words: ["horn", "trumpet", "sax"], role: "instrument", instrument: "Horn", figure: "solo", touch: "hold", pitch: "correct", room: "medium", reverb: true, echo: false, label: "Horn" },
+  { words: ["bass"], role: "instrument", instrument: "Bass", figure: "solo", touch: "beat", pitch: "correct", room: "small", reverb: false, echo: false, label: "Bass on the beat" },
+  { words: ["drum", "clap", "snap", "beat", "kit"], role: "instrument", instrument: "Drums", pocket: "backbeat", pitch: "correct", room: "small", reverb: false, echo: false, label: "A backbeat kit" },
+]
+
 const LENGTHS = [
   [30, "0:30"],
   [60, "1:00"],
@@ -289,6 +314,12 @@ const state = {
   selected: null,
   panel: "mix",
   input: "hum",
+  recordMode: "mic",
+  vibe: "claps",
+  keyPc: 0,
+  magicWish: "",
+  magicStep: 0,
+  pendingMagic: "",
   mode: "first",
   monitor: "original",
   recording: false,
@@ -1576,19 +1607,18 @@ function renderInspector() {
   const head = (title) => `<div class="sheet-head"><h2>${title}</h2>${iconButton("close", `data-action="close-panel" aria-label="Close" title="Close"`)}</div>`
   let body = ""
   if (state.panel === "record") {
-    const tempoLine = state.tempoSource
-      ? `Tempo ${state.bpm} from ${state.tempoSource}. The click follows it.`
-      : "Clap, snap, or beatbox a steady pulse first. Songbird sets the metronome from it. If you just hum, it finds the tempo from that instead."
+    const micMode = state.recordMode !== "vibe"
     const listening = state.recording && state.tempoPass
+    const vibeNames = { claps: "Claps", snaps: "Snaps", guitar: "Guitar strums", piano: "Piano chords" }
     body = `${head("Make a sound")}
-      <p class="ask">First, the tempo</p>
-      <p class="hint">${esc(sectionWorkLine())}</p>
-      <p class="hint">${tempoLine}</p>
-      ${filledButton(listening ? "Stop and set the tempo" : "Clap the tempo", `data-action="tempo-pass"`)}
-      <div class="grid">${INPUTS.map(([id, label]) => tileButton(label, `data-action="pick-input" data-input="${id}"`, state.input === id)).join("")}</div>
+      <div class="choices">
+        ${filterChip("Record from the mic", `data-action="record-mode" data-mode="mic"`, micMode)}
+        ${filterChip("Pick a vibe", `data-action="record-mode" data-mode="vibe"`, !micMode)}
+      </div>
+      ${micMode ? `<p class="hint">Tempo is ${state.bpm}. Change it in the bar above. The click counts in and stays out of the take.</p>
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording ? "recording" : "idle"}" aria-label="${state.recording ? "Stop recording" : "Record"}"><span class="glyph" aria-hidden="true">${state.recording ? "■" : "●"}</span></button>
-      <p class="hint" id="rec-time">${listening ? "Listening for the tempo. No click yet." : state.recording ? "Recording. The click stays in the speakers, not in the take." : state.tempoLocked ? "The click counts in four beats at this tempo." : "00:00"}</p>
+      <p class="hint" id="rec-time">${listening ? "Listening for the tempo." : state.recording ? "Recording. The click stays in the speakers, not in the take." : "00:00"}</p>
       <p class="hint">Headphones help keep the click out of the microphone.</p>
       ${outlinedButton(state.recMore ? "Hide monitoring" : "Headphones and monitoring", `data-action="toggle-rec-more"`)}
       ${state.recMore ? `<div class="seg">
@@ -1602,7 +1632,19 @@ function renderInspector() {
       <div class="row">
         ${filledButton("Keep", `data-action="keep-take" ${pendingBlob ? "" : "disabled"}`)}
         ${outlinedButton("Try again", `data-action="discard-take"`)}
-      </div>`
+      </div>` : `<p class="hint">Songbird adds a starter and uses this tempo. Record from the mic when you want your own voice on top.</p>
+      <p class="ask">Starter</p>
+      <div class="choices">
+        ${Object.entries(vibeNames).map(([id, label]) => filterChip(label, `data-action="pick-vibe" data-vibe="${id}"`, state.vibe === id)).join("")}
+      </div>
+      <p class="ask">Key of ${KEY_NAMES[state.keyPc] || "C"}</p>
+      <p class="hint">${state.vibe === "guitar" || state.vibe === "piano" ? "Tap a note. You'll hear it, and the chords use that key." : "Tap a note to learn the key. Claps and snaps keep the tempo. The key is ready when you add chords or sing."}</p>
+      ${pianoKeys()}
+      <p class="ask">Tempo</p>
+      <div class="choices">
+        ${[[76, "Slow 76"], [96, "Mid 96"], [120, "Up 120"]].map(([bpm, label]) => filterChip(label, `data-action="vibe-tempo" data-bpm="${bpm}"`, state.bpm === bpm)).join("")}
+      </div>
+      ${filledButton(`Add ${vibeNames[state.vibe] || "this starter"}`, `data-action="add-starter"`)}`}`
   } else if (state.panel === "transform") {
     const sources = state.layers.filter((item) => buffers.get(item.id + ":audio"))
     const current = sources.find((item) => item.id === state.selected) || sources[0]
@@ -1614,12 +1656,22 @@ function renderInspector() {
     const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
     const instruments = PACKAGES.filter((pack) => pack.id !== "Vocals" && pack.id !== "Choir")
     const vocalPath = state.role !== "instrument"
-    body = `${head("Magic Transform")}
-      ${genrePanel()}
-      <p class="hint">${current ? suggestionLine(current) : "Record a layer first."} Undo puts the original back.</p>
+    body = `${head("Magic")}
+      <p class="hint">${current ? `${esc(current.name)} is selected.` : "Record a layer first."} Hit Magic again for another idea. A description can steer it.</p>
       ${sources.length ? `<p class="ask">This layer</p>
-        <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : ""}
-      ${filledButton("Use these settings", `data-action="use-transform" ${locked}`)}
+        <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer, or add a starter from Record.</p>`}
+      <label class="field">Describe it, if you want
+        <textarea id="magic-wish" rows="2" placeholder="Warm piano chords, a little room">${esc(state.magicWish || "")}</textarea>
+      </label>
+      <div class="magic-actions">
+        ${filledButton(state.transforming ? "Working…" : "Magic", `data-action="magic-again" ${locked}`)}
+        ${outlinedButton("Revert to original", `data-action="revert-original" ${locked}`)}
+      </div>
+      ${note}
+      <details class="package-more">
+        <summary>Choose it yourself</summary>
+        ${genrePanel()}
+        <p class="hint">${current ? suggestionLine(current) : ""}</p>
       <p class="ask">Vocals or instrument</p>
       <div class="choices">
         ${filterChip("Vocals", `data-action="pick-role" data-role="vocals" ${locked}`, vocalPath)}
@@ -1668,7 +1720,8 @@ function renderInspector() {
         ${filterChip("Medium", `data-action="pick-room" data-room="medium" ${locked}`, state.room === "medium")}
         ${filterChip("Large", `data-action="pick-room" data-room="large" ${locked}`, state.room === "large")}
       </div>
-      ${note}
+      ${filledButton("Use these settings", `data-action="use-transform" ${locked}`)}
+      </details>
       ${magicLog()}`
   } else if (state.panel === "build") {
     const mins = state.lengthSec ? Math.floor(state.lengthSec / 60) : ""
@@ -1696,8 +1749,8 @@ function renderInspector() {
         return planButton(shape.name, shape.line, `data-action="apply-shape" data-shape="${id}"`, state.shape === id, curve(id))
       }).join("")}` : ""}
       <p class="ask">Add another layer</p>
-      <p class="hint">Each sound stays its own layer. The shape applies to all of them.</p>
-      <div class="grid">${INPUTS.map(([id, label]) => tileButton(label, `data-action="add-and-record" data-input="${id}"`)).join("")}</div>`
+      <p class="hint">Record from the mic, or go back to Record and pick a vibe.</p>
+      ${filledButton("Record from the mic", `data-action="add-and-record" data-input="hum"`)}`
   } else if (state.panel === "finish") {
     body = `${head("Finish your song")}
       <div class="seg">${filterChip("Audio", "", true)}${outlinedButton("Video", `data-action="video-note"`)}</div>
@@ -2220,6 +2273,161 @@ function syncPlaying(layer) {
   state.touch = layer.touch === "beat" ? "beat" : layer.touch === "strum" ? "strum" : "hold"
 }
 
+function pianoKeys() {
+  const whites = WHITE_KEYS.map((pc) => `<button type="button" class="piano-white ${state.keyPc === pc ? "on" : ""}" data-action="pick-key" data-key="${pc}" aria-label="Key of ${KEY_NAMES[pc]}">${KEY_NAMES[pc]}</button>`).join("")
+  const blacks = BLACK_KEYS.map((key) => `<button type="button" class="piano-black ${state.keyPc === key.pc ? "on" : ""}" style="left:${key.left}" data-action="pick-key" data-key="${key.pc}" aria-label="Key of ${KEY_NAMES[key.pc]}">${KEY_NAMES[key.pc]}</button>`).join("")
+  return `<div class="piano" role="group" aria-label="Piano key"><div class="piano-whites">${whites}</div><div class="piano-blacks">${blacks}</div></div>`
+}
+
+function previewKey(pc) {
+  const ctx = ac()
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.type = "triangle"
+  osc.frequency.value = 440 * 2 ** ((60 + pc - 69) / 12)
+  const now = ctx.currentTime
+  gain.gain.setValueAtTime(0.0001, now)
+  gain.gain.exponentialRampToValueAtTime(0.16, now + 0.02)
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5)
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start(now)
+  osc.stop(now + 0.55)
+}
+
+function addStarter() {
+  const bpm = state.bpm || 96
+  const beat = 60 / bpm
+  const bars = state.lengthSec ? Math.max(4, Math.min(16, Math.round(state.lengthSec / (beat * 4)))) : 4
+  const made = SongbirdMusic.starterAudio({ kind: state.vibe, bpm, key: state.keyPc || 0, bars })
+  if (!made?.samples?.length) {
+    $("save-status").textContent = "That starter didn't render. Nothing was added."
+    return
+  }
+  snapshot()
+  const id = uid()
+  const names = { claps: "Claps", snaps: "Snaps", guitar: "Guitar", piano: "Piano" }
+  const sounds = { claps: "Claps", snaps: "Snaps", guitar: "Acoustic guitar", piano: "Piano" }
+  const keyName = KEY_NAMES[state.keyPc] || "C"
+  const layer = {
+    id,
+    name: names[state.vibe] || "Starter",
+    sound: sounds[state.vibe] || "Layer",
+    from: `starter · ${keyName} · ${bpm}`,
+    color: state.vibe === "piano" ? "#f0a202" : state.vibe === "guitar" ? "#ff8ab0" : "#3d7eff",
+    peaks: peaksFromSamples(made.samples),
+    gain: state.vibe === "snaps" ? 0.55 : 0.72,
+    pan: 0,
+    low: 0,
+    high: 0,
+    space: state.vibe === "piano" || state.vibe === "guitar" ? 0.16 : 0.02,
+    mute: false,
+    solo: false,
+    live: true,
+  }
+  state.layers.push(layer)
+  state.selected = id
+  buffers.set(id + ":audio", audioBuffer(made.samples, made.sampleRate))
+  useTempo(bpm, "this starter", true)
+  rememberSong()
+  renderTracks()
+  renderInspector()
+  $("save-status").textContent = `${layer.name} is in, in the key of ${keyName}, at ${bpm}. Record from the mic when you want your voice on top.`
+  try { play() } catch { /* the starter is still on the timeline */ }
+}
+
+function magicNote(fallback) {
+  if (!state.pendingMagic) return fallback
+  const label = state.pendingMagic
+  state.pendingMagic = ""
+  return `${label}. Hit Magic again for another idea. Revert puts the original back.`
+}
+
+function nextMagic(text) {
+  const wish = String(text || "").toLowerCase()
+  let pool = MAGIC_PRESETS.filter((item) => item.words.some((word) => wish.includes(word)))
+  if (!pool.length) pool = MAGIC_PRESETS
+  const preset = { ...pool[state.magicStep % pool.length] }
+  if (/large|big room|hall/.test(wish)) {
+    preset.room = "large"
+    preset.reverb = true
+  } else if (/small|close|dry/.test(wish)) {
+    preset.room = "small"
+    preset.reverb = false
+  } else if (/room|reverb/.test(wish)) preset.reverb = true
+  if (/echo|delay/.test(wish)) preset.echo = true
+  if (/autotune/.test(wish)) preset.pitch = "autotune"
+  const period = PERIODS.find((item) => wish.includes(String(item.id)) || wish.includes(item.name.toLowerCase()))
+  if (period) preset.era = period.id
+  return preset
+}
+
+function applyMagic() {
+  if (state.transforming) return
+  const box = $("magic-wish")
+  if (box) state.magicWish = box.value
+  const layer = state.layers.find((item) => item.id === state.selected) || state.layers.find((item) => buffers.get(item.id + ":audio"))
+  if (!layer || !buffers.get(layer.id + ":audio") && !buffers.get(layer.id + ":original")) {
+    state.transformNote = "Record a layer, or add a starter, then hit Magic."
+    state.transformTone = "warn"
+    $("save-status").textContent = state.transformNote
+    renderInspector()
+    return
+  }
+  state.selected = layer.id
+  const preset = nextMagic(state.magicWish)
+  state.magicStep += 1
+  state.role = preset.role === "instrument" ? "instrument" : "vocals"
+  state.vocalType = preset.vocalType || "solo"
+  if (preset.instrument) state.instrument = preset.instrument
+  if (preset.figure) state.figure = preset.figure
+  if (preset.touch) state.touch = preset.touch
+  if (preset.pocket) state.pocket = preset.pocket
+  state.pitch = preset.pitch || "correct"
+  state.room = preset.room || "medium"
+  state.reverb = preset.reverb !== false
+  state.echo = !!preset.echo
+  if (preset.era) state.era = preset.era
+  state.pendingMagic = preset.label
+  state.suggestId = layer.id
+  commitTransform()
+}
+
+function revertToOriginal() {
+  const selected = state.layers.find((item) => item.id === state.selected) || state.layers.find((item) => buffers.get(item.id + ":audio"))
+  if (!selected) {
+    $("save-status").textContent = "Record a layer first."
+    return
+  }
+  const original = buffers.get(selected.id + ":original")
+  if (!original) {
+    state.transformNote = `${selected.name} is already the original recording.`
+    state.transformTone = ""
+    $("save-status").textContent = state.transformNote
+    renderInspector()
+    return
+  }
+  snapshot([selected.id])
+  buffers.set(selected.id + ":audio", original)
+  selected.peaks = peaksFromSamples(original.getChannelData(0))
+  selected.name = selected.baseName || selected.name
+  selected.sound = selected.originSound || selected.sound || "Voice"
+  selected.transformed = false
+  selected.vocalType = ""
+  selected.from = selected.baseName ? `was ${selected.baseName}` : ""
+  state.pitch = "none"
+  state.role = /drum|guitar|piano|rhodes|horn|bass|clap|snap/i.test(`${selected.sound} ${selected.name}`) ? "instrument" : "vocals"
+  state.suggestId = selected.id
+  state.arrived = selected.id
+  state.transformNote = `${selected.name} is back to the original.`
+  state.transformTone = ""
+  rememberSong()
+  renderTracks()
+  renderInspector()
+  $("save-status").textContent = state.transformNote
+  try { play() } catch { /* the original is still on the timeline */ }
+}
+
 function suggestPackage(id) {
   if (state.genreTouched || typeof SongbirdPackages === "undefined") return
   const pack = SongbirdPackages.get(id)
@@ -2371,9 +2579,9 @@ function finishVoice() {
       selected.from = [`was ${selected.baseName}`, background ? "background" : "solo", period.name, pitchWord, `${state.room} room`].join(" · ")
       state.selected = selected.id
       state.arrived = selected.id
-      state.transformNote = background
-        ? `${selected.baseName} is background vocals. ${pitchWord}. Undo puts the original back.`
-        : `${selected.baseName} stays a lead vocal. ${pitchWord}. Undo puts the original back.`
+      state.transformNote = magicNote(background
+        ? `${selected.baseName} is background vocals. ${pitchWord}. Revert puts the original back.`
+        : `${selected.baseName} stays a lead vocal. ${pitchWord}. Revert puts the original back.`)
       state.transformTone = ""
       rememberSong()
       $("save-status").textContent = state.transformNote
@@ -2405,7 +2613,7 @@ function restoreRecording() {
   const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
   selected.from = [`was ${selected.baseName}`, "as recorded", period.name, `${state.room} room`].join(" · ")
   state.arrived = selected.id
-  state.transformNote = `${selected.name} is the recording, with mic and room. Undo puts the last change back.`
+  state.transformNote = magicNote(`${selected.name} is the recording, with mic and room. Revert puts the original back.`)
   state.transformTone = ""
   rememberSong()
   $("save-status").textContent = state.transformNote
@@ -2556,7 +2764,7 @@ function addTransformedLayer(sound, extra) {
         stampEffects(selected, false)
         state.selected = selected.id
         state.arrived = selected.id
-        state.transformNote = `${selected.baseName} is now ${label}. ${period.name}, ${state.room} room. Undo puts the original back.`
+        state.transformNote = magicNote(`${selected.baseName} is now ${label}. ${period.name}, ${state.room} room. Revert puts the original back.`)
         state.transformTone = ""
         rememberSong()
         $("save-status").textContent = state.transformNote
@@ -3041,7 +3249,7 @@ function stopPlayback() {
 
 function fromControl(event) {
   const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target]
-  return path.find((item) => item?.dataset?.action || item?.id === "search" || item?.id === "song-title" || item?.id === "song-author" || item?.id === "wish" || item?.id === "bpm" || item?.classList?.contains?.("layer-name") || item?.classList?.contains?.("share-email")) || event.target
+  return path.find((item) => item?.dataset?.action || item?.id === "search" || item?.id === "song-title" || item?.id === "song-author" || item?.id === "wish" || item?.id === "magic-wish" || item?.id === "bpm" || item?.classList?.contains?.("layer-name") || item?.classList?.contains?.("share-email")) || event.target
 }
 
 document.body.addEventListener("change", (event) => {
@@ -3104,6 +3312,30 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "play") playing ? stopPlayback() : play()
   if (action === "jump") jumpSection(Number(node.dataset.jump) < 0 ? -1 : 1)
+  if (action === "record-mode") {
+    if (state.recording) return
+    state.recordMode = node.dataset.mode === "vibe" ? "vibe" : "mic"
+    renderInspector()
+  }
+  if (action === "pick-vibe") {
+    state.vibe = ["snaps", "guitar", "piano"].includes(node.dataset.vibe) ? node.dataset.vibe : "claps"
+    renderInspector()
+  }
+  if (action === "pick-key") {
+    const pc = Number(node.dataset.key)
+    state.keyPc = Number.isFinite(pc) ? ((pc % 12) + 12) % 12 : 0
+    previewKey(state.keyPc)
+    renderInspector()
+    $("save-status").textContent = `Key of ${KEY_NAMES[state.keyPc]}.`
+  }
+  if (action === "vibe-tempo") {
+    const bpm = Number(node.dataset.bpm)
+    if (bpm) useTempo(bpm, "this starter", true)
+    renderInspector()
+  }
+  if (action === "add-starter") addStarter()
+  if (action === "magic-again") applyMagic()
+  if (action === "revert-original") revertToOriginal()
   if (action === "tempo-pass") {
     if (!state.recording) state.tempoPass = true
     void toggleRecord()
@@ -3455,6 +3687,7 @@ document.body.addEventListener("input", (event) => {
     nameSection(node.dataset.section, node.value, false)
   }
   if (node.id === "wish") state.wish = node.value
+  if (node.id === "magic-wish") state.magicWish = node.value
   if (node.id === "bpm") {
     state.bpm = Math.min(200, Math.max(40, Number(node.value) || 92))
     state.tempoLocked = true
