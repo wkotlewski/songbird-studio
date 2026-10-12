@@ -7,8 +7,30 @@
   <title>Songbird</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="app.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "@material/web/": "https://esm.run/@material/web/"
+      }
+    }
+  </script>
+  <script type="module">
+    import "@material/web/button/filled-button.js"
+    import "@material/web/button/filled-tonal-button.js"
+    import "@material/web/button/outlined-button.js"
+    import "@material/web/button/text-button.js"
+    import "@material/web/chips/filter-chip.js"
+    import "@material/web/fab/fab.js"
+    import "@material/web/icon/icon.js"
+    import "@material/web/iconbutton/filled-icon-button.js"
+    import "@material/web/iconbutton/icon-button.js"
+    import "@material/web/slider/slider.js"
+    import "@material/web/textfield/outlined-text-field.js"
+    import { styles as typescaleStyles } from "@material/web/typography/md-typescale-styles.js"
+    document.adoptedStyleSheets.push(typescaleStyles.styleSheet)
+  </script>
 </head>
 <body data-screen="library">
   <div class="app">
@@ -18,39 +40,39 @@
           <p class="brand">Songbird</p>
           <h1>My Music</h1>
         </div>
-        <button class="icon-btn" data-action="new-song" aria-label="Create new song">+</button>
+        <md-filled-icon-button data-action="new-song" aria-label="Create new song"><md-icon>add</md-icon></md-filled-icon-button>
       </header>
       <label class="search">
         <span class="sr">Search songs</span>
-        <input id="search" type="search" placeholder="Search songs" />
+        <md-outlined-text-field id="search" type="search" placeholder="Search songs" aria-label="Search songs"></md-outlined-text-field>
       </label>
       <div id="song-list" class="song-list"></div>
       <nav class="mobile-nav">
-        <button class="on" data-action="show-library">My Music</button>
-        <button data-action="new-song">Create New</button>
+        <md-filled-button data-action="show-library">My Music</md-filled-button>
+        <md-outlined-button data-action="new-song">Create New</md-outlined-button>
       </nav>
       <p class="legal">© 2026 Whitney Kotlewski. All rights reserved.</p>
     </aside>
 
     <main id="studio" class="pane">
       <header class="studio-bar">
-        <button class="icon-btn mobile-only" data-action="show-library" aria-label="My Music">⌂</button>
+        <md-icon-button class="mobile-only" data-action="show-library" aria-label="My Music"><md-icon>home</md-icon></md-icon-button>
         <div class="title-block">
-          <input id="song-title" aria-label="Song title" value="Untitled song" />
+          <md-outlined-text-field id="song-title" aria-label="Song title" value="Untitled song"></md-outlined-text-field>
           <p id="save-status">Prototype · recordings stay in this tab</p>
           <div id="project-actions" class="project-actions"></div>
         </div>
         <div class="transport">
-          <button data-action="play" id="play-btn" aria-label="Play">▶</button>
-          <button data-action="record" id="rec-btn" class="rec" aria-label="Record">●</button>
-          <button data-action="undo" aria-label="Undo">↶</button>
-          <button data-action="redo" aria-label="Redo">↷</button>
+          <md-filled-icon-button data-action="play" id="play-btn" aria-label="Play"><md-icon>play_arrow</md-icon></md-filled-icon-button>
+          <md-filled-icon-button data-action="record" id="rec-btn" class="rec" aria-label="Record"><md-icon>fiber_manual_record</md-icon></md-filled-icon-button>
+          <md-icon-button data-action="undo" aria-label="Undo"><md-icon>undo</md-icon></md-icon-button>
+          <md-icon-button data-action="redo" aria-label="Redo"><md-icon>redo</md-icon></md-icon-button>
         </div>
         <label class="bpm">
           BPM
-          <input id="bpm" type="number" min="40" max="200" value="92" />
+          <md-outlined-text-field id="bpm" type="number" min="40" max="200" value="92" aria-label="BPM"></md-outlined-text-field>
         </label>
-        <button id="click-btn" class="chip on" data-action="toggle-click">Click</button>
+        <md-filter-chip id="click-btn" selected data-action="toggle-click">Click</md-filter-chip>
       </header>
 
       <p class="note">Open an example and press play. A transform keeps the original and adds a new layer made from it.</p>
@@ -68,11 +90,11 @@
 
       <p class="legal">© 2026 Whitney Kotlewski. All rights reserved.</p>
       <div class="dock">
-        <button data-action="panel" data-panel="record"><b>Record</b><span>Make a sound</span></button>
-        <button data-action="panel" data-panel="transform"><b>Transform</b><span>Turn it into something new</span></button>
-        <button data-action="panel" data-panel="build"><b>Build</b><span>Add more layers</span></button>
-        <button data-action="panel" data-panel="mix"><b>Mix</b><span>Balance and enhance</span></button>
-        <button data-action="panel" data-panel="finish"><b>Finish</b><span>Master and make video</span></button>
+        <md-filled-tonal-button class="dock-btn" data-action="panel" data-panel="record"><span class="plan-copy"><b>Record</b><span>Make a sound</span></span></md-filled-tonal-button>
+        <md-filled-tonal-button class="dock-btn" data-action="panel" data-panel="transform"><span class="plan-copy"><b>Transform</b><span>Turn it into something new</span></span></md-filled-tonal-button>
+        <md-filled-tonal-button class="dock-btn" data-action="panel" data-panel="build"><span class="plan-copy"><b>Build</b><span>Add more layers</span></span></md-filled-tonal-button>
+        <md-filled-tonal-button class="dock-btn" data-action="panel" data-panel="mix"><span class="plan-copy"><b>Mix</b><span>Balance and enhance</span></span></md-filled-tonal-button>
+        <md-filled-tonal-button class="dock-btn" data-action="panel" data-panel="finish"><span class="plan-copy"><b>Finish</b><span>Master and make video</span></span></md-filled-tonal-button>
       </div>
     </main>
 
