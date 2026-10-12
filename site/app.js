@@ -1134,6 +1134,58 @@ function paintSelection() {
   band.style.width = `${Math.max(8, (section.end - section.start) * box.width)}px`
 }
 
+function fillLayerWithSection() {
+  const section = activeSection()
+  const layer = selectedLayer()
+  if (!section) {
+    $("save-status").textContent = "Select a section first."
+    return
+  }
+  if (!layer) {
+    $("save-status").textContent = "Select a layer to fill."
+    return
+  }
+  const buffer = buffers.get(layer.id + ":audio")
+  if (!buffer) {
+    $("save-status").textContent = `${layer.name} has no recording to loop.`
+    return
+  }
+  const span = spanSeconds()
+  const made = SongbirdMusic.fillWithSection(buffer.getChannelData(0), buffer.sampleRate, {
+    songLength: span,
+    rangeStart: layer.range ? layer.range.start : 0,
+    rangeEnd: layer.range ? layer.range.end : span,
+    sectionStart: section.start * span,
+    sectionEnd: section.end * span,
+    gaps: layer.gaps || [],
+  })
+  if (!made) {
+    $("save-status").textContent = `${section.name} doesn't sit on ${layer.name}. Nothing changed.`
+    return
+  }
+  if (made.unchanged) {
+    $("save-status").textContent = `${section.name} already covers ${layer.name}.`
+    return
+  }
+  snapshot([layer.id])
+  buffers.set(layer.id + ":audio", audioBuffer(made.samples, buffer.sampleRate))
+  layer.peaks = peaksFromSamples(made.samples)
+  layer.range = null
+  layer.gaps = []
+  layer.from = `filled with ${section.name}`
+  rememberSong()
+  state.arrived = null
+  renderTracks()
+  renderRuler()
+  const filledId = layer.id
+  requestAnimationFrame(() => {
+    state.arrived = filledId
+    renderTracks()
+  })
+  $("save-status").textContent = `${section.name} now fills ${layer.name}. Undo puts the layer back.`
+  if (playing) play(state.playAt || 0)
+}
+
 function applySectionToLayer(layer) {
   const section = activeSection()
   if (!section) return null
@@ -1189,6 +1241,7 @@ function renderRuler() {
         ${current && sections.length > 1 ? outlinedButton("Remove", `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
         ${current ? `${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
         ${filterChip("Change this part", `data-action="section-mode" data-mode="replace"`, state.sectionMode === "replace")}
+        ${outlinedButton("Fill layer with this section", `data-action="fill-section"`)}
         ${outlinedButton("Whole song", `data-action="whole-song"`)}` : ""}
       </div>`
   const beat = 60 / (state.bpm || 92)
@@ -2026,7 +2079,7 @@ function sectionWorkLine() {
   const section = activeSection()
   if (!section) return "Drag the play line, or click a section to jump there. Until you select a part, new layers cover the whole song."
   const how = state.sectionMode === "replace" ? "Change this part replaces what is already there." : "Add onto this part keeps what is already there."
-  return `${section.name}, ${sectionClock(section)}. ${how}`
+  return `${section.name}, ${sectionClock(section)}. ${how} Fill layer with this section repeats that part across the selected layer. Undo puts the layer back.`
 }
 
 function scheduleShape(gainNode, base, shapeId, startTime, span, fromSec) {
@@ -2831,6 +2884,7 @@ document.body.addEventListener("click", (event) => {
     renderInspector()
     $("save-status").textContent = sectionWorkLine()
   }
+  if (action === "fill-section") fillLayerWithSection()
   if (action === "whole-song") {
     state.section = null
     renderRuler()
