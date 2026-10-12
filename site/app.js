@@ -178,6 +178,33 @@ function esc(value) {
   return String(value).replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char])
 }
 
+function filledButton(label, attrs) {
+  return `<md-filled-button ${attrs}>${label}</md-filled-button>`
+}
+
+function outlinedButton(label, attrs) {
+  return `<md-outlined-button ${attrs}>${label}</md-outlined-button>`
+}
+
+function filterChip(label, attrs, on) {
+  return `<md-filter-chip ${on ? "selected" : ""} ${attrs}>${label}</md-filter-chip>`
+}
+
+function planButton(name, line, attrs, on, extra = "") {
+  const tag = on ? "md-filled-button" : "md-outlined-button"
+  return `<${tag} class="plan" ${attrs}><span class="plan-copy"><b>${name}</b><span>${line}</span>${extra}</span></${tag}>`
+}
+
+function tileButton(label, attrs, on) {
+  const tag = on ? "md-filled-button" : "md-outlined-button"
+  return `<${tag} class="tile" ${attrs}>${label}</${tag}>`
+}
+
+function iconButton(icon, attrs, filled) {
+  const tag = filled ? "md-filled-icon-button" : "md-icon-button"
+  return `<${tag} ${attrs}><md-icon>${icon}</md-icon></${tag}>`
+}
+
 function curve(shapeId) {
   const bars = 28
   let html = `<span class="curve" aria-hidden="true">`
@@ -668,8 +695,8 @@ function renderShareBox(song) {
     return `<div class="share-box">
       <p class="warn">Delete ${esc(song.title)}? This removes it from the list.</p>
       <div class="row">
-        <button class="primary" data-action="confirm-delete" data-id="${song.id}">Delete</button>
-        <button class="choice" data-action="cancel-song">Keep it</button>
+        ${filledButton("Delete", `data-action="confirm-delete" data-id="${song.id}"`)}
+        ${outlinedButton("Keep it", `data-action="cancel-song"`)}
       </div>
     </div>`
   }
@@ -680,8 +707,8 @@ function renderShareBox(song) {
     ${emails.length ? `<p class="hint">${emails.map((email) => esc(email)).join(", ")}</p>` : ""}
     ${state.shareNote ? `<p class="hint">${esc(state.shareNote)}</p>` : ""}
     <div class="share-row">
-      <input class="share-email" type="email" data-id="${song.id}" placeholder="name@email.com" aria-label="Email address" value="${esc(state.shareDraft || "")}" />
-      <button class="primary" data-action="add-share" data-id="${song.id}">Share</button>
+      <md-outlined-text-field class="share-email" type="email" data-id="${song.id}" placeholder="name@email.com" aria-label="Email address" value="${esc(state.shareDraft || "")}"></md-outlined-text-field>
+      ${filledButton("Share", `data-action="add-share" data-id="${song.id}"`)}
     </div>
   </div>`
 }
@@ -697,14 +724,14 @@ function renderSongs() {
   list.innerHTML = songs
     .map(
       (song) => `<article class="song">
-        <button class="song-open" data-action="open-song" data-id="${song.id}">
-          <span class="swatch" style="background:linear-gradient(135deg,#1fbfa7,#3d7eff)"></span>
+        <md-text-button class="song-open" data-action="open-song" data-id="${song.id}">
+          <span class="swatch" style="background:linear-gradient(135deg,#34D399,#EC4899)"></span>
           <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(shareDetail(song))}</span></span>
           <span class="badge">Shared</span>
-        </button>
+        </md-text-button>
         <div class="song-actions">
-          <button class="choice" data-action="share-song" data-id="${song.id}">Share</button>
-          <button class="choice" data-action="ask-delete" data-id="${song.id}">Delete</button>
+          ${outlinedButton("Share", `data-action="share-song" data-id="${song.id}"`)}
+          ${outlinedButton("Delete", `data-action="ask-delete" data-id="${song.id}"`)}
         </div>
         ${renderShareBox(song)}
       </article>`,
@@ -721,8 +748,8 @@ function renderProjectActions() {
     return
   }
   box.innerHTML = `<div class="song-actions">
-      <button class="choice" data-action="share-song" data-id="${song.id}">Share</button>
-      <button class="choice" data-action="ask-delete" data-id="${song.id}">Delete</button>
+      ${outlinedButton("Share", `data-action="share-song" data-id="${song.id}"`)}
+      ${outlinedButton("Delete", `data-action="ask-delete" data-id="${song.id}"`)}
     </div>
     ${renderShareBox(song)}`
 }
@@ -955,13 +982,17 @@ function renderRuler() {
   if (state.section && !activeSection()) state.section = null
   const sections = songSections()
   const bands = `<div class="shape-row">${sections
-    .map((section) => `<button type="button" class="section${state.section === section.id ? " on" : ""}" data-action="pick-section" data-id="${esc(section.id)}" style="width:${(section.end - section.start) * 100}%;background:${section.color}" title="${sectionClock(section)}">${esc(section.name)}</button>`)
+    .map((section) => {
+      const on = state.section === section.id
+      const tag = on ? "md-filled-button" : "md-outlined-button"
+      return `<${tag} class="section" data-action="pick-section" data-id="${esc(section.id)}" style="width:${(section.end - section.start) * 100}%" title="${sectionClock(section)}">${esc(section.name)}</${tag}>`
+    })
     .join("")}</div>`
   const tools = state.section
     ? `<div class="section-tools">
-        <button type="button" class="choice ${state.sectionMode === "add" ? "on" : ""}" data-action="section-mode" data-mode="add">Add onto this part</button>
-        <button type="button" class="choice ${state.sectionMode === "replace" ? "on" : ""}" data-action="section-mode" data-mode="replace">Change this part</button>
-        <button type="button" class="choice" data-action="whole-song">Whole song</button>
+        ${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
+        ${filterChip("Change this part", `data-action="section-mode" data-mode="replace"`, state.sectionMode === "replace")}
+        ${outlinedButton("Whole song", `data-action="whole-song"`)}
       </div>`
     : ""
   $("ruler").innerHTML = `${bands}${tools}<div class="ruler-marks">${marks.join("")}</div>`
@@ -999,10 +1030,10 @@ function renderTracks() {
         .join("")
       return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""}" data-id="${layer.id}">
         <div class="track-label">
-          <input class="layer-name" data-rename="${layer.id}" value="${esc(layer.name)}" maxlength="40" aria-label="Name this layer" />
-          <button type="button" class="track-meta" data-action="select-layer" data-id="${layer.id}">
+          <md-outlined-text-field class="layer-name" data-rename="${layer.id}" value="${esc(layer.name)}" maxlength="40" aria-label="Name this layer"></md-outlined-text-field>
+          <md-text-button class="track-meta" data-action="select-layer" data-id="${layer.id}">
             <small>${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
-          </button>
+          </md-text-button>
         </div>
         <div class="lane">${gaps}${wave(shapedPeaks(layer), layer.color, layer.id, boxStyle)}</div>
       </div>`
@@ -1015,7 +1046,7 @@ function slider(label, key, min, max, step, value, id, readout) {
   const mark = readout == null ? value : readout
   const layerId = id ? ` data-id="${id}" data-mix="1"` : ""
   return `<label class="field">${label}
-    <input class="slider" type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-action="set-${key}"${layerId} />
+    <md-slider class="slider" min="${min}" max="${max}" step="${step}" value="${value}" data-action="set-${key}"${layerId}></md-slider>
     <span>${mark}</span>
   </label>`
 }
@@ -1096,7 +1127,7 @@ function mixReadout(key, value) {
 }
 
 function mixBox(id, name, line) {
-  return `<button class="plan ${state.mix === id ? "on" : ""}" data-action="apply-mix" data-preset="${id}"><b>${name}</b><span>${line}</span></button>`
+  return planButton(name, line, `data-action="apply-mix" data-preset="${id}"`, state.mix === id)
 }
 
 function renderMix(head, layer) {
@@ -1110,11 +1141,11 @@ function renderMix(head, layer) {
   const high = current.high ?? 0
   const space = current.space ?? 0
   const strips = state.layers.map((item) => `<div class="strip ${item.id === current.id ? "on" : ""}">
-      <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
-      <input class="fader" type="range" min="0" max="1" step="0.01" value="${item.gain ?? 0.8}" data-mix="1" data-action="set-gain" data-id="${item.id}" aria-label="${esc(item.name)} volume" />
+      <md-text-button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</md-text-button>
+      <md-slider class="fader" min="0" max="1" step="0.01" value="${item.gain ?? 0.8}" data-mix="1" data-action="set-gain" data-id="${item.id}" aria-label="${esc(item.name)} volume"></md-slider>
       <div class="strip-buttons">
-        <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}">M</button>
-        <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}">S</button>
+        ${iconButton("volume_off", `class="mini" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}"${item.mute ? " selected" : ""}`, item.mute)}
+        ${iconButton("hearing", `class="mini" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}"`, item.solo)}
       </div>
     </div>`).join("")
   const fine = state.fine ? `<div class="fine-body">
@@ -1129,14 +1160,14 @@ function renderMix(head, layer) {
   return `${head("Mix")}
     <p class="hint">Pick a sound you want. The faders are the mixer. Fine tune is for the few things people usually adjust.</p>
     <label class="field">Layer name
-      <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
+      <md-outlined-text-field class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer"></md-outlined-text-field>
     </label>
     <p class="ask">For the whole song</p>
     <div class="mix-boxes">${Object.entries(SONG_MIXES).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
     <p class="ask">For one kind of part</p>
     <div class="mix-boxes parts">${Object.entries(MIX_PARTS).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
     <div class="strips">${strips}</div>
-    <button class="choice" data-action="toggle-fine">${state.fine ? "Hide fine tune" : "Fine tune this layer"}</button>
+    ${outlinedButton(state.fine ? "Hide fine tune" : "Fine tune this layer", `data-action="toggle-fine"`)}
     ${fine}`
 }
 
@@ -1182,7 +1213,7 @@ function applyMix(id) {
 
 function renderInspector() {
   const layer = selectedLayer()
-  const head = (title) => `<div class="sheet-head"><h2>${title}</h2><button class="icon-btn" data-action="close-panel" aria-label="Close">×</button></div>`
+  const head = (title) => `<div class="sheet-head"><h2 class="md-typescale-headline-small">${title}</h2>${iconButton("close", `data-action="close-panel" aria-label="Close"`)}</div>`
   let body = ""
   if (state.panel === "record") {
     const tempoLine = state.tempoSource
@@ -1193,23 +1224,23 @@ function renderInspector() {
       <p class="ask">First, the tempo</p>
       <p class="hint">${esc(sectionWorkLine())}</p>
       <p class="hint">${tempoLine}</p>
-      <button class="primary" data-action="tempo-pass">${listening ? "Stop and set the tempo" : "Clap the tempo"}</button>
+      ${filledButton(listening ? "Stop and set the tempo" : "Clap the tempo", `data-action="tempo-pass"`)}
       <div class="seg">
-        <button class="${state.mode === "first" ? "on" : ""}" data-action="rec-mode" data-mode="first">Record First</button>
-        <button class="${state.mode === "live" ? "on" : ""}" data-action="rec-mode" data-mode="live">Play Live</button>
+        ${filterChip("Record First", `data-action="rec-mode" data-mode="first"`, state.mode === "first")}
+        ${filterChip("Play Live", `data-action="rec-mode" data-mode="live"`, state.mode === "live")}
       </div>
-      <div class="grid">${INPUTS.map(([id, label]) => `<button class="tile ${state.input === id ? "on" : ""}" data-action="pick-input" data-input="${id}">${label}</button>`).join("")}</div>
+      <div class="grid">${INPUTS.map(([id, label]) => tileButton(label, `data-action="pick-input" data-input="${id}"`, state.input === id)).join("")}</div>
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
-      <button class="mic ${state.recording ? "hot" : ""}" data-action="toggle-record" aria-label="${state.recording ? "Stop recording" : "Record"}">${state.recording ? "■" : "●"}</button>
+      <md-fab class="mic ${state.recording ? "hot" : ""}" data-action="toggle-record" aria-label="${state.recording ? "Stop recording" : "Record"}"><md-icon slot="icon">${state.recording ? "stop" : "mic"}</md-icon></md-fab>
       <p class="hint" id="rec-time">${listening ? "Listening for the tempo. No click yet." : state.recording ? "Recording. The click stays in the speakers, not in the take." : state.tempoLocked ? "The click counts in four beats at this tempo." : "00:00"}</p>
       ${state.mode === "live" || state.monitor === "original" || state.monitor === "both" ? `<p class="hint">You hear yourself while recording. Use headphones so that does not go back into the microphone.</p>` : ""}
       <p class="hint">Headphones help keep the click out of the microphone.</p>
       <div class="seg">
-        ${["original", "both", "transformed"].map((id) => `<button class="${state.monitor === id ? "on" : ""}" data-action="monitor" data-monitor="${id}">${id === "both" ? "Original + transformed" : id[0].toUpperCase() + id.slice(1)}</button>`).join("")}
+        ${["original", "both", "transformed"].map((id) => filterChip(id === "both" ? "Original + transformed" : id[0].toUpperCase() + id.slice(1), `data-action="monitor" data-monitor="${id}"`, state.monitor === id)).join("")}
       </div>
       <div class="row">
-        <button class="primary" data-action="keep-take" ${pendingBlob ? "" : "disabled"}>Keep</button>
-        <button class="choice" data-action="discard-take">Try again</button>
+        ${filledButton("Keep", `data-action="keep-take" ${pendingBlob ? "" : "disabled"}`)}
+        ${outlinedButton("Try again", `data-action="discard-take"`)}
       </div>`
   } else if (state.panel === "transform") {
     const sources = state.layers.filter((item) => buffers.get(item.id + ":audio"))
@@ -1221,11 +1252,11 @@ function renderInspector() {
     body = `${head("Transform this layer")}
       <p class="hint">${esc(sectionWorkLine())} Your original stays. Pick old school or modern, then a package. Highlighted packages fit the layer you picked.</p>
       ${sources.length ? `<p class="ask">Listen to</p>
-        <div class="choices">${sources.map((item) => `<button class="${item.id === current.id ? "on" : ""}" data-action="pick-transform-layer" data-id="${item.id}" ${locked}>${esc(item.name)}</button>`).join("")}</div>` : `<p class="hint">Record a layer first, or open an example.</p>`}
+        <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer first, or open an example.</p>`}
       <p class="ask">Old school or modern</p>
-      <div class="mix-boxes parts">${ERAS.map((era) => `<button class="plan ${state.era === era.id ? "on" : ""}" data-action="pick-era" data-era="${era.id}" ${locked}><b>${era.name}</b><span>${era.line}</span></button>`).join("")}</div>
+      <div class="mix-boxes parts">${ERAS.map((era) => planButton(era.name, era.line, `data-action="pick-era" data-era="${era.id}" ${locked}`, state.era === era.id)).join("")}</div>
       <p class="ask">Package</p>
-      <div class="mix-boxes parts">${PACKAGES.map((pack) => `<button class="plan ${current && transformFit(current, pack.id) ? "on" : ""}" data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}><b>${pack.name}</b><span>${pack.line}</span></button>`).join("")}</div>
+      <div class="mix-boxes parts">${PACKAGES.map((pack) => planButton(pack.name, pack.line, `data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}`, !!(current && transformFit(current, pack.id)))).join("")}</div>
       ${note}`
   } else if (state.panel === "build") {
     const mins = state.lengthSec ? Math.floor(state.lengthSec / 60) : ""
@@ -1234,31 +1265,31 @@ function renderInspector() {
     body = `${head("Shape this song")}
       <p class="hint">Say how long you want it, and whether it should stay even, soften at the edges, or build to a climax. Songbird loops what you record to that length. The preset changes loudness over the song. It does not rewrite the recording.</p>
       <label class="field">What do you want this song to do?
-        <textarea id="wish" rows="3" placeholder="3 minutes, soft intro, build up, then soften at the end">${esc(state.wish)}</textarea>
+        <md-outlined-text-field id="wish" type="textarea" rows="3" placeholder="3 minutes, soft intro, build up, then soften at the end" value="${esc(state.wish)}"></md-outlined-text-field>
       </label>
-      <button class="primary" data-action="read-wish">Use what I said</button>
+      ${filledButton("Use what I said", `data-action="read-wish"`)}
       ${state.heard ? `<p class="hint">${esc(state.heard)}</p>` : ""}
       <p class="ask">How long do you want it?</p>
-      <div class="choices">${LENGTHS.map(([seconds, label, tag]) => `<button class="${state.lengthSec === seconds ? "on" : ""}" data-action="apply-length" data-seconds="${seconds}">${label}${tag ? `<small>${tag}</small>` : ""}</button>`).join("")}</div>
+      <div class="choices">${LENGTHS.map(([seconds, label, tag]) => filterChip(`${label}${tag ? ` ${tag}` : ""}`, `data-action="apply-length" data-seconds="${seconds}"`, state.lengthSec === seconds)).join("")}</div>
       <div class="length-entry">
-        <label class="field">Minutes<input id="len-min" type="number" min="0" max="8" value="${mins}" /></label>
-        <label class="field">Seconds<input id="len-sec" type="number" min="0" max="59" value="${secs}" /></label>
-        <button class="choice" data-action="apply-length-custom">Use this length</button>
+        <label class="field">Minutes<md-outlined-text-field id="len-min" type="number" min="0" max="8" value="${mins}" aria-label="Minutes"></md-outlined-text-field></label>
+        <label class="field">Seconds<md-outlined-text-field id="len-sec" type="number" min="0" max="59" value="${secs}" aria-label="Seconds"></md-outlined-text-field></label>
+        ${outlinedButton("Use this length", `data-action="apply-length-custom"`)}
       </div>
       <p class="ask">What should it do?</p>
-      <div class="choices">${INTENTS.map((item) => `<button class="${state.intent === item.id ? "on" : ""}" data-action="pick-intent" data-intent="${item.id}">${item.title}</button>`).join("")}</div>
+      <div class="choices">${INTENTS.map((item) => filterChip(item.title, `data-action="pick-intent" data-intent="${item.id}"`, state.intent === item.id)).join("")}</div>
       ${suggestions ? `<p class="hint">${esc(suggestions.detail)}</p>${suggestions.shapes.map((id) => {
         const shape = SHAPES[id]
-        return `<button class="plan ${state.shape === id ? "on" : ""}" data-action="apply-shape" data-shape="${id}"><b>${shape.name}</b><span>${shape.line}</span>${curve(id)}</button>`
+        return planButton(shape.name, shape.line, `data-action="apply-shape" data-shape="${id}"`, state.shape === id, curve(id))
       }).join("")}` : ""}
       <p class="ask">Add another layer</p>
       <p class="hint">Each sound stays its own layer. The shape applies to all of them.</p>
-      <div class="grid">${INPUTS.map(([id, label]) => `<button class="tile" data-action="add-and-record" data-input="${id}">${label}</button>`).join("")}</div>`
+      <div class="grid">${INPUTS.map(([id, label]) => tileButton(label, `data-action="add-and-record" data-input="${id}"`)).join("")}</div>`
   } else if (state.panel === "finish") {
     body = `${head("Finish your song")}
-      <div class="seg"><button class="on">Audio</button><button data-action="video-note">Video</button></div>
+      <div class="seg">${filterChip("Audio", "", true)}${outlinedButton("Video", `data-action="video-note"`)}</div>
       <p class="hint">Master downloads a song file of what you hear right now, including mute, solo, and the mix. Nothing is uploaded.</p>
-      <button class="primary" data-action="download-mix">Master my song</button>
+      ${filledButton("Master my song", `data-action="download-mix"`)}
       <p id="finish-note" class="hint"></p>`
   } else {
     body = renderMix(head, layer)
@@ -1931,7 +1962,8 @@ function play(fromSec) {
   playFrom = from
   state.playAt = from
   playStarted = ctx.currentTime
-  $("play-btn").textContent = "■"
+  const playIcon = $("play-btn")?.querySelector("md-icon")
+  if (playIcon) playIcon.textContent = "stop"
   beginSky("play")
   const span = state.lengthSec || Math.max(...candidates.map((layer) => buffers.get(layer.id + ":audio").duration))
   let started = 0
@@ -2060,13 +2092,18 @@ function stopPlayback() {
   activeSources = []
   mixNodes.clear()
   endSky()
-  const playButton = $("play-btn")
-  if (playButton) playButton.textContent = "▶"
+  const playIcon = $("play-btn")?.querySelector("md-icon")
+  if (playIcon) playIcon.textContent = "play_arrow"
+}
+
+function fromControl(event) {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target]
+  return path.find((item) => item?.dataset?.action || item?.id === "search" || item?.id === "song-title" || item?.id === "wish" || item?.id === "bpm" || item?.classList?.contains?.("layer-name") || item?.classList?.contains?.("share-email")) || event.target
 }
 
 document.body.addEventListener("click", (event) => {
-  const node = event.target.closest("[data-action]")
-  if (!node) return
+  const node = fromControl(event)
+  if (!node?.dataset?.action) return
   const action = node.dataset.action
   if (action === "show-library") {
     setScreen("library")
@@ -2123,8 +2160,12 @@ document.body.addEventListener("click", (event) => {
     state.click = !state.click
     if (!state.click) stopClick()
     else if (state.recording) startClick()
-    $("click-btn").classList.toggle("on", state.click)
-    $("click-btn").textContent = state.click ? "Click" : "Muted"
+    const clickButton = $("click-btn")
+    if (clickButton) {
+      clickButton.selected = state.click
+      clickButton.toggleAttribute("selected", state.click)
+      clickButton.textContent = state.click ? "Click" : "Muted"
+    }
   }
   if (action === "pick-section") {
     const section = songSections().find((item) => item.id === node.dataset.id)
@@ -2306,18 +2347,19 @@ document.body.addEventListener("click", (event) => {
 })
 
 document.body.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && event.target.classList?.contains("layer-name")) {
+  const node = fromControl(event)
+  if (event.key === "Enter" && node.classList?.contains("layer-name")) {
     event.preventDefault()
-    event.target.blur()
+    node.blur()
     return
   }
-  if (event.key !== "Enter" || !event.target.classList?.contains("share-email")) return
+  if (event.key !== "Enter" || !node.classList?.contains("share-email")) return
   event.preventDefault()
-  shareSong(event.target.dataset.id, event.target.value)
+  shareSong(node.dataset.id, node.value)
 })
 
 document.body.addEventListener("focusin", (event) => {
-  const node = event.target
+  const node = fromControl(event)
   if (!node.classList?.contains("layer-name")) return
   state.selected = node.dataset.rename
   node.dataset.previous = node.value
@@ -2325,7 +2367,7 @@ document.body.addEventListener("focusin", (event) => {
 })
 
 document.body.addEventListener("input", (event) => {
-  const node = event.target
+  const node = fromControl(event)
   if (node.id === "search") {
     state.query = node.value
     renderSongs()
@@ -2358,7 +2400,7 @@ document.body.addEventListener("input", (event) => {
 })
 
 document.body.addEventListener("focusout", (event) => {
-  const node = event.target
+  const node = fromControl(event)
   if (!node.classList?.contains("layer-name")) return
   nameLayer(node.dataset.rename, node.value, true)
   node.dataset.snapped = ""

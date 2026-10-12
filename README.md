@@ -28,7 +28,7 @@ Recordings stay in the browser tab. Refreshing the page keeps the song list on t
 
 ## How it was built
 
-The page is static HTML, CSS, and JavaScript in `site/`. There is no application framework and no server. The script uses the Web Audio API for playback, metering, the click, and a sky that moves with the sound, and the MediaRecorder API for the microphone. Song metadata is stored in `localStorage`. Audio buffers stay in memory for the life of the tab.
+The page is static HTML, CSS, and JavaScript in `site/`. Controls are Material Design 3 web components. There is no application framework and no server. The script uses the Web Audio API for playback, metering, the click, and a sky that moves with the sound, and the MediaRecorder API for the microphone. Song metadata is stored in `localStorage`. Audio buffers stay in memory for the life of the tab.
 
 GitHub Pages serves the `gh-pages` branch at [wkotlewski.github.io/songbird-studio](https://wkotlewski.github.io/songbird-studio/). The files in `site/` are copied to the root of that branch. `404.html` matches `index.html` so a refresh still opens the page. `.nojekyll` keeps Pages from running the files through a site generator.
 
