@@ -1034,6 +1034,55 @@ function timeAt(clientX) {
   return Math.min(span, Math.max(0, (x / box.width) * span))
 }
 
+function revealPlayhead() {
+  const timeline = $("timeline")
+  const head = $("playhead")
+  if (!timeline || !head) return
+  const x = Number.parseFloat(head.style.left || "0")
+  const left = timeline.scrollLeft
+  const right = left + timeline.clientWidth
+  if (x < left + 96 || x > right - 96) timeline.scrollLeft = Math.max(0, x - timeline.clientWidth * 0.32)
+}
+
+function jumpSection(direction) {
+  const span = spanSeconds()
+  const sections = songSections()
+  const now = state.playAt || 0
+  let target = now
+  let landed = null
+  if (!sections.length) {
+    const step = Math.max(4, span / 8)
+    target = direction < 0 ? Math.max(0, now - step) : Math.min(Math.max(0, span - 0.05), now + step)
+  } else if (direction < 0) {
+    let index = sections.findIndex((section) => now < section.end * span - 0.05)
+    if (index < 0) index = sections.length - 1
+    const start = sections[index].start * span
+    if (index === 0 && now - start <= 1.5) {
+      $("save-status").textContent = "That's the start."
+      return
+    }
+    if (now - start > 1.5) landed = sections[index]
+    else if (index > 0) landed = sections[index - 1]
+    else landed = sections[0]
+    target = landed.start * span
+  } else {
+    const next = sections.find((section) => section.start * span > now + 0.2)
+    if (!next) {
+      $("save-status").textContent = "That's the last part."
+      return
+    }
+    landed = next
+    target = next.start * span
+  }
+  const wasPlaying = playing
+  if (landed) state.section = landed.id
+  placePlayhead(target)
+  renderRuler()
+  revealPlayhead()
+  if (wasPlaying) play(target)
+  if (!wasPlaying || playing) $("save-status").textContent = landed ? `${landed.name} · ${sectionClock(landed)}` : formatClock(target)
+}
+
 function placePlayhead(seconds) {
   const span = spanSeconds()
   const clamped = Math.min(span, Math.max(0, Number(seconds) || 0))
@@ -2382,6 +2431,7 @@ document.body.addEventListener("click", (event) => {
     shareSong(node.dataset.id, field ? field.value : "")
   }
   if (action === "play") playing ? stopPlayback() : play()
+  if (action === "jump") jumpSection(Number(node.dataset.jump) < 0 ? -1 : 1)
   if (action === "tempo-pass") {
     if (!state.recording) state.tempoPass = true
     void toggleRecord()

@@ -160,6 +160,7 @@ body.sheet-open::before {
 .lib-head, .studio-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 16px 16px 8px;
 }
@@ -822,6 +823,7 @@ button.mic {
   color: #fff;
   border: 0;
 }
+button.icon-btn[data-action="jump"],
 button.icon-btn[data-action="undo"],
 button.icon-btn[data-action="redo"],
 button.icon-btn[data-action="close-panel"],
