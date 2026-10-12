@@ -986,6 +986,8 @@ button.mini.on {
 #inspector .empty { margin: 0; }
 .genre-package { display: flex; flex-direction: column; gap: 8px; }
 .genre-package > .btn { width: 100%; }
+.genre-package .row { display: flex; gap: 8px; margin: 0; }
+.genre-package .row .btn { flex: 1 1 0; min-width: 0; }
 .genre-package .ask, .genre-package .hint, .genre-package .field { margin: 0; }
 .package-more { color: var(--mute); font-size: 12px; }
 .package-more summary { cursor: pointer; color: var(--text); font-weight: 600; }

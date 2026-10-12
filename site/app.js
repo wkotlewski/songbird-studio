@@ -1479,11 +1479,15 @@ function genrePanel() {
     <p class="hint">${plan.note ? esc(plan.note) : ""}</p>
     <p class="hint"><b>Will add:</b> ${plan.will.length ? esc(plan.will.join(" ")) : "Nothing yet. Pick two different packages."}</p>
     <p class="hint"><b>Not in this version:</b> ${esc(plan.wont.join(", "))}.</p>
-    ${filledButton("Apply ready steps", `data-action="apply-genre" ${state.transforming ? "disabled" : ""}`)}
+    <div class="row">
+      ${outlinedButton("Preview", `data-action="preview-genre" ${state.transforming ? "disabled" : ""}`)}
+      ${filledButton("Apply ready steps", `data-action="apply-genre" ${state.transforming ? "disabled" : ""}`)}
+    </div>
     <details class="package-more">
-      <summary>All Magic packages</summary>
+      <summary>Magic and production packages</summary>
       <ul class="package-status">${magic}</ul>
-      <p class="hint">Partial means only some of that package plays. Not in this version means the control is listed and does not process audio.</p>
+      <ul class="package-status">${SongbirdPackages.production.map((item) => `<li><b>${esc(item.name)}</b><span class="status-${esc(item.status)}">${statusWord(item.status)}</span></li>`).join("")}</ul>
+      <p class="hint">Partial means only some of that package plays. Not in this version means the control is listed and does not process audio. Preview plays the ready steps without adding them. Apply puts them on the timeline, and Undo removes that package.</p>
     </details>
   </section>`
 }
@@ -2248,49 +2252,112 @@ function addTransformedLayer(sound) {
   }, 30)
 }
 
-function applyGenrePackage() {
-  if (state.transforming || typeof SongbirdPackages === "undefined") return
+function genreOrigin() {
+  const layers = state.layers.filter((layer) => buffers.get(layer.id + ":audio"))
+  return layers.find((layer) => isVocalLayer(layer)) || layers.find((layer) => layer.sound !== "Drums") || layers[0] || null
+}
+
+function renderGenreTakes() {
   const profile = SongbirdPackages.get(state.genre)
   const steps = SongbirdPackages.readySteps(state.genre, state.subgenre, state.blend)
-  const layers = state.layers.filter((layer) => buffers.get(layer.id + ":audio"))
-  const origin = layers.find((layer) => isVocalLayer(layer)) || layers.find((layer) => layer.sound !== "Drums") || layers[0]
-  if (!profile || !origin) {
-    state.transformNote = "Record a layer first. The package list is here, and nothing is applied until there is audio."
-    state.transformTone = "warn"
-    $("save-status").textContent = state.transformNote
-    renderInspector()
-    return
+  const origin = genreOrigin()
+  if (!profile || !origin) return { error: "Record a layer first. The package list is here, and nothing is applied until there is audio." }
+  if (!steps.length) return { error: "Those packages have no ready steps to combine. Nothing was changed." }
+  const audio = buffers.get(origin.id + ":audio")
+  const copy = new Float32Array(audio.length)
+  copy.set(audio.getChannelData(0))
+  const made = []
+  for (const step of steps) {
+    const pattern = step.pattern ? SongbirdPackages.pattern(step.pattern) : null
+    const out = SongbirdMusic.transformAudio(copy, step.sound, {
+      bpm: state.bpm,
+      sampleRate: audio.sampleRate,
+      era: step.era,
+      ...(step.figure ? { figure: step.figure, touch: step.touch || "hold" } : {}),
+      ...(pattern ? { pattern } : {}),
+    })
+    if (out) made.push({ step, out, pattern })
   }
-  if (!steps.length) {
-    state.transformNote = "Those packages have no ready steps to combine. Nothing was changed."
-    state.transformTone = "warn"
-    $("save-status").textContent = state.transformNote
-    renderInspector()
-    return
+  if (!made.length) return { error: `Couldn't find a melody in ${origin.name}. Nothing was added.`, profile, origin }
+  return { profile, origin, steps, made }
+}
+
+let previewSources = []
+
+function stopPreview() {
+  for (const source of previewSources) {
+    try { source.stop() } catch { /* already stopped */ }
   }
+  previewSources = []
+}
+
+function playGenrePreview(made) {
+  stopPlayback()
+  stopPreview()
+  const ctx = ac()
+  const when = ctx.currentTime + 0.02
+  for (const item of made) {
+    const buffer = audioBuffer(item.out.samples, SongbirdMusic.sampleRate)
+    const source = ctx.createBufferSource()
+    const gain = ctx.createGain()
+    source.buffer = buffer
+    gain.gain.value = Math.min(0.45, item.step.gain ?? 0.3)
+    source.connect(gain)
+    gain.connect(ctx.destination)
+    source.start(when)
+    previewSources.push(source)
+  }
+}
+
+function previewGenrePackage() {
+  if (state.transforming || typeof SongbirdPackages === "undefined") return
   state.transforming = true
-  state.transformNote = `Building the ready ${profile.name} steps…`
+  state.transformNote = "Building a preview of the ready steps…"
   state.transformTone = ""
   $("save-status").textContent = state.transformNote
   renderInspector()
   window.setTimeout(() => {
     try {
-      const audio = buffers.get(origin.id + ":audio")
-      const copy = new Float32Array(audio.length)
-      copy.set(audio.getChannelData(0))
-      const colors = { Piano: "#f0a202", Rhodes: "#7ee0c8", "Acoustic guitar": "#ff8ab0", "Electric guitar": "#ff4d8d", Horn: "#F9A8D4", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
-      const made = []
-      for (const step of steps) {
-        const pattern = step.pattern ? SongbirdPackages.pattern(step.pattern) : null
-        const out = SongbirdMusic.transformAudio(copy, step.sound, {
-          bpm: state.bpm,
-          sampleRate: audio.sampleRate,
-          era: step.era,
-          ...(step.figure ? { figure: step.figure, touch: step.touch || "hold" } : {}),
-          ...(pattern ? { pattern } : {}),
-        })
-        if (out) made.push({ step, out, pattern })
+      const built = renderGenreTakes()
+      if (built.error) {
+        state.transformNote = built.error
+        state.transformTone = "warn"
+      } else {
+        playGenrePreview(built.made)
+        state.transformNote = `Preview of ${built.profile.name}: ${built.made.length} ready ${built.made.length === 1 ? "layer" : "layers"}. Nothing was added. Apply puts them on the timeline.`
+        state.transformTone = ""
       }
+    } catch {
+      state.transformNote = "That preview didn't work. Nothing was changed."
+      state.transformTone = "warn"
+    }
+    $("save-status").textContent = state.transformNote
+    state.transforming = false
+    renderInspector()
+  }, 30)
+}
+
+function applyGenrePackage() {
+  if (state.transforming || typeof SongbirdPackages === "undefined") return
+  state.transforming = true
+  const profileGuess = SongbirdPackages.get(state.genre)
+  state.transformNote = `Building the ready ${profileGuess ? profileGuess.name : "package"} steps…`
+  state.transformTone = ""
+  $("save-status").textContent = state.transformNote
+  renderInspector()
+  window.setTimeout(() => {
+    try {
+      const built = renderGenreTakes()
+      const profile = built.profile
+      const origin = built.origin
+      const made = built.made || []
+      if (built.error) {
+        state.transformNote = built.error
+        state.transformTone = "warn"
+        $("save-status").textContent = state.transformNote
+      } else {
+      stopPreview()
+      const colors = { Piano: "#f0a202", Rhodes: "#7ee0c8", "Acoustic guitar": "#ff8ab0", "Electric guitar": "#ff4d8d", Horn: "#F9A8D4", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
       if (!made.length) {
         state.transformNote = `Couldn't find a melody in ${origin.name}. Nothing was added.`
         state.transformTone = "warn"
@@ -2337,6 +2404,7 @@ function applyGenrePackage() {
         $("save-status").textContent = state.transformNote
         rememberSong()
         try { play() } catch { /* the new layers are still on the timeline */ }
+      }
       }
     } catch {
       state.transformNote = "That didn't work. The original layer is unchanged."
@@ -2610,6 +2678,7 @@ async function downloadMix() {
 
 function stopPlayback() {
   playing = false
+  stopPreview()
   cancelAnimationFrame(raf)
   stopClick()
   for (const source of activeSources) {
@@ -2889,6 +2958,7 @@ document.body.addEventListener("click", (event) => {
     renderInspector()
   }
   if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
+  if (action === "preview-genre") previewGenrePackage()
   if (action === "apply-genre") applyGenrePackage()
   if (action === "apply-mix") applyMix(node.dataset.preset)
   if (action === "toggle-fine") {
