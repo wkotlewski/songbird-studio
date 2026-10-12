@@ -1,9 +1,9 @@
 const STARTERS = [
-  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true },
-  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true },
-  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true },
-  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true },
-  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true },
+  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, line: "A hymn. His hum stays, with a 1920s horn and choir." },
+  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, line: "Two voices and claps, with a 1970s Rhodes and kit." },
+  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, line: "A hummed memory, with a 1990s guitar and a quiet kit." },
+  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, line: "A child's hum and claps, as 1960s piano and drums." },
+  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, line: "A hook, a beatbox, and claps, finished in an 1980s mix." },
 ]
 
 const INPUTS = [
@@ -273,7 +273,8 @@ const state = {
   zoom: 1,
   arming: false,
   mix: null,
-  fine: true,
+  fine: false,
+  recMore: false,
   lengthSec: null,
   shape: null,
   intent: null,
@@ -718,30 +719,38 @@ function renderShareBox(song) {
   </div>`
 }
 
+function songCard(song) {
+  const meta = song.demo ? song.line || "Press play" : shareDetail(song)
+  const badge = song.demo ? "Example" : songEmails(song).length ? "Shared" : "Yours"
+  const manage = song.demo
+    ? ""
+    : `<div class="song-actions">
+        ${outlinedButton("Share", `data-action="share-song" data-id="${song.id}"`)}
+        ${dangerButton("Delete", `data-action="ask-delete" data-id="${song.id}"`)}
+      </div>`
+  return `<article class="song">
+        <button class="song-open" data-action="open-song" data-id="${song.id}">
+          <span class="swatch" style="background:linear-gradient(135deg,#34D399,#F9A8D4)"></span>
+          <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(meta)}</span></span>
+          <span class="badge">${badge}</span>
+        </button>
+        ${manage}
+        ${renderShareBox(song)}
+      </article>`
+}
+
 function renderSongs() {
   const q = state.query.trim().toLowerCase()
   const list = $("song-list")
-  const songs = state.songs.filter((song) => song.title.toLowerCase().includes(q))
+  const songs = state.songs.filter((song) => `${song.title} ${song.line || ""}`.toLowerCase().includes(q))
   if (!songs.length) {
     list.innerHTML = `<p class="empty">Make your first sound.</p>`
     return
   }
-  list.innerHTML = songs
-    .map(
-      (song) => `<article class="song">
-        <button class="song-open" data-action="open-song" data-id="${song.id}">
-          <span class="swatch" style="background:linear-gradient(135deg,#34D399,#F9A8D4)"></span>
-          <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(shareDetail(song))}</span></span>
-          <span class="badge">Shared</span>
-        </button>
-        <div class="song-actions">
-          ${outlinedButton("Share", `data-action="share-song" data-id="${song.id}"`)}
-          ${dangerButton("Delete", `data-action="ask-delete" data-id="${song.id}"`)}
-        </div>
-        ${renderShareBox(song)}
-      </article>`,
-    )
-    .join("")
+  const yours = songs.filter((song) => !song.demo)
+  const examples = songs.filter((song) => song.demo)
+  const section = (title, items) => (items.length ? `<p class="ask list-label">${title}</p>${items.map(songCard).join("")}` : "")
+  list.innerHTML = section("Your songs", yours) + section("Examples", examples)
 }
 
 function renderProjectActions() {
@@ -1252,19 +1261,20 @@ function renderInspector() {
       <p class="hint">${esc(sectionWorkLine())}</p>
       <p class="hint">${tempoLine}</p>
       ${filledButton(listening ? "Stop and set the tempo" : "Clap the tempo", `data-action="tempo-pass"`)}
-      <div class="seg">
-        ${filterChip("Record First", `data-action="rec-mode" data-mode="first"`, state.mode === "first")}
-        ${filterChip("Play Live", `data-action="rec-mode" data-mode="live"`, state.mode === "live")}
-      </div>
       <div class="grid">${INPUTS.map(([id, label]) => tileButton(label, `data-action="pick-input" data-input="${id}"`, state.input === id)).join("")}</div>
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording ? "recording" : "idle"}" aria-label="${state.recording ? "Stop recording" : "Record"}"><span class="glyph" aria-hidden="true">${state.recording ? "■" : "●"}</span></button>
       <p class="hint" id="rec-time">${listening ? "Listening for the tempo. No click yet." : state.recording ? "Recording. The click stays in the speakers, not in the take." : state.tempoLocked ? "The click counts in four beats at this tempo." : "00:00"}</p>
-      ${state.mode === "live" || state.monitor === "original" || state.monitor === "both" ? `<p class="hint">You hear yourself while recording. Use headphones so that does not go back into the microphone.</p>` : ""}
       <p class="hint">Headphones help keep the click out of the microphone.</p>
+      ${outlinedButton(state.recMore ? "Hide monitoring" : "Headphones and monitoring", `data-action="toggle-rec-more"`)}
+      ${state.recMore ? `<div class="seg">
+        ${filterChip("Record First", `data-action="rec-mode" data-mode="first"`, state.mode === "first")}
+        ${filterChip("Play Live", `data-action="rec-mode" data-mode="live"`, state.mode === "live")}
+      </div>
+      <p class="hint">Play Live lets you hear yourself. A transformed voice while you sing is not live yet.</p>
       <div class="seg">
         ${["original", "both", "transformed"].map((id) => filterChip(id === "both" ? "Original + transformed" : id[0].toUpperCase() + id.slice(1), `data-action="monitor" data-monitor="${id}"`, state.monitor === id)).join("")}
-      </div>
+      </div>` : ""}
       <div class="row">
         ${filledButton("Keep", `data-action="keep-take" ${pendingBlob ? "" : "disabled"}`)}
         ${outlinedButton("Try again", `data-action="discard-take"`)}
@@ -1278,7 +1288,7 @@ function renderInspector() {
       : ""
     const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
     body = `${head("Magic Transform")}
-      <p class="hint">${esc(sectionWorkLine())} ${current ? `${esc(current.name)} is the layer you are changing.` : "Select a layer."} Pick a time, then a sound. The original recording stays. If you select a sound you already added, picking again switches that sound.</p>
+      <p class="hint">${current ? `${esc(current.name)} is selected.` : "Select a layer."} Pick a decade, then a sound. The original stays. Selecting a sound you already added switches that sound.</p>
       ${sources.length ? `<p class="ask">This layer</p>
         <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer first, or open an example.</p>`}
       <p class="ask">Time and vibe</p>
@@ -1374,6 +1384,9 @@ function openSong(id) {
         peaks: peaksFromSamples(layer.samples),
         gain: layer.gain,
         pan: layer.pan,
+        low: layer.low || 0,
+        high: layer.high || 0,
+        space: layer.space || 0,
         mute: false,
         solo: false,
         live: true,
@@ -1390,7 +1403,8 @@ function openSong(id) {
   } else {
     state.layers = song.layers ?? []
   }
-  state.selected = state.layers[0]?.id ?? null
+  const voice = state.layers.find((layer) => layer.sound === "Voice")
+  state.selected = voice?.id ?? state.layers[0]?.id ?? null
   if (!song.demo) {
     state.lengthSec = song.lengthSec || null
     state.shape = song.shape || null
@@ -1409,13 +1423,13 @@ function openSong(id) {
   state.arrived = null
   undoStack = []
   redoStack = []
-  showInspector()
+  closePanel()
   setScreen("studio")
   renderPlanNote()
   renderRuler()
   renderTracks()
   renderInspector()
-  $("save-status").textContent = song.demo ? "Example ready · press play" : "Saved on this device · audio stays in this tab"
+  $("save-status").textContent = song.demo ? "Press play. The original stays on its own layer." : "Saved on this device · audio stays in this tab"
   renderProjectActions()
 }
 
@@ -2256,6 +2270,10 @@ document.body.addEventListener("click", (event) => {
     state.selected = node.dataset.id
     state.panel = "transform"
     renderTracks()
+    renderInspector()
+  }
+  if (action === "toggle-rec-more") {
+    state.recMore = !state.recMore
     renderInspector()
   }
   if (action === "rec-mode") {
