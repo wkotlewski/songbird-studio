@@ -5,7 +5,7 @@ Copyright © 2026 Whitney Kotlewski. All rights reserved.
 This page uses two reference images in `site/assets/`.
 
 - `songbird-design-system.png` is the source for type, color, spacing, radius, and control shapes.
-- `emerald-blush-mist.jpg` is the studio canvas background, behind the timeline. It is also copied as `site/mist.jpg`.
+- `emerald-blush-mist.jpg` is the page background. Panels, cards, and the studio chrome are liquid glass: a light tint and a blur, so the image stays visible. The timeline itself is clear. It is also copied as `site/mist.jpg`.
 
 The written color rule on this page is stricter than the pink Apply button on the board. Mint is the action color. Pink is for recording, sliders, selected waveform regions, and edit marks.
 
@@ -57,7 +57,7 @@ Radius is 12, 20, and 28 pixels. Buttons and chips are fully rounded. Cards, doc
 
 ## Studio canvas
 
-`.stage` paints `assets/emerald-blush-mist.jpg` with `background-size: cover` and `center`, so the image is not stretched. A dark gradient sits over it so tracks stay readable. The sky canvas stays transparent enough for the mist to show. Reduced motion turns off waveform sweeps and meter hops.
+The mist image is fixed on the page, `cover` and `center`, with no green veil. Library, inspector, song cards, the studio bar, and the dock are glass: about 30% dark tint, a 28px blur, and a light edge. The timeline is open so the image stays sharp there. Reduced motion turns off waveform sweeps and meter hops.
 
 Wave bars come from the layer's audio peaks. Unselected layers are mint. The selected layer is pink. A selected section is a pink band. Bar lines sit on the ruler from the song tempo. Fit, 1.5×, and 2× change how wide the timeline is. The timeline still scrolls sideways.
 

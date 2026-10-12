@@ -43,7 +43,12 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+html, body {
+  margin: 0;
+  height: 100%;
+  color: var(--text);
+  background: #071C17 url("assets/emerald-blush-mist.jpg") center / cover no-repeat fixed;
+}
 button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: 0.42; cursor: not-allowed; }
@@ -95,9 +100,11 @@ button:disabled { opacity: 0.42; cursor: not-allowed; }
 .icon-btn.on { box-shadow: inset 0 0 0 2px var(--ink); }
 .chip {
   padding: 8px 14px;
-  background: var(--surface-low);
+  background: rgba(8, 14, 18, 0.28);
   color: var(--text);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 251, 242, 0.22);
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
 }
 .chip.on, .choice.on, .seg button.on, .choices button.on, .plan.on, .tile.on, .section.on {
   color: var(--ink);
@@ -113,19 +120,21 @@ body[data-screen="library"] #studio,
 body[data-screen="library"] #inspector { display: none; }
 body[data-screen="studio"] #library { display: none; }
 
-#library, #studio { display: flex; flex-direction: column; min-height: 100dvh; background: rgba(7, 28, 23, 0.88); }
-#library, #studio, #inspector {
-  backdrop-filter: blur(28px) saturate(1.55);
-  -webkit-backdrop-filter: blur(28px) saturate(1.55);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 242, 0.16);
+#library, #studio { display: flex; flex-direction: column; min-height: 100dvh; background: transparent; }
+#library, #inspector, .studio-bar, .dock, .mobile-nav, .note, .song, .strip, .dock-btn, .plan, .tile, .magic-log, .empty, .track-label {
+  background: rgba(8, 14, 18, 0.28);
+  backdrop-filter: blur(28px) saturate(1.7);
+  -webkit-backdrop-filter: blur(28px) saturate(1.7);
+  box-shadow: inset 0 1px 0 rgba(255, 251, 242, 0.22);
 }
+#studio { backdrop-filter: none; -webkit-backdrop-filter: none; background: transparent; }
 #inspector {
   position: fixed;
   left: 0; right: 0; bottom: 0;
   z-index: 20;
   max-height: min(86dvh, 760px);
   overflow: auto;
-  background: rgba(7, 28, 23, 0.46);
+  background: rgba(8, 14, 18, 0.34);
   border-radius: 28px 28px 0 0;
   border: 1px solid var(--line);
   transform: translateY(110%);
@@ -137,7 +146,7 @@ body.sheet-open::before {
   content: "";
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.18);
   z-index: 15;
 }
 
@@ -151,8 +160,7 @@ body.sheet-open::before {
 h1 { margin: 0; font: var(--type-screen); }
 h2 { font: var(--type-section); }
 .song, .strip {
-  border: 1px solid var(--line);
-  background: rgba(16, 53, 44, 0.72);
+  border: 1px solid rgba(255, 251, 242, 0.22);
   border-radius: var(--radius-lg);
 }
 .plan, .tile, .dock-btn { width: 100%; border-radius: var(--radius-lg); }
@@ -166,19 +174,21 @@ h2 { font: var(--type-section); }
 .search { margin: 8px 16px; }
 .search input, #song-title, .bpm input, .field input, .field textarea, .share-row input {
   width: 100%;
-  background: rgba(7, 28, 23, 0.38);
-  border: 1px solid var(--line);
+  background: rgba(255, 251, 242, 0.08);
+  border: 1px solid rgba(255, 251, 242, 0.22);
   border-radius: 20px;
   padding: 12px 14px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 #song-title { font-size: 18px; font-weight: 700; }
 .title-block { flex: 1; min-width: 0; }
 #save-status, .note, .hint, .meta { color: var(--mute); font: var(--type-helper); }
 #save-status { margin: 4px 0 0; }
-.note { margin: 0 16px 8px; }
+.note { margin: 0 16px 8px; padding: 8px 12px; border-radius: 16px; }
 .legal { margin: 0; padding: 8px 16px 12px; color: var(--mute); font-size: 11px; }
 
-.song { background: rgba(16, 53, 44, 0.78); border-color: var(--line); }
+.song { border-color: rgba(255, 251, 242, 0.22); }
 
 .song-list { padding: 8px 16px 96px; display: flex; flex-direction: column; gap: 10px; }
 .song {
@@ -188,8 +198,7 @@ h2 { font: var(--type-section); }
   align-items: center;
   width: 100%;
   min-width: 0;
-  background: rgba(16, 53, 44, 0.4);
-  border: 1px solid rgba(255, 255, 242, 0.16);
+  border: 1px solid rgba(255, 251, 242, 0.22);
   border-radius: 28px;
   padding: 10px;
 }
@@ -221,10 +230,7 @@ h2 { font: var(--type-section); }
   display: flex;
   gap: 8px;
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-  background: rgba(7, 28, 23, 0.42);
-  border-top: 1px solid var(--line);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border-top: 1px solid rgba(255, 251, 242, 0.2);
 }
 .mobile-nav .btn { flex: 1; }
 
@@ -240,17 +246,9 @@ h2 { font: var(--type-section); }
   margin: 0 12px;
   border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid var(--line-strong);
-  background: #071C17 url("assets/emerald-blush-mist.jpg") center / cover no-repeat;
-  box-shadow: inset 0 1px 0 rgba(255, 251, 242, 0.16);
-}
-.stage::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(7, 28, 23, 0.28), rgba(7, 28, 23, 0.42) 70%, rgba(7, 28, 23, 0.62));
+  border: 1px solid rgba(255, 251, 242, 0.28);
+  background: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 251, 242, 0.2);
 }
 .sky {
   position: absolute;
@@ -267,7 +265,7 @@ h2 { font: var(--type-section); }
   height: 100%;
   border: 0;
   border-radius: 0;
-  background: rgba(7, 28, 23, 0.34);
+  background: transparent;
   position: relative;
   z-index: 1;
 }
@@ -277,14 +275,17 @@ h2 { font: var(--type-section); }
 .shape-row .section {
   min-width: 0;
   overflow: hidden;
-  border: 0;
+  border: 1px solid rgba(255, 251, 242, 0.22);
   border-radius: 999px;
-  color: #071C17;
+  color: var(--text);
+  background: rgba(8, 14, 18, 0.32);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   font-size: 11px;
   font-weight: 700;
   padding: 0 8px;
 }
-.shape-row .section.on { outline: 2px solid var(--text); outline-offset: 1px; }
+.shape-row .section.on { color: var(--ink); background: var(--mint); outline: 2px solid var(--text); outline-offset: 1px; }
 .section-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px 156px; }
 .selection {
   position: absolute;
@@ -322,8 +323,7 @@ h2 { font: var(--type-section); }
   margin: 8px 0;
 }
 .track-label {
-  background: transparent;
-  border: 0;
+  border: 1px solid rgba(255, 251, 242, 0.16);
   text-align: left;
   padding: 8px;
   border-radius: 12px;
@@ -443,7 +443,7 @@ body[data-sound="record"] .mic {
   transform: scale(calc(1 + var(--pulse) * 0.05));
 }
 body[data-sound] .stage {
-  box-shadow: inset 0 0 calc(28px + var(--pulse) * 48px) rgba(52, 211, 153, 0.16);
+  box-shadow: inset 0 0 calc(18px + var(--pulse) * 24px) rgba(255, 251, 242, 0.14);
 }
 .empty {
   margin: 28px 12px;
@@ -464,8 +464,7 @@ body[data-sound] .stage {
   min-height: 64px;
   text-align: left;
   padding: 8px 14px;
-  background: rgba(16, 53, 44, 0.72);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 251, 242, 0.22);
   color: var(--text);
 }
 .dock .dock-btn:hover { border-color: rgba(52, 211, 153, 0.7); }
@@ -560,7 +559,7 @@ body[data-sound] .stage {
   flex: 0 0 84px;
   border: 1px solid var(--line);
   border-radius: 20px;
-  background: rgba(7, 28, 23, 0.38);
+  background: rgba(8, 14, 18, 0.22);
   padding: 8px 6px 10px;
   text-align: center;
 }
@@ -581,7 +580,7 @@ body[data-sound] .stage {
 .strip-buttons .mini { min-height: 32px; min-width: 32px; padding: 0; }
 .fine-body { margin-top: 8px; }
 .warn { background: rgba(232, 184, 109, 0.14); border: 1px solid rgba(232, 184, 109, 0.55); color: var(--text); border-radius: 20px; padding: 10px 12px; font-size: 13px; }
-.magic-log { margin-top: 16px; padding: 12px; border-radius: var(--radius-md); background: rgba(7, 28, 23, 0.45); border: 1px solid var(--line); }
+.magic-log { margin-top: 16px; padding: 12px; border-radius: var(--radius-md); border: 1px solid rgba(255, 251, 242, 0.22); }
 .magic-log h3 { margin: 0 0 8px; font: var(--type-section); font-size: 16px; }
 .magic-log ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .magic-log li { display: flex; justify-content: space-between; gap: 8px; }
