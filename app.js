@@ -336,6 +336,7 @@ const state = {
   zoom: 1,
   arming: false,
   mix: null,
+  timingSlack: 0.18,
   fine: false,
   recMore: false,
   lengthSec: null,
@@ -1706,9 +1707,21 @@ function renderMix(head, layer) {
       ${slider("Space", "space", 0, 1, 0.01, space, current.id, mixReadout("space", space))}
       <p class="hint">Bass and treble are tone. Space is room around the sound.</p>
     </div>` : ""
+  const slack = state.timingSlack || 0.18
+  const canRevertTiming = state.layers.some((item) => buffers.get(item.id + ":timing"))
   return `${head("Mix all layers")}
     <p class="ask">Every layer</p>
     <p class="hint">${soloing ? "Solo is on. Bright layers are playing. Dim layers are quiet. M mutes. S solos." : "Mix is for every layer at once. Volume and left-right are on each one. M mutes. S solos."}</p>
+    <p class="ask">Magic timing</p>
+    <p class="hint">Looks across the layers. It pulls a note that is barely off, sitting on no beat, or leaving a beat silent. A steady off-beat stays put.</p>
+    <label class="field">How far off still counts
+      <input id="timing-slack" class="slider" type="range" min="0.08" max="0.4" step="0.01" value="${slack}" aria-label="How far off still counts as a slip" />
+      <span data-timing-readout>${timingSlackLabel(slack)}</span>
+    </label>
+    <div class="magic-actions">
+      ${filledButton("Magic timing", `data-action="fix-timing"`)}
+      ${outlinedButton("Revert timing", `data-action="revert-timing" ${canRevertTiming ? "" : "disabled"}`)}
+    </div>
     <div class="mix-channels">${channels}</div>
     <label class="field">Layer name
       <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
@@ -1721,6 +1734,77 @@ function renderMix(head, layer) {
     <p class="ask">For one kind of part</p>
     <div class="mix-boxes parts">${Object.entries(MIX_PARTS).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
     ${magicLog()}`
+}
+
+function timingSlackLabel(slack) {
+  const pct = Math.round((Number(slack) || 0.18) * 100)
+  if (pct <= 12) return `${pct}% · only tiny slips`
+  if (pct >= 32) return `${pct}% · wider misses too`
+  return `${pct}% of a beat`
+}
+
+function fixTiming() {
+  const live = state.layers.filter((layer) => buffers.get(layer.id + ":timing") || buffers.get(layer.id + ":audio"))
+  if (!live.length || typeof SongbirdMusic.fixTiming !== "function") {
+    $("save-status").textContent = "Record a layer first."
+    return
+  }
+  snapshot(live.map((layer) => layer.id))
+  const inputs = live.map((layer) => {
+    if (!buffers.get(layer.id + ":timing")) buffers.set(layer.id + ":timing", buffers.get(layer.id + ":audio"))
+    const buffer = buffers.get(layer.id + ":timing")
+    return {
+      id: layer.id,
+      samples: buffer.getChannelData(0),
+      sampleRate: buffer.sampleRate,
+      start: layer.range?.start || 0,
+    }
+  })
+  const fixed = SongbirdMusic.fixTiming(inputs, { bpm: state.bpm || 92, slack: state.timingSlack || 0.18 })
+  let moved = 0
+  let pockets = 0
+  for (const item of fixed) {
+    const layer = state.layers.find((entry) => entry.id === item.id)
+    if (!layer) continue
+    moved += item.moved || 0
+    if (item.pocket) pockets += 1
+    if (!item.moved || !item.samples) continue
+    const rate = buffers.get(layer.id + ":timing").sampleRate
+    buffers.set(layer.id + ":audio", audioBuffer(item.samples, rate))
+    layer.peaks = peaksFromSamples(item.samples)
+  }
+  rememberSong()
+  renderTracks()
+  renderInspector()
+  if (playing) play(state.playAt || 0)
+  if (!moved) {
+    $("save-status").textContent = pockets
+      ? "Those layers are sitting on a steady off-beat, so nothing was moved. Widen the threshold for a slip that is farther out."
+      : "Nothing was barely off at this threshold. Widen it if a note still feels late or early."
+    return
+  }
+  const pocketNote = pockets ? " Steady off-beats were left alone." : ""
+  $("save-status").textContent = `Magic timing moved ${moved} ${moved === 1 ? "slip" : "slips"} across the layers.${pocketNote} Revert timing puts the original back.`
+}
+
+function revertTiming() {
+  const live = state.layers.filter((layer) => buffers.get(layer.id + ":timing"))
+  if (!live.length) {
+    $("save-status").textContent = "Timing is already the original."
+    return
+  }
+  snapshot(live.map((layer) => layer.id))
+  for (const layer of live) {
+    const original = buffers.get(layer.id + ":timing")
+    if (!original) continue
+    buffers.set(layer.id + ":audio", original)
+    layer.peaks = peaksFromSamples(original.getChannelData(0))
+  }
+  rememberSong()
+  renderTracks()
+  renderInspector()
+  if (playing) play(state.playAt || 0)
+  $("save-status").textContent = "Timing is back to the original. Magic timing can try again."
 }
 
 function applyMix(id) {
@@ -3846,6 +3930,8 @@ document.body.addEventListener("click", (event) => {
     setPanel("mix")
     $("save-status").textContent = "Mix is for every layer."
   }
+  if (action === "fix-timing") fixTiming()
+  if (action === "revert-timing") revertTiming()
   if (action === "discard-take") {
     pendingBlob = null
     recordedSeconds = 0
@@ -4074,6 +4160,11 @@ document.body.addEventListener("input", (event) => {
   }
   if (node.id === "wish") state.wish = node.value
   if (node.id === "magic-wish") state.magicWish = node.value
+  if (node.id === "timing-slack") {
+    state.timingSlack = Math.min(0.4, Math.max(0.08, Number(node.value) || 0.18))
+    const mark = node.parentElement?.querySelector("[data-timing-readout]")
+    if (mark) mark.textContent = timingSlackLabel(state.timingSlack)
+  }
   if (node.id === "bpm") {
     state.bpm = Math.min(200, Math.max(40, Number(node.value) || 92))
     state.tempoLocked = true
