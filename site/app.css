@@ -366,6 +366,13 @@ h2 { font: var(--type-section); }
 .section-guide { flex: 1 0 100%; margin: 0; }
 .magic-actions { display: flex; flex-direction: column; gap: 8px; }
 .magic-actions .btn { min-height: 52px; width: 100%; }
+#rec-time.count-beat {
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  color: #f9a8d4;
+}
 .piano { position: relative; height: 96px; margin: 4px 0 8px; user-select: none; }
 .piano-whites { display: flex; height: 96px; gap: 3px; }
 .piano-white, .piano-black { border: 0; padding: 0; cursor: pointer; font: inherit; }

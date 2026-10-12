@@ -276,6 +276,7 @@ let recChunks = []
 let recTimer
 let recStarted = 0
 let pendingBlob = null
+let recordOrigin = 0
 let playing = false
 let playStarted = 0
 let playFrom = 0
@@ -323,6 +324,8 @@ const state = {
   mode: "first",
   monitor: "original",
   recording: false,
+  counting: false,
+  countBeat: 0,
   bpm: 92,
   click: true,
   countIn: true,
@@ -1615,11 +1618,11 @@ function renderInspector() {
         ${filterChip("Record from the mic", `data-action="record-mode" data-mode="mic"`, micMode)}
         ${filterChip("Pick a vibe", `data-action="record-mode" data-mode="vibe"`, !micMode)}
       </div>
-      ${micMode ? `<p class="hint">Tempo is ${state.bpm}. Change it in the bar above. The click counts in and stays out of the take.</p>
+      ${micMode ? `<p class="hint">Tempo is ${state.bpm}. You'll see it, then it counts 1, 2, 3, 4, then the song plays while the mic records. Only the mic is kept.</p>
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
-      <button class="mic ${state.recording ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording ? "recording" : "idle"}" aria-label="${state.recording ? "Stop recording" : "Record"}"><span class="glyph" aria-hidden="true">${state.recording ? "■" : "●"}</span></button>
-      <p class="hint" id="rec-time">${listening ? "Listening for the tempo." : state.recording ? "Recording. The click stays in the speakers, not in the take." : "00:00"}</p>
-      <p class="hint">Headphones help keep the click out of the microphone.</p>
+      <button class="mic ${state.recording || state.counting ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording || state.counting ? "recording" : "idle"}" aria-label="${state.recording || state.counting ? "Stop recording" : "Record"}"><span class="glyph" aria-hidden="true">${state.recording || state.counting ? "■" : "●"}</span></button>
+      <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : "00:00"}</p>
+      <p class="hint">Headphones keep the song and the click out of the microphone.</p>
       ${outlinedButton(state.recMore ? "Hide monitoring" : "Headphones and monitoring", `data-action="toggle-rec-more"`)}
       ${state.recMore ? `<div class="seg">
         ${filterChip("Record First", `data-action="rec-mode" data-mode="first"`, state.mode === "first")}
@@ -1952,14 +1955,24 @@ async function keepTake(name, stayOpen) {
   const layer = state.layers[state.layers.length - 1]
   layer.peaks = decoded.peaks
   if (name === "Claps" || name === "Beatbox") layer.from = "your pulse"
-  if (!stayOpen) applySectionToLayer(layer)
+  const startedAt = recordOrigin
+  if (startedAt <= 0.2 && !stayOpen) applySectionToLayer(layer)
   buffers.set(layer.id + ":audio", decoded.buffer)
+  if (startedAt > 0.2) {
+    layer.range = { start: startedAt, end: startedAt + decoded.buffer.duration }
+    layer.from = [layer.from, `from ${formatClock(startedAt)}`].filter(Boolean).join(" · ")
+  }
+  recordOrigin = 0
   pendingBlob = null
   rememberSong()
   renderTracks()
   if (!stayOpen) closePanel()
   const tempo = state.tempoSource ? ` Tempo is ${state.bpm} from ${state.tempoSource}.` : ""
-  const landed = layer.range ? (state.sectionMode === "replace" ? ` It replaces ${activeSection()?.name || "that part"}.` : ` It lands on ${activeSection()?.name || "that part"}.`) : ""
+  const landed = !layer.range
+    ? ""
+    : startedAt > 0.2
+      ? ` It starts at ${formatClock(startedAt)}.`
+      : (state.sectionMode === "replace" ? ` It replaces ${activeSection()?.name || "that part"}.` : ` It lands on ${activeSection()?.name || "that part"}.`)
   $("save-status").textContent = `Take kept. Your original recording is safe.${landed}${tempo}`
   wakeSky()
 }
@@ -2020,13 +2033,13 @@ function clickAt(time, accent) {
   sky.flashes.push({ when: time, strength: accent ? 1 : 0.42 })
 }
 
-function startClick(startAt) {
+function startClick(startAt, beatIndex) {
   stopClick()
   if (!state.click) return
   const ctx = ac()
   const beat = 60 / state.bpm
   let next = startAt || ctx.currentTime + 0.06
-  let index = 0
+  let index = beatIndex || 0
   clickTimer = window.setInterval(() => {
     const now = ctx.currentTime
     while (next < now + 0.25) {
@@ -2044,11 +2057,14 @@ function stopClick() {
 function cancelRecord() {
   const wasTempo = state.tempoPass
   state.arming = false
+  state.counting = false
+  state.countBeat = 0
   state.recording = false
   state.tempoPass = false
   window.clearInterval(recTimer)
-  stopClick()
   recStream?.getTracks().forEach((track) => track.stop())
+  if (playing) stopPlayback()
+  else stopClick()
   if (recorder && recorder.state !== "inactive") {
     recorder._wasTempo = wasTempo
     recorder.stop()
@@ -2059,41 +2075,77 @@ function cancelRecord() {
   renderInspector()
 }
 
+function waitUntil(ctx, when) {
+  const ms = Math.max(0, (when - ctx.currentTime) * 1000)
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function countIn() {
+  const ctx = ac()
+  if (ctx.resume) await ctx.resume()
+  const beat = 60 / Math.max(40, state.bpm || 92)
+  state.counting = true
+  state.countBeat = 0
+  renderInspector()
+  $("save-status").textContent = `Tempo ${state.bpm}. Then a count of four.`
+  const countStart = ctx.currentTime + beat + 0.12
+  for (let i = 1; i <= 4; i++) {
+    await waitUntil(ctx, countStart + (i - 1) * beat)
+    if (!state.counting) return false
+    clickAt(ctx.currentTime + 0.01, i === 1)
+    state.countBeat = i
+    const node = $("rec-time")
+    if (node) {
+      node.textContent = String(i)
+      node.classList.add("count-beat")
+    }
+  }
+  await waitUntil(ctx, countStart + 4 * beat)
+  return state.counting
+}
+
 async function toggleRecord() {
-  if (state.recording || state.arming) {
+  if (state.recording || state.arming || state.counting) {
     cancelRecord()
     return
   }
   const tempoPass = state.tempoPass
   state.arming = true
+  renderInspector()
   try {
-    recStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    recStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
+    })
   } catch {
-    state.arming = false
-    state.tempoPass = false
-    $("save-status").textContent = "Microphone permission is needed to record."
-    return
+    try {
+      recStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch {
+      state.arming = false
+      state.tempoPass = false
+      $("save-status").textContent = "Microphone permission is needed to record."
+      renderInspector()
+      return
+    }
   }
   if (!state.arming) {
     recStream?.getTracks().forEach((track) => track.stop())
     return
   }
-  state.recording = true
   state.arming = false
-  renderInspector()
+  const span = state.lengthSec || state.span || 40
+  recordOrigin = state.playAt || 0
+  if (recordOrigin > span - 0.4) recordOrigin = 0
+  if (!tempoPass) {
+    if (playing) stopPlayback()
+    const counted = await countIn()
+    if (!counted) return
+  }
+  if (!recStream || recStream.getTracks().every((track) => track.readyState === "ended")) return
+  state.counting = false
+  state.countBeat = 0
+  state.recording = true
   attachMic(recStream)
   beginSky("record")
-  ac()
-  if (!tempoPass && state.countIn && state.click) {
-    const beat = 60 / state.bpm
-    const lead = 0.08
-    $("save-status").textContent = `Count-in at ${state.bpm}. Then you record.`
-    startClick(ac().currentTime + lead)
-    await new Promise((resolve) => window.setTimeout(resolve, (lead + beat * 4) * 1000))
-  } else if (!tempoPass) {
-    startClick()
-  }
-  if (!state.recording) return
   recChunks = []
   const media = new MediaRecorder(recStream)
   media._wasTempo = tempoPass
@@ -2104,19 +2156,35 @@ async function toggleRecord() {
   media.onstop = () => {
     pendingBlob = new Blob(recChunks, { type: media.mimeType || "audio/webm" })
     state.recording = false
+    state.counting = false
+    state.countBeat = 0
     state.tempoPass = false
+    if (playing) stopPlayback()
+    else stopClick()
     releaseMic()
     endSky()
     void finishRecording(media._wasTempo)
   }
   media.start()
+  const ctx = ac()
+  const beat = 60 / Math.max(40, state.bpm || 92)
+  const fromBeat = Math.round(recordOrigin / beat)
+  if (state.click && !tempoPass) startClick(ctx.currentTime + 0.02, fromBeat)
+  const hearSong = state.layers.some((layer) => audible(layer) && buffers.get(layer.id + ":audio"))
+  if (hearSong && !tempoPass) play(recordOrigin, { keepClick: true })
   recStarted = performance.now()
   recTimer = window.setInterval(() => {
     const node = $("rec-time")
-    if (!node) return
+    if (!node || state.counting) return
     const seconds = Math.floor((performance.now() - recStarted) / 1000)
-    node.textContent = tempoPass ? `00:${String(seconds).padStart(2, "0")} · listening for the tempo` : `00:${String(seconds).padStart(2, "0")} · recording`
+    node.textContent = tempoPass
+      ? `00:${String(seconds).padStart(2, "0")} · listening for the tempo`
+      : `00:${String(seconds).padStart(2, "0")} · recording`
+    node.classList.remove("count-beat")
   }, 250)
+  $("save-status").textContent = hearSong && !tempoPass
+    ? "You can hear the song. Only the microphone is recorded."
+    : `Recording at ${state.bpm}. Only the microphone is recorded.`
   renderInspector()
 }
 
@@ -3082,21 +3150,22 @@ function hearLayers() {
   }
 }
 
-function play(fromSec) {
+function play(fromSec, options = {}) {
   const ctx = ac()
+  const keepClick = !!(options.keepClick || state.recording)
   const spanGuess = state.lengthSec || state.span || 40
   let from = typeof fromSec === "number" ? fromSec : state.playAt || 0
   if (from >= spanGuess - 0.05) from = 0
   const candidates = state.layers.filter((layer) => audible(layer) && buffers.get(layer.id + ":audio"))
   if (!candidates.length) {
-    stopPlayback()
+    stopPlayback(keepClick)
     const anyAudio = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
     $("save-status").textContent = anyAudio
       ? "Mute or solo is hiding every layer. Turn a layer on to hear it."
       : "Nothing recorded to play yet. The colored layout is a picture of the song."
     return
   }
-  stopPlayback()
+  stopPlayback(keepClick)
   playing = true
   playFrom = from
   state.playAt = from
@@ -3108,7 +3177,7 @@ function play(fromSec) {
     const playIcon = playButton.querySelector(".glyph")
     if (playIcon) playIcon.textContent = "■"
   }
-  beginSky("play")
+  beginSky(state.recording ? "record" : "play")
   const span = state.lengthSec || Math.max(...candidates.map((layer) => buffers.get(layer.id + ":audio").duration))
   let started = 0
   let ended = 0
@@ -3127,11 +3196,11 @@ function play(fromSec) {
     started += 1
     nodes.source.onended = () => {
       ended += 1
-      if (playing && ended >= started) stopPlayback()
+      if (playing && ended >= started) stopPlayback(state.recording)
     }
   }
   if (!started) {
-    stopPlayback()
+    stopPlayback(keepClick)
     $("save-status").textContent = "The play line is past the sound in this part. Move it back, or pick Whole song."
     return
   }
@@ -3139,8 +3208,10 @@ function play(fromSec) {
     if (!playing) return
     const elapsed = songSeconds(ctx.currentTime)
     if (elapsed >= span) {
-      stopPlayback()
-      placePlayhead(0)
+      const stillRecording = state.recording
+      stopPlayback(stillRecording)
+      placePlayhead(stillRecording ? span : 0)
+      if (stillRecording) $("save-status").textContent = "The song ended. The mic is still recording."
       return
     }
     placePlayhead(elapsed)
@@ -3221,11 +3292,11 @@ async function downloadMix() {
   if (note) note.textContent = message
 }
 
-function stopPlayback() {
+function stopPlayback(keepClick) {
   playing = false
   stopPreview()
   cancelAnimationFrame(raf)
-  stopClick()
+  if (!keepClick) stopClick()
   for (const source of activeSources) {
     try { source.stop() } catch { /* already stopped */ }
   }
@@ -3237,7 +3308,7 @@ function stopPlayback() {
   }
   activeSources = []
   mixNodes.clear()
-  endSky()
+  if (!keepClick) endSky()
   const playButton = $("play-btn")
   if (playButton) {
     playButton.classList.remove("is-on")
@@ -3313,7 +3384,7 @@ document.body.addEventListener("click", (event) => {
   if (action === "play") playing ? stopPlayback() : play()
   if (action === "jump") jumpSection(Number(node.dataset.jump) < 0 ? -1 : 1)
   if (action === "record-mode") {
-    if (state.recording) return
+    if (state.recording || state.counting) return
     state.recordMode = node.dataset.mode === "vibe" ? "vibe" : "mic"
     renderInspector()
   }
