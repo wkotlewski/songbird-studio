@@ -1,9 +1,9 @@
 const STARTERS = [
-  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, line: "A slow jazz hum. Horn solo, choir and piano chords." },
-  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, line: "A pentatonic call and answer. Rhodes strum, bass on the beat." },
-  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, line: "A hummed rock riff. Guitar solo, chords, and bass." },
-  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, line: "A soul hum with blue notes. Piano solo, chords on the beat." },
-  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, line: "A gospel hum. Strummed Rhodes, choir, and bass." },
+  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, line: "Sung jazz vocals. Horn and piano chords behind." },
+  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, line: "Two sung parts. Rhodes and bass behind them." },
+  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, line: "A sung rock riff. Guitar chords and bass behind." },
+  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, line: "Sung soul vocals. Piano chords on the beat." },
+  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, line: "Sung gospel vocals. Rhodes, choir, and bass behind." },
 ]
 
 const INPUTS = [
@@ -26,14 +26,15 @@ const PERIODS = [
 ]
 
 const PACKAGES = [
-  { id: "Piano", name: "Acoustic piano", line: "The tune, played as piano." },
-  { id: "Rhodes", name: "Rhodes", line: "Electric piano keys." },
-  { id: "Acoustic guitar", name: "Acoustic guitar", line: "The tune, on acoustic guitar." },
-  { id: "Electric guitar", name: "Electric guitar", line: "The tune, through an amp." },
-  { id: "Horn", name: "Horn", line: "The tune, on a horn." },
-  { id: "Drums", name: "Drums", line: "A kit from the rhythm in this layer." },
-  { id: "Bass", name: "Bass", line: "The tune, dropped down low." },
-  { id: "Choir", name: "Choir", line: "Voices around the melody." },
+  { id: "Vocals", name: "Singing", line: "Stays a voice. This does not turn the take into an instrument." },
+  { id: "Piano", name: "Acoustic piano", line: "Adds piano beside the singing." },
+  { id: "Rhodes", name: "Rhodes", line: "Adds electric piano beside the singing." },
+  { id: "Acoustic guitar", name: "Acoustic guitar", line: "Adds acoustic guitar beside the singing." },
+  { id: "Electric guitar", name: "Electric guitar", line: "Adds electric guitar beside the singing." },
+  { id: "Horn", name: "Horn", line: "Adds a horn beside the singing." },
+  { id: "Drums", name: "Drums", line: "Adds a kit from the rhythm in this layer." },
+  { id: "Bass", name: "Bass", line: "Adds bass under the singing." },
+  { id: "Choir", name: "Choir", line: "Adds voices around the melody. Your lead stays your own." },
 ]
 
 const FIGURES = [
@@ -1285,13 +1286,20 @@ const SONG_SCALE = {
   soft: { vocal: [0.68, 0, -1, 1, 0.26], choir: [0.38, 0.28, -2, 0, 0.4], drums: [0.44, 0, 0, -1, 0.1], bass: [0.46, 0, 2, -2, 0.04], instrument: [0.34, "spread", -1, -1, 0.28] },
 }
 
+function isVocalLayer(layer) {
+  if (!layer) return false
+  const text = `${layer.sound || ""} ${layer.name || ""}`.toLowerCase()
+  if (/drum|clap|kit|bass|beatbox|guitar|piano|rhodes|horn|choir/.test(text)) return false
+  return /voice|vocal|sing|hum/.test(text)
+}
+
 function mixFamily(layer) {
   const text = `${layer.sound || ""} ${layer.name || ""}`.toLowerCase()
   if (/choir/.test(text)) return "choir"
-  if (/drum|clap/.test(text)) return "drums"
+  if (/drum|clap|kit/.test(text)) return "drums"
   if (/bass|beatbox/.test(text)) return "bass"
+  if (/voice|vocal|sing|hum/.test(text)) return "vocal"
   if (/guitar|piano|rhodes|horn|keyboard|string|brass|synth|instrument/.test(text)) return "instrument"
-  if (/voice|hum|sing|hook/.test(text)) return "vocal"
   return "instrument"
 }
 
@@ -1463,20 +1471,20 @@ function renderInspector() {
       : ""
     const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
     body = `${head("Magic Transform")}
-      <p class="hint">${current ? `${esc(current.name)} is selected.` : "Select a layer."} Pick a decade, then a sound. The original stays. Selecting a sound you already added switches that sound.</p>
+      <p class="hint">${current ? `${esc(current.name)} is selected.` : "Select a layer."} Singing stays your voice. Any other sound adds an instrument beside it and does not replace the vocal.</p>
       ${sources.length ? `<p class="ask">This layer</p>
         <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer first, or open an example.</p>`}
       <p class="ask">Time and vibe</p>
       <p class="hint">${esc(period.line)}</p>
       <div class="choices">${PERIODS.map((era) => filterChip(era.name, `data-action="pick-era" data-era="${era.id}" ${locked}`, state.era === era.id)).join("")}</div>
       <p class="ask">Notes</p>
-      <p class="hint">${esc((FIGURES.find((item) => item.id === state.figure) || FIGURES[0]).line)} Drums stay a kit. Bass stays on single notes.</p>
+      <p class="hint">${esc((FIGURES.find((item) => item.id === state.figure) || FIGURES[0]).line)} These choices are for an added instrument. Singing ignores them. Drums stay a kit. Bass stays on single notes.</p>
       <div class="choices">${FIGURES.map((item) => filterChip(item.name, `data-action="pick-figure" data-figure="${item.id}" ${locked}`, state.figure === item.id)).join("")}</div>
       <p class="ask">How it plays</p>
       <p class="hint">${esc((TOUCHES.find((item) => item.id === state.touch) || TOUCHES[0]).line)}</p>
       <div class="choices">${TOUCHES.filter((item) => state.figure === "chords" || item.id !== "strum").map((item) => filterChip(item.name, `data-action="pick-touch" data-touch="${item.id}" ${locked}`, state.touch === item.id)).join("")}</div>
       <p class="ask">Sound</p>
-      <div class="mix-boxes parts">${PACKAGES.map((pack) => planButton(pack.name, pack.line, `data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}`, !!(current && current.sound === pack.id && (!current.figure || current.figure === state.figure) && (!current.touch || current.touch === state.touch)))).join("")}</div>
+      <div class="mix-boxes parts">${PACKAGES.map((pack) => planButton(pack.name, pack.line, `data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}`, pack.id === "Vocals" ? !!(current && isVocalLayer(current) && !current.sourceId) : !!(current && current.sound === pack.id && (!current.figure || current.figure === state.figure) && (!current.touch || current.touch === state.touch)))).join("")}</div>
       ${note}
       ${magicLog()}`
   } else if (state.panel === "build") {
@@ -1983,7 +1991,7 @@ function sourceForTransform(selected, sound, layers) {
 }
 
 function playingChoice(sound) {
-  if (!sound || sound === "Drums") return null
+  if (!sound || sound === "Drums" || sound === "Vocals") return null
   const figure = state.figure === "chords" ? "chords" : "solo"
   const touch = state.touch === "beat" ? "beat" : state.touch === "strum" ? "strum" : "hold"
   if (sound === "Bass" || figure === "solo") return { figure: "solo", touch: touch === "strum" ? "hold" : touch }
@@ -2013,7 +2021,48 @@ function retuneSelected() {
   return false
 }
 
+function keepAsSinging() {
+  const selected = state.layers.find((item) => item.id === state.selected) || state.layers.find((item) => isVocalLayer(item)) || state.layers[0]
+  if (!selected) {
+    state.transformNote = "Record your singing first. It stays a voice."
+    state.transformTone = "warn"
+    $("save-status").textContent = state.transformNote
+    renderInspector()
+    return
+  }
+  const origin = state.layers.find((item) => item.id === selected.sourceId) || selected
+  if (!isVocalLayer(origin)) {
+    state.transformNote = `${selected.name} is not a vocal. Singing keeps a sung take as a voice. Select the singing, or record Hum or sing.`
+    state.transformTone = "warn"
+    $("save-status").textContent = state.transformNote
+    renderInspector()
+    return
+  }
+  snapshot()
+  if (/^instrument$/i.test(origin.name)) origin.name = "Singing"
+  origin.sound = "Voice"
+  origin.gain = Math.max(origin.gain || 0.8, 0.84)
+  origin.pan = 0
+  origin.low = -1
+  origin.high = 2.5
+  origin.space = Math.min(origin.space ?? 0.12, 0.18)
+  state.selected = origin.id
+  rememberSong()
+  refreshMix(origin)
+  const extra = selected.id !== origin.id ? ` ${selected.name} stays beside it.` : ""
+  state.transformNote = `${origin.name} stays singing. It was not turned into an instrument.${extra}`
+  state.transformTone = ""
+  $("save-status").textContent = state.transformNote
+  renderTracks()
+  renderInspector()
+  try { play() } catch { /* the vocal is still on the timeline */ }
+}
+
 function addTransformedLayer(sound) {
+  if (sound === "Vocals") {
+    keepAsSinging()
+    return
+  }
   if (state.transforming) return
   const layers = state.layers.filter((layer) => buffers.get(layer.id + ":audio"))
   const selected = layers.find((layer) => layer.id === state.selected) || layers[0]
@@ -2061,7 +2110,7 @@ function addTransformedLayer(sound) {
         const id = replacing ? selected.id : uid()
         const layer = replacing ? selected : {
           id,
-          gain: 0.7,
+          gain: 0.42,
           pan: 0.15,
           low: 0,
           high: 0,
@@ -2087,9 +2136,10 @@ function addTransformedLayer(sound) {
         state.selected = id
         state.arrived = id
         const bassNote = state.figure === "chords" && sound === "Bass" ? " Bass stays on single notes." : ""
+        const kept = isVocalLayer(origin) ? "Your singing stays the vocal." : "The original layer is still there."
         const heard = replacing
-          ? `${origin.name} is now ${label}, ${period.name}${played ? `, ${played}` : ""}. The original recording is still its own layer.${bassNote}`
-          : `${label}, ${period.name}${played ? `, ${played}` : ""}, was added from ${origin.name}. The original layer is still there.${bassNote}`
+          ? `${origin.name} is now ${label}, ${period.name}${played ? `, ${played}` : ""}. ${kept}${bassNote}`
+          : `${label}, ${period.name}${played ? `, ${played}` : ""}, was added beside ${origin.name}. ${kept}${bassNote}`
         state.transformNote = `${heard} Playing them together.`
         state.transformTone = ""
         $("save-status").textContent = state.transformNote
