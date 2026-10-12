@@ -315,7 +315,62 @@ h2 { font: var(--type-section); }
   background: repeating-linear-gradient(-45deg, transparent, transparent 4px, rgba(7, 28, 23, 0.55) 4px, rgba(7, 28, 23, 0.55) 8px);
   pointer-events: none;
 }
-.track.muted { opacity: 0.45; }
+.hearing-note {
+  margin: 4px 0 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.16);
+  border: 1px solid rgba(52, 211, 153, 0.55);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.hear-state {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.track.hearing .track-label {
+  border-color: rgba(52, 211, 153, 0.9);
+  box-shadow: 0 0 18px rgba(52, 211, 153, 0.22);
+}
+.strip .hear-state { display: block; width: fit-content; margin: 0 auto 4px; }
+.track.hearing .hear-state,
+.strip.hearing .hear-state {
+  color: #071C17;
+  background: var(--mint);
+}
+.track.quiet .lane {
+  opacity: 0.28;
+  filter: grayscale(1);
+}
+.track.quiet .layer-name,
+.track.quiet .track-meta .role,
+.track.quiet .track-meta small:not(.hear-state) {
+  opacity: 0.5;
+}
+.track.quiet .hear-state,
+.strip.quiet .hear-state {
+  color: var(--text);
+  background: rgba(255, 251, 242, 0.14);
+  opacity: 1;
+}
+.strip.hearing {
+  border-color: rgba(52, 211, 153, 0.9);
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.2);
+}
+.strip.quiet {
+  border-color: rgba(255, 251, 242, 0.12);
+}
+.strip.quiet .strip-name,
+.strip.quiet .fader {
+  opacity: 0.38;
+}
 .mini.on { color: var(--ink); background: var(--mint); border-color: transparent; }
 .track {
   display: grid;
@@ -381,15 +436,23 @@ h2 { font: var(--type-section); }
   background: rgba(255, 255, 255, 0.88);
   flex: none;
 }
-body[data-sound="play"] .wave {
+body[data-sound="play"] .track:not(.quiet) .wave {
   box-shadow: 0 0 calc(8px + var(--pulse, 0) * 22px) var(--wave, var(--cyan));
 }
-body[data-sound="play"] .wave i {
+body[data-sound="play"] .track:not(.quiet) .wave i {
   transform-origin: center;
   transform: scaleY(calc(0.72 + var(--pulse, 0) * 0.62));
   filter: brightness(calc(1 + var(--pulse, 0) * 0.7));
 }
-body[data-sound="play"] .wave::after {
+body[data-sound="play"] .track.quiet .wave,
+body[data-sound="play"] .track.quiet .wave i,
+body[data-sound="play"] .track.quiet .wave::after {
+  animation: none;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+body[data-sound="play"] .track:not(.quiet) .wave::after {
   content: "";
   position: absolute;
   inset: 0;
