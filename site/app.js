@@ -1,15 +1,4 @@
-const CREDIT = "Original song by Whitney Kotlewski. Not a copy of an existing song or recording."
-
-const STARTERS = [
-  { id: "gospel", title: "Open Hands", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: `Original gospel song by Whitney Kotlewski. ${CREDIT.slice(CREDIT.indexOf("Not"))}`, line: "Sung gospel verse and chorus. Choir, piano, and a backbeat behind." },
-  { id: "pop", title: "After Midnight", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: `Original pop song by Whitney Kotlewski. ${CREDIT.slice(CREDIT.indexOf("Not"))}`, line: "Sung pop hook. Rhodes, guitar, bass, and a backbeat behind." },
-  { id: "hiphop", title: "Side Street", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: `Original hip-hop song by Whitney Kotlewski. ${CREDIT.slice(CREDIT.indexOf("Not"))}`, line: "Sung hip-hop hook. Boom-bap kit, bass, and chord stabs behind." },
-  { id: "grandpa", title: "Grandpa's Sunday Song", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "Sung jazz vocals. Horn and piano chords behind." },
-  { id: "family", title: "Our Family Song", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "Two sung parts. Rhodes and bass behind them." },
-  { id: "summer", title: "Summer Memories", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "A sung rock riff. Guitar chords and bass behind." },
-  { id: "ella", title: "Ella's Happy Song", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "Sung soul vocals. Piano chords on the beat." },
-  { id: "bright", title: "A Brighter Day", privacy: "Shared", demo: true, author: "Whitney Kotlewski", credit: CREDIT, line: "Sung gospel vocals. Rhodes, choir, and bass behind." },
-]
+const STARTERS = []
 
 const INPUTS = [
   ["hum", "Hum or sing"],
@@ -1361,7 +1350,7 @@ function mixBox(id, name, line) {
 
 function renderMix(head, layer) {
   if (!state.layers.length) {
-    return `${head("Mix")}<p class="empty">Record a layer, or open an example, then pick a mix.</p>`
+    return `${head("Mix")}<p class="empty">Record a layer, then pick a mix.</p>`
   }
   const current = layer || state.layers[0]
   const gain = current.gain ?? 0.8
@@ -1408,7 +1397,7 @@ function renderMix(head, layer) {
 
 function applyMix(id) {
   if (!state.layers.length) {
-    $("save-status").textContent = "Add a layer first, or open an example."
+    $("save-status").textContent = "Add a layer first."
     return
   }
   snapshot()
@@ -1489,7 +1478,7 @@ function renderInspector() {
     body = `${head("Magic Transform")}
       <p class="hint">${current ? `${esc(current.name)} is selected.` : "Select a layer."} Singing stays your voice. Any other sound adds an instrument beside it and does not replace the vocal.</p>
       ${sources.length ? `<p class="ask">This layer</p>
-        <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer first, or open an example.</p>`}
+        <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer first.</p>`}
       <p class="ask">Time and vibe</p>
       <p class="hint">${esc(period.line)}</p>
       <div class="choices">${PERIODS.map((era) => filterChip(era.name, `data-action="pick-era" data-era="${era.id}" ${locked}`, state.era === era.id)).join("")}</div>
@@ -1643,7 +1632,7 @@ function openSong(id) {
   renderRuler()
   renderTracks()
   renderInspector()
-  $("save-status").textContent = song.demo ? "Press play. The original stays on its own layer." : "Saved on this device · audio stays in this tab"
+  $("save-status").textContent = "Saved on this device · audio stays in this tab"
   renderProjectActions()
 }
 
@@ -2105,7 +2094,7 @@ function addTransformedLayer(sound) {
   const layers = state.layers.filter((layer) => buffers.get(layer.id + ":audio"))
   const selected = layers.find((layer) => layer.id === state.selected) || layers[0]
   if (!selected) {
-    state.transformNote = "Record a layer, or open an example, then pick a sound."
+    state.transformNote = "Record a layer, then pick a sound."
     state.transformTone = "warn"
     $("save-status").textContent = state.transformNote
     renderInspector()
