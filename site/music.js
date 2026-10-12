@@ -1278,6 +1278,94 @@ function heardAt(data, sampleRate, options, time) {
   return data[index]
 }
 
+function pitchHz(frame, sampleRate) {
+  const minLag = Math.max(2, Math.floor(sampleRate / 880))
+  const maxLag = Math.min(frame.length - 2, Math.floor(sampleRate / 80))
+  if (maxLag <= minLag) return null
+  const diff = new Float32Array(maxLag + 1)
+  for (let lag = 1; lag <= maxLag; lag++) {
+    let sum = 0
+    for (let i = 0; i < frame.length - lag; i += 2) {
+      const delta = frame[i] - frame[i + lag]
+      sum += delta * delta
+    }
+    diff[lag] = sum
+  }
+  const cmnd = new Float32Array(maxLag + 1)
+  cmnd[0] = 1
+  let running = 0
+  for (let lag = 1; lag <= maxLag; lag++) {
+    running += diff[lag]
+    cmnd[lag] = running ? (diff[lag] * lag) / running : 1
+  }
+  let best = -1
+  for (let i = minLag; i <= maxLag; i++) {
+    if (cmnd[i] < 0.18) {
+      best = i
+      while (best + 1 <= maxLag && cmnd[best + 1] < cmnd[best]) best += 1
+      break
+    }
+  }
+  if (best < 0 || cmnd[best] > 0.28) return null
+  const prev = cmnd[best - 1] ?? cmnd[best]
+  const next = cmnd[best + 1] ?? cmnd[best]
+  const denom = prev - 2 * cmnd[best] + next
+  const shift = denom ? Math.max(-0.5, Math.min(0.5, (prev - next) / (2 * denom))) : 0
+  return sampleRate / (best + shift)
+}
+
+function tuneVoice(samples, sampleRate, strength) {
+  const src = toEngineRate(samples, sampleRate)
+  const amount = Math.max(0, Math.min(1, strength || 0))
+  if (amount <= 0) return src
+  const halfLen = Math.floor(src.length / 2)
+  const half = new Float32Array(halfLen)
+  for (let i = 0; i < halfLen; i++) half[i] = ((src[i * 2] || 0) + (src[i * 2 + 1] || 0)) * 0.5
+  const halfRate = SR / 2
+  const win = 1024
+  const hop = 512
+  const ratios = []
+  for (let start = 0; start + win < half.length; start += hop) {
+    const frame = half.subarray(start, start + win)
+    let energy = 0
+    for (let i = 0; i < win; i += 4) energy += frame[i] * frame[i]
+    const hz = energy / (win / 4) > 0.00012 ? pitchHz(frame, halfRate) : null
+    if (!hz) {
+      ratios.push(1)
+      continue
+    }
+    const midi = 69 + 12 * Math.log2(hz / 440)
+    const target = 440 * 2 ** ((Math.round(midi) - 69) / 12)
+    const shift = target / hz
+    ratios.push(1 + (shift - 1) * amount)
+  }
+  if (!ratios.length) return src
+  const out = new Float32Array(src.length)
+  const cover = new Float32Array(src.length)
+  const fullHop = hop * 2
+  const fullWin = win * 2
+  const ratioAt = (read) => ratios[Math.max(0, Math.min(ratios.length - 1, Math.floor(read / fullHop)))] || 1
+  let read = 0
+  let outPos = 0
+  while (outPos + fullWin < src.length && read + 8 < src.length) {
+    const ratio = ratioAt(read)
+    for (let i = 0; i < fullWin && outPos + i < src.length; i++) {
+      const pos = read + i * ratio
+      const index = Math.floor(pos)
+      if (index + 1 >= src.length) break
+      const frac = pos - index
+      const sample = src[index] * (1 - frac) + src[index + 1] * frac
+      const window = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (fullWin - 1))
+      out[outPos + i] += sample * window
+      cover[outPos + i] += window
+    }
+    read += fullHop * ratio
+    outPos += fullHop
+  }
+  for (let i = 0; i < out.length; i++) out[i] = cover[i] > 0.001 ? out[i] / cover[i] : src[i]
+  return out
+}
+
 function fillWithSection(data, sampleRate, options) {
   const song = Math.max(0.05, options.songLength || 0)
   const rangeStart = options.rangeStart ?? 0
@@ -1319,4 +1407,5 @@ globalThis.SongbirdMusic = {
   detectOnsets,
   coverage,
   fillWithSection,
+  tuneVoice,
 }
