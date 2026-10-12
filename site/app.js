@@ -21,14 +21,14 @@ const PERIODS = [
 
 const PACKAGES = [
   { id: "Vocals", name: "Singing", line: "Stays a voice. This does not turn the take into an instrument." },
-  { id: "Piano", name: "Acoustic piano", line: "Adds piano beside the singing." },
-  { id: "Rhodes", name: "Rhodes", line: "Adds electric piano beside the singing." },
-  { id: "Acoustic guitar", name: "Acoustic guitar", line: "Adds acoustic guitar beside the singing." },
-  { id: "Electric guitar", name: "Electric guitar", line: "Adds electric guitar beside the singing." },
-  { id: "Horn", name: "Horn", line: "Adds a horn beside the singing." },
-  { id: "Drums", name: "Drums", line: "Adds a kit from the rhythm in this layer." },
-  { id: "Bass", name: "Bass", line: "Adds bass under the singing." },
-  { id: "Choir", name: "Choir", line: "Adds voices around the melody. Your lead stays your own." },
+  { id: "Piano", name: "Acoustic piano", line: "Turns this layer into piano. Undo restores the recording." },
+  { id: "Rhodes", name: "Rhodes", line: "Turns this layer into electric piano. Undo restores the recording." },
+  { id: "Acoustic guitar", name: "Acoustic guitar", line: "Turns this layer into acoustic guitar. Undo restores the recording." },
+  { id: "Electric guitar", name: "Electric guitar", line: "Turns this layer into electric guitar. Undo restores the recording." },
+  { id: "Horn", name: "Horn", line: "Turns this layer into a horn. Undo restores the recording." },
+  { id: "Drums", name: "Drums", line: "Turns this layer into a kit. Undo restores the recording." },
+  { id: "Bass", name: "Bass", line: "Turns this layer into bass. Undo restores the recording." },
+  { id: "Choir", name: "Choir", line: "Turns this layer into a synthesized choir. Undo restores the recording." },
 ]
 
 const FIGURES = [
@@ -660,13 +660,20 @@ function capture() {
   })
 }
 
-function snapshot() {
-  undoStack.push(capture())
+function snapshot(layerIds) {
+  const audio = {}
+  for (const id of layerIds || []) {
+    const buf = buffers.get(id + ":audio")
+    if (buf) audio[id] = buf
+  }
+  undoStack.push({ raw: capture(), audio })
   if (undoStack.length > 30) undoStack.shift()
   redoStack = []
 }
 
-function restore(raw) {
+function restore(entry) {
+  const raw = typeof entry === "string" ? entry : entry.raw
+  const audio = entry && typeof entry === "object" ? entry.audio : null
   const data = JSON.parse(raw)
   const wasPlaying = playing
   if (Array.isArray(data)) {
@@ -682,6 +689,9 @@ function restore(raw) {
     if ("sections" in data) state.sections = data.sections
   }
   if (!state.layers.some((layer) => layer.id === state.selected)) state.selected = state.layers[0]?.id ?? null
+  if (audio) {
+    for (const [id, buf] of Object.entries(audio)) buffers.set(id + ":audio", buf)
+  }
   renderPlanNote()
   renderRuler()
   renderTracks()
@@ -1481,6 +1491,8 @@ function genrePanel() {
     ${hybrid ? `<label class="field">Drums from<select id="genre-blend" aria-label="Second package">${blendOptions}</select></label>` : ""}
     <p class="hint">${plan.note ? esc(plan.note) : ""}</p>
     <p class="hint"><b>Will add:</b> ${plan.will.length ? esc(plan.will.join(" ")) : "Nothing yet. Pick two different packages."}</p>
+    ${SongbirdPackages.readySteps(current.id, state.subgenre, state.blend).length ? `<p class="ask">Or turn the selected layer into</p>
+    <div class="choices">${SongbirdPackages.readySteps(current.id, state.subgenre, state.blend).map((step) => filterChip(step.role || step.sound, `data-action="transform-as" data-sound="${esc(step.sound)}" data-figure="${esc(step.figure || "")}" data-touch="${esc(step.touch || "")}" data-pattern="${esc(step.pattern || "")}" data-era="${esc(step.era || "")}" ${state.transforming ? "disabled" : ""}`)).join("")}</div>` : ""}
     <p class="hint"><b>Not in this version:</b> ${esc(plan.wont.join(", "))}.</p>
     <div class="row">
       ${outlinedButton("Preview", `data-action="preview-genre" ${state.transforming ? "disabled" : ""}`)}
@@ -1537,7 +1549,7 @@ function renderInspector() {
     const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
     body = `${head("Magic Transform")}
       ${genrePanel()}
-      <p class="hint">${current ? `${esc(current.name)} is selected.` : "Select a layer."} Singing stays your voice. Any other sound adds an instrument beside it and does not replace the vocal.</p>
+      <p class="hint">${current ? `${esc(current.name)} is selected.` : "Select a layer."} Pick a sound and this layer becomes it. Undo puts the recording back. Singing leaves it as a voice.</p>
       ${sources.length ? `<p class="ask">This layer</p>
         <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer first.</p>`}
       <p class="ask">Time and vibe</p>
@@ -1727,8 +1739,8 @@ function rememberSong() {
   state.song.tempoSource = state.tempoSource
   state.song.tempoLocked = state.tempoLocked
   state.song.sections = state.sections
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName,
   }))
   saveSongs()
   $("save-status").textContent = "Saved just now"
@@ -2107,7 +2119,7 @@ function syncPlaying(layer) {
 
 function retuneSelected() {
   const selected = state.layers.find((item) => item.id === state.selected)
-  if (selected && selected.sourceId && PACKAGES.some((item) => item.id === selected.sound)) {
+  if (selected && selected.transformed && PACKAGES.some((item) => item.id === selected.sound) && selected.sound !== "Vocals") {
     addTransformedLayer(selected.sound)
     return true
   }
@@ -2152,13 +2164,13 @@ function keepAsSinging() {
   try { play() } catch { /* the vocal is still on the timeline */ }
 }
 
-function addTransformedLayer(sound) {
+function addTransformedLayer(sound, extra) {
   if (sound === "Vocals") {
     keepAsSinging()
     return
   }
   if (state.transforming) return
-  const layers = state.layers.filter((layer) => buffers.get(layer.id + ":audio"))
+  const layers = state.layers.filter((layer) => buffers.get(layer.id + ":audio") || buffers.get(layer.id + ":original"))
   const selected = layers.find((layer) => layer.id === state.selected) || layers[0]
   if (!selected) {
     state.transformNote = "Record a layer, then pick a sound."
@@ -2167,10 +2179,8 @@ function addTransformedLayer(sound) {
     renderInspector()
     return
   }
-  const origin = state.layers.find((item) => item.id === selected.sourceId) || selected
-  const audioId = origin.id
   state.transforming = true
-  state.transformNote = `Listening to ${origin.name}…`
+  state.transformNote = `Turning ${selected.baseName || selected.name} into ${sound}…`
   state.transformTone = ""
   $("save-status").textContent = state.transformNote
   renderInspector()
@@ -2178,73 +2188,56 @@ function addTransformedLayer(sound) {
   if (ctx.resume) void ctx.resume()
   window.setTimeout(() => {
     try {
-      const audio = buffers.get(audioId + ":audio")
+      if (!buffers.get(selected.id + ":original")) {
+        const current = buffers.get(selected.id + ":audio")
+        if (current) buffers.set(selected.id + ":original", current)
+      }
+      const audio = buffers.get(selected.id + ":original") || buffers.get(selected.id + ":audio")
       const copy = new Float32Array(audio.length)
       copy.set(audio.getChannelData(0))
       const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
       const pack = PACKAGES.find((item) => item.id === sound)
       const playing = playingChoice(sound)
+      const patternId = extra && extra.pattern ? extra.pattern : ""
+      const pattern = patternId && typeof SongbirdPackages !== "undefined" ? SongbirdPackages.pattern(patternId) : null
       const made = SongbirdMusic.transformAudio(copy, sound, {
         bpm: state.bpm,
         sampleRate: audio.sampleRate,
         era: period.id,
         ...(playing ? { figure: playing.figure, touch: playing.touch } : {}),
-        ...(sound === "Drums" ? { pocket: state.pocket } : {}),
+        ...(sound === "Drums" ? { pocket: state.pocket, ...(pattern ? { pattern } : {}) } : {}),
       })
       if (!made) {
-        state.transformNote = `Couldn't find ${missingPart(sound)} in ${origin.name}. The original is unchanged.`
+        state.transformNote = `Couldn't find ${missingPart(sound)} in ${selected.baseName || selected.name}. Nothing changed.`
         state.transformTone = "warn"
         $("save-status").textContent = state.transformNote
       } else {
-        snapshot()
+        snapshot([selected.id])
         const colors = { Piano: "#f0a202", Rhodes: "#7ee0c8", "Acoustic guitar": "#ff8ab0", "Electric guitar": "#ff4d8d", Guitar: "#ff8ab0", Horn: "#F9A8D4", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
         const label = pack ? pack.name : sound
         const played = playingWords(playing)
-        const pocketLabel = sound !== "Drums" ? "" : state.pocket === "boom" ? "boom-bap" : state.pocket === "backbeat" ? "backbeat" : ""
-        const from = [`from ${origin.name}`, period.name, played, pocketLabel].filter(Boolean).join(" · ")
-        const replacing = selected.sourceId && selected.id !== origin.id
-        const id = replacing ? selected.id : uid()
-        const layer = replacing ? selected : {
-          id,
-          gain: 0.42,
-          pan: 0.15,
-          low: 0,
-          high: 0,
-          space: 0,
-          mute: false,
-          solo: false,
-          live: true,
-          sourceId: origin.id,
-        }
-        layer.name = label
-        layer.sound = sound
-        layer.figure = playing ? playing.figure : ""
-        layer.touch = playing ? playing.touch : ""
-        layer.pocket = sound === "Drums" ? state.pocket : ""
-        layer.from = from
-        layer.color = colors[sound] || "#7aa2ff"
-        layer.peaks = peaksFromSamples(made.samples)
-        layer.sourceId = origin.id
-        if (!replacing) {
-          applySectionToLayer(layer)
-          state.layers.push(layer)
-        }
-        buffers.set(id + ":audio", audioBuffer(made.samples, SongbirdMusic.sampleRate))
-        state.selected = id
-        state.arrived = id
-        const bassNote = state.figure === "chords" && sound === "Bass" ? " Bass stays on single notes." : ""
-        const kept = isVocalLayer(origin) ? "Your singing stays the vocal." : "The original layer is still there."
-        const heard = replacing
-          ? `${origin.name} is now ${label}, ${period.name}${played ? `, ${played}` : ""}. ${kept}${bassNote}`
-          : `${label}, ${period.name}${played ? `, ${played}` : ""}, was added beside ${origin.name}. ${kept}${bassNote}`
-        state.transformNote = `${heard} Playing them together.`
+        const pocketLabel = sound !== "Drums" ? "" : patternId || (state.pocket === "boom" ? "boom-bap" : state.pocket === "backbeat" ? "backbeat" : "backbeat")
+        if (!selected.baseName) selected.baseName = selected.name
+        selected.name = label
+        selected.sound = sound
+        selected.transformed = true
+        selected.figure = playing ? playing.figure : ""
+        selected.touch = playing ? playing.touch : ""
+        selected.pocket = sound === "Drums" ? (patternId || state.pocket) : ""
+        selected.from = [`was ${selected.baseName}`, period.name, played, pocketLabel].filter(Boolean).join(" · ")
+        selected.color = colors[sound] || "#7aa2ff"
+        selected.peaks = peaksFromSamples(made.samples)
+        buffers.set(selected.id + ":audio", audioBuffer(made.samples, SongbirdMusic.sampleRate))
+        state.selected = selected.id
+        state.arrived = selected.id
+        state.transformNote = `${selected.baseName} is now ${label}. Undo puts the original back.`
         state.transformTone = ""
-        $("save-status").textContent = state.transformNote
         rememberSong()
-        try { play() } catch { /* the new layer is still on the timeline */ }
+        $("save-status").textContent = state.transformNote
+        try { play() } catch { /* the transformed layer is still on the timeline */ }
       }
     } catch {
-      state.transformNote = "That didn't work. The original layer is unchanged."
+      state.transformNote = "That didn't work. The layer is unchanged."
       state.transformTone = "warn"
       $("save-status").textContent = state.transformNote
     }
@@ -2784,13 +2777,27 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "close-panel") closePanel()
   if (action === "undo" && undoStack.length) {
-    redoStack.push(capture())
-    restore(undoStack.pop())
+    const back = undoStack.pop()
+    const ids = back && typeof back === "object" && back.audio ? Object.keys(back.audio) : []
+    const audio = {}
+    for (const id of ids) {
+      const buf = buffers.get(id + ":audio")
+      if (buf) audio[id] = buf
+    }
+    redoStack.push({ raw: capture(), audio })
+    restore(back)
     rememberSong()
   }
   if (action === "redo" && redoStack.length) {
-    undoStack.push(capture())
-    restore(redoStack.pop())
+    const forward = redoStack.pop()
+    const ids = forward && typeof forward === "object" && forward.audio ? Object.keys(forward.audio) : []
+    const audio = {}
+    for (const id of ids) {
+      const buf = buffers.get(id + ":audio")
+      if (buf) audio[id] = buf
+    }
+    undoStack.push({ raw: capture(), audio })
+    restore(forward)
     rememberSong()
   }
   if (action === "toggle-click") {
@@ -2959,6 +2966,12 @@ document.body.addEventListener("click", (event) => {
       return
     }
     renderInspector()
+  }
+  if (action === "transform-as") {
+    if (node.dataset.era) state.era = node.dataset.era
+    if (node.dataset.figure) state.figure = node.dataset.figure
+    if (node.dataset.touch) state.touch = node.dataset.touch
+    addTransformedLayer(node.dataset.sound, { pattern: node.dataset.pattern || "" })
   }
   if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
   if (action === "preview-genre") previewGenrePackage()
