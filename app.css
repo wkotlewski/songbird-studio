@@ -262,6 +262,31 @@ h1 { margin: 0; font-size: 28px; font-weight: 700; }
   text-align: left;
   padding: 8px;
   border-radius: 12px;
+  min-width: 0;
+}
+.track-label .layer-name {
+  width: 100%;
+  margin: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-weight: 700;
+  font-size: 14px;
+}
+.track-label .layer-name:focus {
+  background: rgba(7, 28, 23, 0.45);
+  outline: 2px solid var(--mint);
+}
+.track-meta {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
 }
 .track-label small { display: block; color: var(--mute); }
 .track.selected .track-label { outline: 2px solid var(--cyan); }
