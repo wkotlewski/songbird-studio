@@ -1359,46 +1359,48 @@ function renderMix(head, layer) {
     return `${head("Mix")}<p class="empty">Record a layer, then pick a mix.</p>`
   }
   const current = layer || state.layers[0]
-  const gain = current.gain ?? 0.8
-  const pan = current.pan ?? 0
   const low = current.low ?? 0
   const high = current.high ?? 0
   const space = current.space ?? 0
   const soloing = state.layers.some((item) => item.solo)
-  const strips = state.layers.map((item) => {
+  const channels = state.layers.map((item) => {
     const hear = hearingMark(item)
-    return `<div class="strip ${item.id === current.id ? "on" : ""} ${hear.className}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
-      <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
-      ${hear.label ? `<span class="hear-state">${hear.label}</span>` : ""}
-      <input class="fader slider" type="range" min="0" max="1" step="0.01" value="${item.gain ?? 0.8}" data-mix="1" data-action="set-gain" data-id="${item.id}" aria-label="${esc(item.name)} volume" />
-      <div class="strip-buttons">
-        ${iconButton("volume_off", `class="mini" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}"${item.mute ? " selected" : ""}`, item.mute)}
-        ${iconButton("hearing", `class="mini" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}"`, item.solo)}
+    return `<div class="mix-channel ${item.id === current.id ? "on" : ""} ${hear.className}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
+      <div class="mix-channel-top">
+        <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
+        <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}">M</button>
+        <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}">S</button>
       </div>
+      ${hear.label ? `<span class="hear-state">${hear.label}</span>` : ""}
+      <label class="field">Volume
+        <input class="slider" type="range" min="0" max="1" step="0.01" value="${item.gain ?? 0.8}" data-mix="1" data-action="set-gain" data-id="${item.id}" aria-label="${esc(item.name)} volume" />
+      </label>
+      <label class="field">Left and right
+        <input class="slider" type="range" min="-1" max="1" step="0.01" value="${item.pan ?? 0}" data-mix="1" data-action="set-pan" data-id="${item.id}" aria-label="${esc(item.name)} pan" />
+      </label>
     </div>`
   }).join("")
   const fine = state.fine ? `<div class="fine-body">
       <p class="hint">${esc(current.name)} · ${esc(current.sound || "Layer")}</p>
-      ${slider("Volume", "gain", 0, 1, 0.01, gain, current.id, mixReadout("gain", gain))}
       ${slider("Bass", "low", -6, 6, 1, low, current.id, mixReadout("low", low))}
       ${slider("Treble", "high", -6, 6, 1, high, current.id, mixReadout("high", high))}
-      ${slider("Left and right", "pan", -1, 1, 0.01, pan, current.id, mixReadout("pan", pan))}
       ${slider("Space", "space", 0, 1, 0.01, space, current.id, mixReadout("space", space))}
-      <p class="hint">Bass and treble are tone. Left and right is where it sits in the speakers. Space is room around the sound. Scrolling the timeline still moves through the song.</p>
+      <p class="hint">Bass and treble are tone. Space is room around the sound.</p>
     </div>` : ""
   return `${head("Mix")}
-    <p class="hint">${soloing ? "Solo is on. Bright strips are playing. Dim strips are quiet." : "Pick a sound you want. The faders are the mixer. Fine tune is for the few things people usually adjust."}</p>
+    <p class="ask">Mixer</p>
+    <p class="hint">${soloing ? "Solo is on. Bright layers are playing. Dim layers are quiet. M mutes. S solos." : "Volume and left-right are on each layer. M mutes. S solos."}</p>
+    <div class="mix-channels">${channels}</div>
     <label class="field">Layer name
       <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
     </label>
     ${dangerButton("Delete layer", `data-action="delete-layer" data-id="${current.id}"`)}
+    ${outlinedButton(state.fine ? "Hide tone" : "Bass, treble, and space", `data-action="toggle-fine"`)}
+    ${fine}
     <p class="ask">For the whole song</p>
     <div class="mix-boxes">${Object.entries(SONG_MIXES).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
     <p class="ask">For one kind of part</p>
     <div class="mix-boxes parts">${Object.entries(MIX_PARTS).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
-    <div class="strips">${strips}</div>
-    ${outlinedButton(state.fine ? "Hide fine tune" : "Fine tune this layer", `data-action="toggle-fine"`)}
-    ${fine}
     ${magicLog()}`
 }
 
@@ -1460,7 +1462,7 @@ function genrePanel() {
     state.blend = others.find((genre) => genre.id !== state.subgenre)?.id || "gospel"
   }
   const plan = SongbirdPackages.plan(current.id, state.subgenre, state.blend)
-  const genreOptions = genres.map((genre) => `<option value="${esc(genre.id)}" ${genre.id === current.id ? "selected" : ""}>${esc(genre.name)} · ${statusWord(genre.status)}</option>`).join("")
+  const genreOptions = genres.map((genre) => `<option value="${esc(genre.id)}" ${genre.id === current.id ? "selected" : ""}>${esc(genre.name)}</option>`).join("")
   const subOptions = hybrid
     ? others.map((genre) => `<option value="${esc(genre.id)}" ${genre.id === state.subgenre ? "selected" : ""}>${esc(genre.name)}</option>`).join("")
     : current.subgenres.map((item) => `<option value="${esc(item.id)}" ${item.id === state.subgenre ? "selected" : ""}>${esc(item.name)}</option>`).join("")
@@ -1469,6 +1471,7 @@ function genrePanel() {
   return `<section class="genre-package">
     <p class="ask">Genre package</p>
     <p class="hint">${esc(current.description)}</p>
+    <p class="hint">Partial means only some parts of that package play here. Will add is what you can hear. The rest of the style is not in this version.</p>
     <label class="field">Package
       <select id="genre-pack" aria-label="Genre package">${genreOptions}</select>
     </label>
