@@ -1396,6 +1396,174 @@ function fillWithSection(data, sampleRate, options) {
   return { samples, loops: Math.ceil(total / sliceLen) }
 }
 
+function medianValue(values) {
+  if (!values.length) return 0
+  const sorted = values.slice().sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+function timingOnsets(samples, sampleRate) {
+  const hop = Math.max(1, Math.floor(sampleRate * 0.008))
+  const times = []
+  let previous = 0
+  for (let i = 0; i + hop < samples.length; i += hop) {
+    let low = 0
+    let high = 0
+    let last = samples[i] || 0
+    const steps = Math.max(1, Math.floor(hop / 2))
+    for (let j = 0; j < hop; j += 2) {
+      const sample = samples[i + j] || 0
+      low += sample * sample
+      const diff = sample - last
+      high += diff * diff
+      last = sample
+    }
+    const body = Math.sqrt(low / steps)
+    const edge = Math.sqrt(high / steps)
+    const bright = edge > 0.02 && edge > body * 0.7
+    if (bright && edge > previous * 1.4 && (!times.length || i / sampleRate - times[times.length - 1] > 0.07)) times.push(i / sampleRate)
+    previous = edge * 0.55 + previous * 0.45
+  }
+  let notes = []
+  try {
+    notes = detectNotes(toEngineRate(samples, sampleRate)).map((note) => note.time)
+  } catch {
+    notes = []
+  }
+  return mergeTimes([times, notes])
+}
+
+function timingPocket(times, beat) {
+  if (times.length < 4) return null
+  const offsets = times.map((time) => (time - Math.round(time / beat) * beat) / beat)
+  const center = medianValue(offsets)
+  const spread = medianValue(offsets.map((offset) => Math.abs(offset - center)))
+  if (spread > 0.06) return null
+  const offbeat = Math.abs(Math.abs(center) - 0.5) < 0.08
+  const swing = Math.abs(Math.abs(center) - 0.33) < 0.07
+  if (offbeat || swing) return { center, spread, offbeat, swing }
+  return null
+}
+
+function renderTimingMoves(samples, sampleRate, anchors) {
+  const count = samples.length
+  const out = new Float32Array(count)
+  const covered = new Float32Array(count)
+  const fade = Math.max(1, Math.floor(sampleRate * 0.008))
+  const sorted = anchors.slice().sort((a, b) => a.from - b.from)
+  sorted.forEach((anchor, index) => {
+    const prev = index === 0 ? 0 : (sorted[index - 1].from + anchor.from) / 2
+    const next = index === sorted.length - 1 ? count / sampleRate : (anchor.from + sorted[index + 1].from) / 2
+    const shift = Math.round((anchor.to - anchor.from) * sampleRate)
+    const moved = Math.abs(shift) > 1
+    const start = Math.max(0, Math.floor(prev * sampleRate))
+    const end = Math.min(count, Math.floor(next * sampleRate))
+    for (let i = start; i < end; i++) {
+      const dst = i + shift
+      if (dst < 0 || dst >= count) continue
+      let gain = 1
+      if (moved) {
+        const edge = Math.min(i - start, end - 1 - i)
+        if (edge < fade) gain = Math.max(0, edge / fade)
+      }
+      if (covered[dst] > 0) {
+        const mix = gain / ((gain + covered[dst]) || 1)
+        out[dst] = out[dst] * (1 - mix) + samples[i] * mix
+        covered[dst] = Math.max(covered[dst], gain)
+      } else {
+        out[dst] = samples[i] * gain
+        covered[dst] = gain
+      }
+    }
+  })
+  return out
+}
+
+function fixTiming(layers, options = {}) {
+  const bpm = Math.max(40, Math.min(220, options.bpm || 92))
+  const beat = 60 / bpm
+  const slack = Math.min(0.42, Math.max(0.06, options.slack ?? 0.18))
+  const dead = 0.05
+  const prepared = (layers || []).map((layer) => {
+    const samples = layer.samples
+    const sampleRate = layer.sampleRate || SR
+    const start = layer.start || 0
+    const local = samples?.length ? timingOnsets(samples, sampleRate) : []
+    return {
+      id: layer.id,
+      samples,
+      sampleRate,
+      start,
+      song: local.map((time) => start + time),
+      local,
+      pocket: null,
+    }
+  }).filter((layer) => layer.samples?.length)
+  for (const layer of prepared) layer.pocket = timingPocket(layer.song, beat)
+  const results = prepared.map((layer) => {
+    const others = prepared.filter((item) => item.id !== layer.id)
+    const anchors = []
+    let moved = 0
+    let silent = 0
+    let bare = 0
+    let floating = 0
+    const usedBeats = new Set()
+    for (let index = 0; index < layer.song.length; index++) {
+      const songTime = layer.song[index]
+      const quarter = Math.round(songTime / beat) * beat
+      const eighth = Math.round(songTime / (beat / 2)) * (beat / 2)
+      const toQuarter = Math.abs(songTime - quarter)
+      const toEighth = Math.abs(songTime - eighth)
+      const nearest = toQuarter <= toEighth ? quarter : eighth
+      const nearestDist = Math.min(toQuarter, toEighth)
+      let target = songTime
+      let reason = ""
+      if (layer.pocket) {
+        const pocketAt = quarter + layer.pocket.center * beat
+        const miss = Math.abs(songTime - pocketAt)
+        if (miss > beat * 0.07 && miss <= beat * slack) {
+          target = pocketAt
+          reason = "pocket"
+        }
+      } else if (nearestDist <= beat * dead) {
+        target = songTime
+      } else {
+        const beatIndex = Math.round(quarter / beat)
+        const othersHit = others.some((item) => item.song.some((time) => Math.abs(time - quarter) <= beat * dead))
+        const already = layer.song.some((time, item) => item !== index && Math.abs(time - quarter) <= beat * dead)
+        if (!already && !usedBeats.has(beatIndex) && othersHit && toQuarter <= beat * slack && toQuarter + beat * 0.02 < toEighth) {
+          target = quarter
+          reason = "silent"
+          usedBeats.add(beatIndex)
+        } else if (nearestDist <= beat * slack) {
+          target = nearest
+          reason = nearestDist > beat * 0.16 ? "floating" : "bare"
+        }
+      }
+      const localTarget = target - layer.start
+      anchors.push({ from: layer.local[index], to: Math.max(0, localTarget) })
+      if (Math.abs(target - songTime) > 0.004) {
+        moved += 1
+        if (reason === "silent") silent += 1
+        else if (reason === "floating") floating += 1
+        else bare += 1
+      }
+    }
+    const samples = moved ? renderTimingMoves(layer.samples, layer.sampleRate, anchors) : null
+    return {
+      id: layer.id,
+      samples,
+      moved,
+      silent,
+      bare,
+      floating,
+      pocket: !!layer.pocket,
+    }
+  })
+  return results
+}
+
 function starterAudio(options = {}) {
   const bpm = Math.max(40, Math.min(200, options.bpm || 96))
   const beat = 60 / bpm
@@ -1458,4 +1626,5 @@ globalThis.SongbirdMusic = {
   fillWithSection,
   tuneVoice,
   starterAudio,
+  fixTiming,
 }
