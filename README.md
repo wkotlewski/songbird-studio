@@ -12,7 +12,7 @@ There are two places: **My Music** and **Studio**. Everything else opens over th
 
 - My Music lists every song in one list. There are no separate song filters. A song can be deleted, or shared by email. Share saves the address in this browser and opens your mail app with a message. It does not deliver the recording by itself.
 - Mute and solo change what you hear while the song plays. Finish downloads a song file of that mix. Nothing is uploaded.
-- The timeline scrolls sideways. Drag the play line, or click a section, to move through the song. That is separate from stereo pan, which places a layer left, center, or right in the speakers.
+- The timeline scrolls sideways. Drag the play line, or click a section, to move through the song. Each layer name can be edited. That is separate from stereo pan, which places a layer left, center, or right in the speakers.
 - My Music includes five example songs you can play. Each one keeps the original sound and adds a part made from it: humming becomes piano, guitar, or choir; claps become drums; a beatbox becomes bass. The song has a length and a shape.
 - Build asks how long the song should be, in your own words or from a few common lengths. A take then loops until the song is that long.
 - Build also asks what the song should do, and offers the usual shapes: steady, a soft intro that builds and then softens, a climax, or verse and chorus. The shape changes loudness across the song. The original recording stays as it was.

@@ -997,11 +997,13 @@ function renderTracks() {
       const gaps = (layer.gaps || [])
         .map((gap) => `<i class="gap" style="left:${(gap.start / span) * 100}%;width:${((gap.end - gap.start) / span) * 100}%"></i>`)
         .join("")
-      return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""}">
-        <button class="track-label" data-action="select-layer" data-id="${layer.id}">
-          ${layer.name}
-          <small>${layer.sound}${layer.from ? ` · ${layer.from}` : ""}${layer.live ? "" : " · layout"}</small>
-        </button>
+      return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""}" data-id="${layer.id}">
+        <div class="track-label">
+          <input class="layer-name" data-rename="${layer.id}" value="${esc(layer.name)}" maxlength="40" aria-label="Name this layer" />
+          <button type="button" class="track-meta" data-action="select-layer" data-id="${layer.id}">
+            <small>${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
+          </button>
+        </div>
         <div class="lane">${gaps}${wave(shapedPeaks(layer), layer.color, layer.id, boxStyle)}</div>
       </div>`
     })
@@ -1016,6 +1018,26 @@ function slider(label, key, min, max, step, value, id, readout) {
     <input class="slider" type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-action="set-${key}"${layerId} />
     <span>${mark}</span>
   </label>`
+}
+
+function nameLayer(id, raw, commit) {
+  const layer = state.layers.find((item) => item.id === id)
+  if (!layer) return
+  const typed = String(raw ?? "")
+  const cleaned = typed.trim().slice(0, 40)
+  if (commit) {
+    layer.name = cleaned || layer.sound || "Layer"
+    rememberSong()
+    $("save-status").textContent = `Layer named ${layer.name}.`
+  } else if (cleaned) {
+    layer.name = cleaned
+  }
+  document.querySelectorAll(`[data-rename="${id}"]`).forEach((field) => {
+    if (field !== document.activeElement) field.value = layer.name
+  })
+  document.querySelectorAll(`.strip-name[data-id="${id}"]`).forEach((button) => {
+    button.textContent = layer.name
+  })
 }
 
 function selectedLayer() {
@@ -1106,6 +1128,9 @@ function renderMix(head, layer) {
     </div>` : ""
   return `${head("Mix")}
     <p class="hint">Pick a sound you want. The faders are the mixer. Fine tune is for the few things people usually adjust.</p>
+    <label class="field">Layer name
+      <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
+    </label>
     <p class="ask">For the whole song</p>
     <div class="mix-boxes">${Object.entries(SONG_MIXES).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
     <p class="ask">For one kind of part</p>
@@ -2281,9 +2306,22 @@ document.body.addEventListener("click", (event) => {
 })
 
 document.body.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target.classList?.contains("layer-name")) {
+    event.preventDefault()
+    event.target.blur()
+    return
+  }
   if (event.key !== "Enter" || !event.target.classList?.contains("share-email")) return
   event.preventDefault()
   shareSong(event.target.dataset.id, event.target.value)
+})
+
+document.body.addEventListener("focusin", (event) => {
+  const node = event.target
+  if (!node.classList?.contains("layer-name")) return
+  state.selected = node.dataset.rename
+  node.dataset.previous = node.value
+  document.querySelectorAll(".track").forEach((track) => track.classList.toggle("selected", track.dataset.id === node.dataset.rename))
 })
 
 document.body.addEventListener("input", (event) => {
@@ -2293,6 +2331,13 @@ document.body.addEventListener("input", (event) => {
     renderSongs()
   }
   if (node.id === "song-title") rememberSong()
+  if (node.classList?.contains("layer-name")) {
+    if (node.dataset.snapped !== "1" && node.value.trim() !== node.dataset.previous) {
+      snapshot()
+      node.dataset.snapped = "1"
+    }
+    nameLayer(node.dataset.rename, node.value, false)
+  }
   if (node.id === "wish") state.wish = node.value
   if (node.id === "bpm") {
     state.bpm = Math.min(200, Math.max(40, Number(node.value) || 92))
@@ -2310,6 +2355,13 @@ document.body.addEventListener("input", (event) => {
     refreshMix(layer)
     rememberSong()
   }
+})
+
+document.body.addEventListener("focusout", (event) => {
+  const node = event.target
+  if (!node.classList?.contains("layer-name")) return
+  nameLayer(node.dataset.rename, node.value, true)
+  node.dataset.snapped = ""
 })
 
 document.body.addEventListener("pointerdown", (event) => {
