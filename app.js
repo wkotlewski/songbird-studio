@@ -204,6 +204,7 @@ let recStarted = 0
 let pendingBlob = null
 let playing = false
 let playStarted = 0
+let playFrom = 0
 let raf = 0
 let activeSources = []
 const mixNodes = new Map()
@@ -246,6 +247,9 @@ const state = {
   arrived: null,
   span: 40,
   trackWidth: 1400,
+  playAt: 0,
+  section: null,
+  sectionMode: "add",
 }
 
 const $ = (id) => document.getElementById(id)
@@ -320,9 +324,10 @@ function bars(seed, count = 56) {
   return out
 }
 
-function wave(peaks, color, id) {
+function wave(peaks, color, id, box) {
   const mark = id ? ` data-layer="${id}"` : ""
-  return `<div class="wave"${mark} style="background:${color}33;--wave:${color}">${peaks
+  const place = box ? `left:${box.left}%;width:${box.width}%;` : ""
+  return `<div class="wave"${mark} style="${place}background:${color}33;--wave:${color}">${peaks
     .map((peak) => `<i style="height:${Math.max(8, peak * 46)}px;background:${color}"></i>`)
     .join("")}</div>`
 }
@@ -568,6 +573,14 @@ function attachMic(stream) {
   analyser.fftSize = 256
   analyser.smoothingTimeConstant = 0.72
   source.connect(analyser)
+  const hear = state.mode === "live" || state.monitor === "original" || state.monitor === "both"
+  if (hear) {
+    const monitor = ctx.createGain()
+    monitor.gain.value = 0.35
+    source.connect(monitor)
+    monitor.connect(ctx.destination)
+    sky.monitor = monitor
+  }
   sky.micSource = source
   sky.micAnalyser = analyser
   sky.micBins = new Uint8Array(analyser.frequencyBinCount)
@@ -575,19 +588,34 @@ function attachMic(stream) {
 
 function releaseMic() {
   try { sky.micSource?.disconnect() } catch { /* already released */ }
+  try { sky.monitor?.disconnect() } catch { /* already released */ }
   sky.micSource = null
   sky.micAnalyser = null
   sky.micBins = null
+  sky.monitor = null
+}
+
+function capture() {
+  return JSON.stringify({
+    layers: state.layers,
+    lengthSec: state.lengthSec,
+    shape: state.shape,
+    intent: state.intent,
+    playAt: state.playAt,
+    section: state.section,
+    sectionMode: state.sectionMode,
+  })
 }
 
 function snapshot() {
-  undoStack.push(JSON.stringify({ layers: state.layers, lengthSec: state.lengthSec, shape: state.shape, intent: state.intent }))
+  undoStack.push(capture())
   if (undoStack.length > 30) undoStack.shift()
   redoStack = []
 }
 
 function restore(raw) {
   const data = JSON.parse(raw)
+  const wasPlaying = playing
   if (Array.isArray(data)) {
     state.layers = data
   } else {
@@ -595,12 +623,17 @@ function restore(raw) {
     state.lengthSec = data.lengthSec
     state.shape = data.shape
     state.intent = data.intent
+    if (typeof data.playAt === "number") state.playAt = data.playAt
+    if ("section" in data) state.section = data.section
+    if (data.sectionMode) state.sectionMode = data.sectionMode
   }
   if (!state.layers.some((layer) => layer.id === state.selected)) state.selected = state.layers[0]?.id ?? null
   renderPlanNote()
   renderRuler()
   renderTracks()
   renderInspector()
+  if (wasPlaying) play(state.playAt || 0)
+  else hearLayers()
 }
 
 function setScreen(screen) {
@@ -643,10 +676,11 @@ function renderShareBox(song) {
   if (state.shareFor !== song.id) return ""
   const emails = songEmails(song)
   return `<div class="share-box">
-    <p class="hint">Add their email. It is saved on this song in this browser. Songbird does not send mail yet.</p>
+    <p class="hint">Add their email. Songbird opens your mail app with a message to them, and saves the address on this song.</p>
     ${emails.length ? `<p class="hint">${emails.map((email) => esc(email)).join(", ")}</p>` : ""}
+    ${state.shareNote ? `<p class="hint">${esc(state.shareNote)}</p>` : ""}
     <div class="share-row">
-      <input class="share-email" type="email" data-id="${song.id}" placeholder="name@email.com" aria-label="Email address" />
+      <input class="share-email" type="email" data-id="${song.id}" placeholder="name@email.com" aria-label="Email address" value="${esc(state.shareDraft || "")}" />
       <button class="primary" data-action="add-share" data-id="${song.id}">Share</button>
     </div>
   </div>`
@@ -699,7 +733,9 @@ function shareSong(id, raw) {
   const email = String(raw || "").trim().toLowerCase()
   if (!validEmail(email)) {
     state.shareFor = id
-    $("save-status").textContent = "Enter an email address like name@email.com."
+    state.shareDraft = String(raw || "")
+    state.shareNote = "Enter an email address like name@email.com."
+    $("save-status").textContent = state.shareNote
     renderSongs()
     renderProjectActions()
     return
@@ -711,8 +747,18 @@ function shareSong(id, raw) {
   if (song.demo) saveDemoShare(song)
   else saveSongs()
   state.shareFor = id
+  state.shareDraft = ""
   state.deleteFor = null
-  $("save-status").textContent = `Shared with ${email}. The address is saved on this song in this browser.`
+  const page = "https://wkotlewski.github.io/songbird-studio/"
+  const subject = encodeURIComponent(`Songbird: ${song.title}`)
+  const body = encodeURIComponent(`${song.title} is in Songbird.\n\nOpen Songbird: ${page}\n\nThe recording stays in the browser where it was made. Attach the song file from Finish if you want them to hear it.`)
+  const link = document.createElement("a")
+  link.href = `mailto:${email}?subject=${subject}&body=${body}`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  state.shareNote = `Your mail app is opening a message to ${email}. The address is saved on this song in this browser.`
+  $("save-status").textContent = state.shareNote
   renderSongs()
   renderProjectActions()
 }
@@ -759,6 +805,128 @@ function layoutTimeline() {
   return { total, width }
 }
 
+function spanSeconds() {
+  return state.lengthSec || state.span || 40
+}
+
+function songSeconds(now) {
+  return playFrom + Math.max(0, now - playStarted)
+}
+
+function songSections() {
+  const shape = SHAPES[state.shape]
+  if (shape) {
+    return shape.bands.map(([name, start, end], index) => ({
+      id: `${name}-${index}`,
+      name,
+      start,
+      end,
+      color: BAND_COLOR[name] || "#34D399",
+    }))
+  }
+  const total = spanSeconds()
+  const parts = total <= 45 ? 2 : total <= 90 ? 3 : 4
+  return Array.from({ length: parts }, (_, index) => ({
+    id: `part-${index}`,
+    name: `Part ${index + 1}`,
+    start: index / parts,
+    end: (index + 1) / parts,
+    color: index % 2 ? "#F59AD4" : "#34D399",
+  }))
+}
+
+function activeSection() {
+  if (!state.section) return null
+  return songSections().find((section) => section.id === state.section) || null
+}
+
+function mergeGaps(gaps) {
+  const sorted = gaps
+    .map((gap) => ({ start: Number(gap.start) || 0, end: Number(gap.end) || 0 }))
+    .filter((gap) => gap.end > gap.start + 0.01)
+    .sort((a, b) => a.start - b.start)
+  const out = []
+  for (const gap of sorted) {
+    const last = out[out.length - 1]
+    if (last && gap.start <= last.end + 0.02) last.end = Math.max(last.end, gap.end)
+    else out.push({ start: gap.start, end: gap.end })
+  }
+  return out
+}
+
+function sectionClock(section) {
+  const span = spanSeconds()
+  return `${formatClock(section.start * span)}–${formatClock(section.end * span)}`
+}
+
+function laneBox() {
+  const inner = document.querySelector(".timeline-inner")
+  const lane = document.querySelector(".lane") || document.querySelector(".shape-row")
+  if (lane && inner && lane.getBoundingClientRect && inner.getBoundingClientRect) {
+    const laneRect = lane.getBoundingClientRect()
+    const innerRect = inner.getBoundingClientRect()
+    const width = lane.clientWidth || laneRect.width
+    if (width > 20) return { left: laneRect.left - innerRect.left, width }
+  }
+  return { left: 164, width: Math.max(1, state.trackWidth - 190) }
+}
+
+function timeAt(clientX) {
+  const inner = document.querySelector(".timeline-inner")
+  if (!inner?.getBoundingClientRect) return state.playAt || 0
+  const box = laneBox()
+  const x = clientX - inner.getBoundingClientRect().left - box.left
+  const span = spanSeconds()
+  return Math.min(span, Math.max(0, (x / box.width) * span))
+}
+
+function placePlayhead(seconds) {
+  const span = spanSeconds()
+  const clamped = Math.min(span, Math.max(0, Number(seconds) || 0))
+  state.playAt = clamped
+  const head = $("playhead")
+  if (head) {
+    const box = laneBox()
+    head.style.left = `${box.left + (clamped / span) * box.width}px`
+  }
+  paintSelection()
+}
+
+function paintSelection() {
+  const inner = document.querySelector(".timeline-inner")
+  if (!inner) return
+  let band = inner.querySelector(".selection")
+  if (!band) {
+    band = document.createElement("div")
+    band.className = "selection"
+    inner.appendChild(band)
+  }
+  const section = activeSection()
+  if (!section) {
+    band.hidden = true
+    return
+  }
+  const box = laneBox()
+  band.hidden = false
+  band.style.left = `${box.left + section.start * box.width}px`
+  band.style.width = `${Math.max(8, (section.end - section.start) * box.width)}px`
+}
+
+function applySectionToLayer(layer) {
+  const section = activeSection()
+  if (!section) return null
+  const span = spanSeconds()
+  layer.range = { start: section.start * span, end: section.end * span }
+  layer.from = [layer.from, section.name].filter(Boolean).join(" · ")
+  if (state.sectionMode === "replace") {
+    for (const other of state.layers) {
+      if (other.id === layer.id) continue
+      other.gaps = mergeGaps([...(other.gaps || []), layer.range])
+    }
+  }
+  return section
+}
+
 function renderPlanNote() {
   const note = document.querySelector(".note")
   if (!note) return
@@ -767,15 +935,15 @@ function renderPlanNote() {
     return
   }
   if (!state.lengthSec) {
-    note.textContent = "Open Build to set a length and a shape. Recordings loop to that length. A transform keeps the original and adds a new layer made from it."
+    note.textContent = "Drag the play line, or click a section to jump there. Open Build to set a length and a shape."
     return
   }
   if (!state.shape) {
-    note.textContent = `${formatClock(state.lengthSec)}. Recordings loop to this length. Choose a shape in Build if you want a build, a climax, or a soft ending.`
+    note.textContent = `${formatClock(state.lengthSec)}. Drag the play line or click a section. Recordings loop to this length.`
     return
   }
   const shape = SHAPES[state.shape]
-  note.textContent = `${formatClock(state.lengthSec)} · ${shape.name}. Recordings loop to this length, and loudness follows the shape. Your original take is unchanged.`
+  note.textContent = `${formatClock(state.lengthSec)} · ${shape.name}. Drag the play line or click a section. Loudness follows the shape.`
 }
 
 function renderRuler() {
@@ -784,13 +952,20 @@ function renderRuler() {
   const marks = []
   for (let t = 0; t < total - 0.5; t += step) marks.push(`<span>${formatClock(t)}</span>`)
   marks.push(`<span>${formatClock(total)}</span>`)
-  const shape = SHAPES[state.shape]
-  const bands = shape
-    ? `<div class="shape-row">${shape.bands
-        .map(([name, start, end]) => `<i style="width:${(end - start) * 100}%;background:${BAND_COLOR[name] || "#3d7eff"}">${name}</i>`)
-        .join("")}</div>`
+  if (state.section && !activeSection()) state.section = null
+  const sections = songSections()
+  const bands = `<div class="shape-row">${sections
+    .map((section) => `<button type="button" class="section${state.section === section.id ? " on" : ""}" data-action="pick-section" data-id="${esc(section.id)}" style="width:${(section.end - section.start) * 100}%;background:${section.color}" title="${sectionClock(section)}">${esc(section.name)}</button>`)
+    .join("")}</div>`
+  const tools = state.section
+    ? `<div class="section-tools">
+        <button type="button" class="choice ${state.sectionMode === "add" ? "on" : ""}" data-action="section-mode" data-mode="add">Add onto this part</button>
+        <button type="button" class="choice ${state.sectionMode === "replace" ? "on" : ""}" data-action="section-mode" data-mode="replace">Change this part</button>
+        <button type="button" class="choice" data-action="whole-song">Whole song</button>
+      </div>`
     : ""
-  $("ruler").innerHTML = `${bands}<div class="ruler-marks">${marks.join("")}</div>`
+  $("ruler").innerHTML = `${bands}${tools}<div class="ruler-marks">${marks.join("")}</div>`
+  placePlayhead(state.playAt || 0)
 }
 
 function shapedPeaks(layer) {
@@ -812,17 +987,26 @@ function renderTracks() {
     box.innerHTML = `<p class="empty">Make your first sound. Record, then keep the take on the timeline.</p>`
     return
   }
+  const span = spanSeconds()
   box.innerHTML = state.layers
-    .map(
-      (layer) => `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""}">
+    .map((layer) => {
+      const range = layer.range
+      const boxStyle = range
+        ? { left: (range.start / span) * 100, width: ((range.end - range.start) / span) * 100 }
+        : null
+      const gaps = (layer.gaps || [])
+        .map((gap) => `<i class="gap" style="left:${(gap.start / span) * 100}%;width:${((gap.end - gap.start) / span) * 100}%"></i>`)
+        .join("")
+      return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""}">
         <button class="track-label" data-action="select-layer" data-id="${layer.id}">
           ${layer.name}
           <small>${layer.sound}${layer.from ? ` · ${layer.from}` : ""}${layer.live ? "" : " · layout"}</small>
         </button>
-        ${wave(shapedPeaks(layer), layer.color, layer.id)}
-      </div>`,
-    )
+        <div class="lane">${gaps}${wave(shapedPeaks(layer), layer.color, layer.id, boxStyle)}</div>
+      </div>`
+    })
     .join("")
+  placePlayhead(state.playAt || 0)
 }
 
 function slider(label, key, min, max, step, value, id, readout) {
@@ -907,8 +1091,8 @@ function renderMix(head, layer) {
       <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
       <input class="fader" type="range" min="0" max="1" step="0.01" value="${item.gain ?? 0.8}" data-mix="1" data-action="set-gain" data-id="${item.id}" aria-label="${esc(item.name)} volume" />
       <div class="strip-buttons">
-        <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-label="Mute ${esc(item.name)}">M</button>
-        <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-label="Solo ${esc(item.name)}">S</button>
+        <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}">M</button>
+        <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}">S</button>
       </div>
     </div>`).join("")
   const fine = state.fine ? `<div class="fine-body">
@@ -982,6 +1166,7 @@ function renderInspector() {
     const listening = state.recording && state.tempoPass
     body = `${head("Make a sound")}
       <p class="ask">First, the tempo</p>
+      <p class="hint">${esc(sectionWorkLine())}</p>
       <p class="hint">${tempoLine}</p>
       <button class="primary" data-action="tempo-pass">${listening ? "Stop and set the tempo" : "Clap the tempo"}</button>
       <div class="seg">
@@ -992,7 +1177,7 @@ function renderInspector() {
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording ? "hot" : ""}" data-action="toggle-record" aria-label="${state.recording ? "Stop recording" : "Record"}">${state.recording ? "■" : "●"}</button>
       <p class="hint" id="rec-time">${listening ? "Listening for the tempo. No click yet." : state.recording ? "Recording. The click stays in the speakers, not in the take." : state.tempoLocked ? "The click counts in four beats at this tempo." : "00:00"}</p>
-      ${state.mode === "live" ? `<p class="warn">Live instrument monitoring is not connected yet. You can still record your voice.</p>` : ""}
+      ${state.mode === "live" || state.monitor === "original" || state.monitor === "both" ? `<p class="hint">You hear yourself while recording. Use headphones so that does not go back into the microphone.</p>` : ""}
       <p class="hint">Headphones help keep the click out of the microphone.</p>
       <div class="seg">
         ${["original", "both", "transformed"].map((id) => `<button class="${state.monitor === id ? "on" : ""}" data-action="monitor" data-monitor="${id}">${id === "both" ? "Original + transformed" : id[0].toUpperCase() + id.slice(1)}</button>`).join("")}
@@ -1009,7 +1194,7 @@ function renderInspector() {
       ? `<p class="${state.transformTone === "warn" ? "warn" : "hint"}">${esc(state.transformNote)}</p>`
       : ""
     body = `${head("Transform this layer")}
-      <p class="hint">Your original stays. Pick old school or modern, then a package. Highlighted packages fit the layer you picked. A melody can become piano, Rhodes, guitar, or choir. Claps become drums. Low notes become bass.</p>
+      <p class="hint">${esc(sectionWorkLine())} Your original stays. Pick old school or modern, then a package. Highlighted packages fit the layer you picked.</p>
       ${sources.length ? `<p class="ask">Listen to</p>
         <div class="choices">${sources.map((item) => `<button class="${item.id === current.id ? "on" : ""}" data-action="pick-transform-layer" data-id="${item.id}" ${locked}>${esc(item.name)}</button>`).join("")}</div>` : `<p class="hint">Record a layer first, or open an example.</p>`}
       <p class="ask">Old school or modern</p>
@@ -1047,8 +1232,8 @@ function renderInspector() {
   } else if (state.panel === "finish") {
     body = `${head("Finish your song")}
       <div class="seg"><button class="on">Audio</button><button data-action="video-note">Video</button></div>
-      <p class="warn">Export is not connected in this prototype. Nothing is uploaded.</p>
-      <button class="primary" data-action="video-note">Master my song</button>
+      <p class="hint">Master downloads a song file of what you hear right now, including mute, solo, and the mix. Nothing is uploaded.</p>
+      <button class="primary" data-action="download-mix">Master my song</button>
       <p id="finish-note" class="hint"></p>`
   } else {
     body = renderMix(head, layer)
@@ -1129,6 +1314,8 @@ function openSong(id) {
     state.tempoLocked = !!song.tempoLocked
     $("bpm").value = state.bpm
   }
+  state.playAt = 0
+  state.section = null
   state.heard = exampleNote
   state.transformNote = ""
   state.transformTone = ""
@@ -1167,8 +1354,8 @@ function rememberSong() {
   state.song.bpm = state.bpm
   state.song.tempoSource = state.tempoSource
   state.song.tempoLocked = state.tempoLocked
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps,
   }))
   saveSongs()
   $("save-status").textContent = "Saved just now"
@@ -1224,13 +1411,15 @@ async function keepTake(name, stayOpen) {
   const layer = state.layers[state.layers.length - 1]
   layer.peaks = decoded.peaks
   if (name === "Claps" || name === "Beatbox") layer.from = "your pulse"
+  if (!stayOpen) applySectionToLayer(layer)
   buffers.set(layer.id + ":audio", decoded.buffer)
   pendingBlob = null
   rememberSong()
   renderTracks()
   if (!stayOpen) closePanel()
   const tempo = state.tempoSource ? ` Tempo is ${state.bpm} from ${state.tempoSource}.` : ""
-  $("save-status").textContent = `Take kept. Your original recording is safe.${tempo}`
+  const landed = layer.range ? (state.sectionMode === "replace" ? ` It replaces ${activeSection()?.name || "that part"}.` : ` It lands on ${activeSection()?.name || "that part"}.`) : ""
+  $("save-status").textContent = `Take kept. Your original recording is safe.${landed}${tempo}`
   wakeSky()
 }
 
@@ -1447,13 +1636,42 @@ function useWish() {
   $("save-status").textContent = state.heard
 }
 
-function scheduleShape(gainNode, base, shapeId, startTime, duration) {
+function sectionWorkLine() {
+  const section = activeSection()
+  if (!section) return "Drag the play line, or click a section to jump there. Until you select a part, new layers cover the whole song."
+  const how = state.sectionMode === "replace" ? "Change this part replaces what is already there." : "Add onto this part keeps what is already there."
+  return `${section.name}, ${sectionClock(section)}. ${how}`
+}
+
+function scheduleShape(gainNode, base, shapeId, startTime, span, fromSec) {
   const points = (SHAPES[shapeId] || SHAPES.even).points
   const param = gainNode.gain
+  const from = Math.max(0, fromSec || 0)
   param.cancelScheduledValues(startTime)
-  param.setValueAtTime(Math.max(0, base * points[0][1]), startTime)
-  for (let i = 1; i < points.length; i++) {
-    param.linearRampToValueAtTime(Math.max(0, base * points[i][1]), startTime + points[i][0] * duration)
+  param.setValueAtTime(Math.max(0, base * levelAt(shapeId, from / span)), startTime)
+  for (const [frac, level] of points) {
+    const at = frac * span
+    if (at <= from + 0.02) continue
+    param.linearRampToValueAtTime(Math.max(0, base * level), startTime + (at - from))
+  }
+}
+
+function scheduleHoles(hole, gaps, when, fromSec) {
+  const param = hole.gain
+  param.cancelScheduledValues(when)
+  const upcoming = (gaps || []).filter((gap) => gap.end > fromSec + 0.01).sort((a, b) => a.start - b.start)
+  let level = 1
+  for (const gap of upcoming) {
+    if (fromSec >= gap.start && fromSec < gap.end) level = 0
+  }
+  param.setValueAtTime(level, when)
+  let cursor = when
+  for (const gap of upcoming) {
+    const down = Math.max(cursor + 0.01, when + Math.max(0, gap.start - fromSec))
+    const up = Math.max(down + 0.01, when + (gap.end - fromSec))
+    param.setValueAtTime(0, down)
+    param.setValueAtTime(1, up)
+    cursor = up
   }
 }
 
@@ -1530,13 +1748,15 @@ function addTransformedLayer(sound) {
           solo: false,
           live: true,
         }
+        const landed = applySectionToLayer(layer)
         buffers.set(id + ":audio", audioBuffer(made.samples, SongbirdMusic.sampleRate))
         state.layers.push(layer)
         state.selected = id
         state.arrived = id
+        const where = landed ? (state.sectionMode === "replace" ? ` It replaces ${landed.name}.` : ` It lands on ${landed.name}.`) : ""
         const heard = source.redirected
-          ? `${label}, ${eraName}, was added from ${source.layer.name}. There isn't ${missingPart(sound)} in ${selected.name}, so Songbird used ${source.layer.name}.`
-          : `${label}, ${eraName}, was added from ${source.layer.name}. The original layer is still there.`
+          ? `${label}, ${eraName}, was added from ${source.layer.name}.${where} There isn't ${missingPart(sound)} in ${selected.name}, so Songbird used ${source.layer.name}.`
+          : `${label}, ${eraName}, was added from ${source.layer.name}.${where} The original layer is still there.`
         state.transformNote = `${heard} Playing them together.`
         state.transformTone = ""
         $("save-status").textContent = state.transformNote
@@ -1578,96 +1798,226 @@ function refreshMix(layer) {
   nodes.dry.gain.setValueAtTime(1 - space * 0.35, now)
   nodes.wet.gain.setValueAtTime(space * 0.5, now)
   const span = nodes.span || state.lengthSec || 1
-  if (state.shape && state.lengthSec) {
-    const elapsed = Math.max(0, now - playStarted)
-    nodes.gain.gain.cancelScheduledValues(now)
-    nodes.gain.gain.setValueAtTime(Math.max(0, layer.gain * levelAt(state.shape, Math.min(1, elapsed / span))), now)
-    for (const [frac, level] of (SHAPES[state.shape] || SHAPES.even).points) {
-      const time = playStarted + frac * span
-      if (time > now + 0.03) nodes.gain.gain.linearRampToValueAtTime(Math.max(0, layer.gain * level), time)
-    }
-  } else nodes.gain.gain.setValueAtTime(layer.gain, now)
+  const elapsed = songSeconds(now)
+  if (state.shape && state.lengthSec) scheduleShape(nodes.gain, layer.gain, state.shape, now, span, elapsed)
+  else nodes.gain.gain.setValueAtTime(layer.gain, now)
+  if (nodes.gate) {
+    nodes.gate.gain.cancelScheduledValues(now)
+    nodes.gate.gain.setValueAtTime(audible(layer) ? 1 : 0, now)
+  }
 }
 
 function audible(layer) {
-  if (layer.mute) return false
-  if (state.layers.some((item) => item.solo)) return layer.solo
+  if (!layer || layer.mute) return false
+  if (state.layers.some((item) => item.solo)) return !!layer.solo
   return true
 }
 
-function play() {
+function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
+  const rangeStart = layer.range ? layer.range.start : 0
+  const rangeEnd = layer.range ? Math.min(span, layer.range.end) : span
+  if (from >= rangeEnd - 0.02) return null
+  const source = ctx.createBufferSource()
+  source.buffer = buffer
+  const sectionLen = Math.max(0.05, rangeEnd - rangeStart)
+  const loop = buffer.duration >= 0.05 && buffer.duration < sectionLen - 0.05
+  if (loop) source.loop = true
+  const into = Math.max(0, from - rangeStart)
+  const offset = !buffer.duration
+    ? 0
+    : loop
+      ? into % buffer.duration
+      : Math.min(into, Math.max(0, buffer.duration - 0.03))
+  const low = ctx.createBiquadFilter()
+  low.type = "lowshelf"
+  low.frequency.value = 140
+  low.gain.value = layer.low || 0
+  const high = ctx.createBiquadFilter()
+  high.type = "highshelf"
+  high.frequency.value = 4200
+  high.gain.value = layer.high || 0
+  const gain = ctx.createGain()
+  const gate = ctx.createGain()
+  gate.gain.value = audible(layer) ? 1 : 0
+  const hole = ctx.createGain()
+  const pan = ctx.createStereoPanner()
+  pan.pan.value = layer.pan || 0
+  const dry = ctx.createGain()
+  const wet = ctx.createGain()
+  const space = Math.max(0, Math.min(1, layer.space || 0))
+  dry.gain.value = 1 - space * 0.35
+  wet.gain.value = space * 0.5
+  const verb = ctx.createConvolver()
+  verb.buffer = spaceImpulse(ctx)
+  source.connect(low)
+  low.connect(high)
+  high.connect(gain)
+  gain.connect(gate)
+  gate.connect(hole)
+  hole.connect(pan)
+  pan.connect(dry)
+  dry.connect(destination)
+  pan.connect(verb)
+  verb.connect(wet)
+  wet.connect(destination)
+  if (state.shape && state.lengthSec) scheduleShape(gain, layer.gain ?? 0.8, state.shape, when, span, from)
+  else gain.gain.setValueAtTime(layer.gain ?? 0.8, when)
+  scheduleHoles(hole, layer.gaps, when, from)
+  const begin = when + Math.max(0, rangeStart - from)
+  const playFor = Math.max(0.05, rangeEnd - Math.max(from, rangeStart))
+  source.start(begin, offset)
+  source.stop(begin + playFor)
+  return { source, gain, gate, hole, low, high, pan, dry, wet, span }
+}
+
+function hearLayers() {
+  if (!playing) return
+  const at = songSeconds(ac().currentTime)
+  const missing = state.layers.some((layer) => audible(layer) && buffers.get(layer.id + ":audio") && !mixNodes.get(layer.id))
+  if (missing) {
+    play(at)
+    return
+  }
+  const now = ac().currentTime
+  for (const layer of state.layers) {
+    const nodes = mixNodes.get(layer.id)
+    if (!nodes?.gate) continue
+    nodes.gate.gain.cancelScheduledValues(now)
+    nodes.gate.gain.setValueAtTime(audible(layer) ? 1 : 0, now)
+  }
+}
+
+function play(fromSec) {
   const ctx = ac()
-  const live = state.layers.filter((layer) => audible(layer) && buffers.get(layer.id + ":audio"))
-  if (!live.length) {
-    $("save-status").textContent = "Nothing recorded to play yet. The colored layout is a picture of the song."
+  const spanGuess = state.lengthSec || state.span || 40
+  let from = typeof fromSec === "number" ? fromSec : state.playAt || 0
+  if (from >= spanGuess - 0.05) from = 0
+  const candidates = state.layers.filter((layer) => audible(layer) && buffers.get(layer.id + ":audio"))
+  if (!candidates.length) {
+    stopPlayback()
+    const anyAudio = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
+    $("save-status").textContent = anyAudio
+      ? "Mute or solo is hiding every layer. Turn a layer on to hear it."
+      : "Nothing recorded to play yet. The colored layout is a picture of the song."
     return
   }
   stopPlayback()
   playing = true
+  playFrom = from
+  state.playAt = from
   playStarted = ctx.currentTime
   $("play-btn").textContent = "■"
   beginSky("play")
-  const span = state.lengthSec || Math.max(...live.map((layer) => buffers.get(layer.id + ":audio").duration))
+  const span = state.lengthSec || Math.max(...candidates.map((layer) => buffers.get(layer.id + ":audio").duration))
+  let started = 0
   let ended = 0
-  for (const layer of live) {
+  for (const layer of candidates) {
     const buffer = buffers.get(layer.id + ":audio")
-    const source = ctx.createBufferSource()
-    source.buffer = buffer
-    if (state.lengthSec && buffer.duration >= 0.05 && buffer.duration < span - 0.05) source.loop = true
-    const lowFilter = ctx.createBiquadFilter()
-    lowFilter.type = "lowshelf"
-    lowFilter.frequency.value = 140
-    lowFilter.gain.value = layer.low || 0
-    const highFilter = ctx.createBiquadFilter()
-    highFilter.type = "highshelf"
-    highFilter.frequency.value = 4200
-    highFilter.gain.value = layer.high || 0
-    const gain = ctx.createGain()
-    const pan = ctx.createStereoPanner()
-    pan.pan.value = layer.pan || 0
-    const dry = ctx.createGain()
-    const wet = ctx.createGain()
-    const space = Math.max(0, Math.min(1, layer.space || 0))
-    dry.gain.value = 1 - space * 0.35
-    wet.gain.value = space * 0.5
-    const verb = ctx.createConvolver()
-    verb.buffer = spaceImpulse(ctx)
-    source.connect(lowFilter)
-    lowFilter.connect(highFilter)
-    highFilter.connect(gain)
-    gain.connect(pan)
+    const nodes = scheduleLayer(ctx, layer, buffer, from, span, ctx.destination, ctx.currentTime)
+    if (!nodes) continue
     const watch = ctx.createAnalyser()
     watch.fftSize = 64
     watch.smoothingTimeConstant = 0.78
-    pan.connect(dry)
-    dry.connect(ctx.destination)
-    pan.connect(verb)
-    verb.connect(wet)
-    wet.connect(ctx.destination)
-    pan.connect(watch)
-    const start = ctx.currentTime
-    if (state.shape && state.lengthSec) scheduleShape(gain, layer.gain, state.shape, start, span)
-    else gain.gain.value = layer.gain
-    mixNodes.set(layer.id, { id: layer.id, gain, low: lowFilter, high: highFilter, pan, dry, wet, span, watch, bins: new Uint8Array(watch.frequencyBinCount) })
-    source.start()
-    source.stop(start + Math.max(0.05, span))
-    activeSources.push(source)
-    source.onended = () => {
+    nodes.pan.connect(watch)
+    nodes.watch = watch
+    nodes.bins = new Uint8Array(watch.frequencyBinCount)
+    mixNodes.set(layer.id, nodes)
+    activeSources.push(nodes.source)
+    started += 1
+    nodes.source.onended = () => {
       ended += 1
-      if (playing && ended >= live.length) stopPlayback()
+      if (playing && ended >= started) stopPlayback()
     }
+  }
+  if (!started) {
+    stopPlayback()
+    $("save-status").textContent = "The play line is past the sound in this part. Move it back, or pick Whole song."
+    return
   }
   const tick = () => {
     if (!playing) return
-    const elapsed = ctx.currentTime - playStarted
-    const travel = Math.max(1, state.trackWidth - 190)
-    const x = 164 + (elapsed / span) * travel
-    $("playhead").style.left = `${Math.min(state.trackWidth - 12, x)}px`
+    const elapsed = songSeconds(ctx.currentTime)
+    if (elapsed >= span) {
+      stopPlayback()
+      placePlayhead(0)
+      return
+    }
+    placePlayhead(elapsed)
+    const head = $("playhead")
     const timeline = $("timeline")
-    if (x > timeline.scrollLeft + timeline.clientWidth * 0.72) timeline.scrollLeft = x - timeline.clientWidth * 0.35
+    const x = Number.parseFloat(head?.style.left || "0")
+    if (timeline && x > timeline.scrollLeft + timeline.clientWidth * 0.72) timeline.scrollLeft = x - timeline.clientWidth * 0.35
     raf = requestAnimationFrame(tick)
   }
   raf = requestAnimationFrame(tick)
+}
+
+function encodeWav(audio) {
+  const channels = audio.numberOfChannels
+  const rate = audio.sampleRate
+  const length = audio.length
+  const bytes = new ArrayBuffer(44 + length * channels * 2)
+  const view = new DataView(bytes)
+  const write = (offset, text) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i))
+  }
+  write(0, "RIFF")
+  view.setUint32(4, 36 + length * channels * 2, true)
+  write(8, "WAVE")
+  write(12, "fmt ")
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, channels, true)
+  view.setUint32(24, rate, true)
+  view.setUint32(28, rate * channels * 2, true)
+  view.setUint16(32, channels * 2, true)
+  view.setUint16(34, 16, true)
+  write(36, "data")
+  view.setUint32(40, length * channels * 2, true)
+  const data = []
+  for (let channel = 0; channel < channels; channel++) data.push(audio.getChannelData(channel))
+  let offset = 44
+  for (let i = 0; i < length; i++) {
+    for (let channel = 0; channel < channels; channel++) {
+      const sample = Math.max(-1, Math.min(1, data[channel][i] || 0))
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+      offset += 2
+    }
+  }
+  return bytes
+}
+
+async function downloadMix() {
+  const live = state.layers.filter((layer) => audible(layer) && buffers.get(layer.id + ":audio"))
+  const note = $("finish-note")
+  if (!live.length) {
+    const message = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
+      ? "Mute or solo is hiding every layer. Turn a layer on, then master the song."
+      : "Open a song and press play once so the audio is loaded, then master it."
+    $("save-status").textContent = message
+    if (note) note.textContent = message
+    return
+  }
+  const span = state.lengthSec || Math.max(...live.map((layer) => buffers.get(layer.id + ":audio").duration))
+  const rate = ac().sampleRate
+  $("save-status").textContent = "Making the song file…"
+  if (note) note.textContent = "Making the song file…"
+  const offline = new OfflineAudioContext(2, Math.max(1, Math.ceil(span * rate)), rate)
+  for (const layer of live) scheduleLayer(offline, layer, buffers.get(layer.id + ":audio"), 0, span, offline.destination, 0)
+  const rendered = await offline.startRendering()
+  const wav = encodeWav(rendered)
+  const name = (state.song?.title || "Songbird").replace(/[^\w\s-]+/g, "").trim() || "Songbird"
+  const url = URL.createObjectURL(new Blob([wav], { type: "audio/wav" }))
+  const link = document.createElement("a")
+  link.href = url
+  link.download = `${name}.wav`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+  const message = `${name}.wav is downloading. It matches mute, solo, and the mix. Nothing is uploaded.`
+  $("save-status").textContent = message
+  if (note) note.textContent = message
 }
 
 function stopPlayback() {
@@ -1735,19 +2085,45 @@ document.body.addEventListener("click", (event) => {
   if (action === "panel") setPanel(node.dataset.panel)
   if (action === "close-panel") closePanel()
   if (action === "undo" && undoStack.length) {
-    redoStack.push(JSON.stringify(state.layers))
+    redoStack.push(capture())
     restore(undoStack.pop())
     rememberSong()
   }
   if (action === "redo" && redoStack.length) {
-    undoStack.push(JSON.stringify(state.layers))
+    undoStack.push(capture())
     restore(redoStack.pop())
     rememberSong()
   }
   if (action === "toggle-click") {
     state.click = !state.click
+    if (!state.click) stopClick()
+    else if (state.recording) startClick()
     $("click-btn").classList.toggle("on", state.click)
     $("click-btn").textContent = state.click ? "Click" : "Muted"
+  }
+  if (action === "pick-section") {
+    const section = songSections().find((item) => item.id === node.dataset.id)
+    if (section) {
+      const same = state.section === section.id
+      state.section = same ? null : section.id
+      if (!same) placePlayhead(section.start * spanSeconds())
+      if (playing) play(state.playAt)
+      renderRuler()
+      renderInspector()
+      $("save-status").textContent = sectionWorkLine()
+    }
+  }
+  if (action === "section-mode") {
+    state.sectionMode = node.dataset.mode === "replace" ? "replace" : "add"
+    renderRuler()
+    renderInspector()
+    $("save-status").textContent = sectionWorkLine()
+  }
+  if (action === "whole-song") {
+    state.section = null
+    renderRuler()
+    renderInspector()
+    $("save-status").textContent = "The whole song is selected. New layers cover all of it."
   }
   if (action === "select-layer") {
     state.selected = node.dataset.id
@@ -1775,9 +2151,23 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "monitor") {
     state.monitor = node.dataset.monitor
-    if (state.monitor === "transformed") {
-      $("save-status").textContent = "Transformed monitoring is not connected yet. You still hear the original."
+    if (sky.monitor) {
+      try { sky.monitor.disconnect() } catch { /* already released */ }
+      sky.monitor = null
     }
+    const hear = state.monitor === "original" || state.monitor === "both"
+    if (state.recording && hear && sky.micSource) {
+      const monitor = ac().createGain()
+      monitor.gain.value = 0.35
+      sky.micSource.connect(monitor)
+      monitor.connect(ac().destination)
+      sky.monitor = monitor
+    }
+    $("save-status").textContent = state.monitor === "transformed"
+      ? "Hearing a transformed voice while you sing is not live yet. The microphone is quiet in the speakers."
+      : hear
+        ? "You can hear yourself. Headphones keep that out of the take."
+        : "The microphone is quiet in the speakers."
     renderInspector()
   }
   if (action === "keep-take") void keepTake()
@@ -1848,13 +2238,18 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "toggle-mute" || action === "toggle-solo") {
     if (node.dataset.id) state.selected = node.dataset.id
-    const layer = selectedLayer()
+    const layer = state.layers.find((item) => item.id === node.dataset.id) || selectedLayer()
     if (!layer) return
     snapshot()
     if (action === "toggle-mute") layer.mute = !layer.mute
     else layer.solo = !layer.solo
     rememberSong()
+    renderTracks()
     renderInspector()
+    hearLayers()
+    const others = state.layers.filter((item) => item.solo)
+    const what = layer.mute ? `${layer.name} is muted.` : layer.solo ? `${layer.name} is solo. The other layers are quiet.` : others.length ? `${layer.name} is back, and solo still hides the rest.` : `${layer.name} is back in the song.`
+    $("save-status").textContent = what
   }
   if (action === "reset-pan") {
     const layer = selectedLayer()
@@ -1862,18 +2257,23 @@ document.body.addEventListener("click", (event) => {
     snapshot()
     layer.pan = 0
     rememberSong()
+    refreshMix(layer)
     renderInspector()
   }
   if (action === "delete-layer") {
     const layer = selectedLayer()
     if (!layer) return
     snapshot()
+    buffers.delete(layer.id)
+    buffers.delete(layer.id + ":audio")
     state.layers = state.layers.filter((item) => item.id !== layer.id)
     state.selected = state.layers[0]?.id ?? null
     rememberSong()
     renderTracks()
     renderInspector()
+    if (playing) play(songSeconds(ac().currentTime))
   }
+  if (action === "download-mix") void downloadMix()
   if (action === "video-note") {
     const note = $("finish-note")
     if (note) note.textContent = "Video creation is not connected in this prototype."
@@ -1922,6 +2322,34 @@ $("timeline").addEventListener("wheel", (event) => {
     event.preventDefault()
   }
 }, { passive: false })
+
+$("timeline").addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return
+  if (event.target.closest("button, a, input, textarea, label")) return
+  const wasPlaying = playing
+  if (wasPlaying) stopPlayback()
+  const move = (ev) => placePlayhead(timeAt(ev.clientX))
+  const up = () => {
+    window.removeEventListener("pointermove", move)
+    window.removeEventListener("pointerup", up)
+    if (wasPlaying) play()
+  }
+  event.preventDefault()
+  $("timeline").focus()
+  move(event)
+  window.addEventListener("pointermove", move)
+  window.addEventListener("pointerup", up)
+})
+
+$("timeline").addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+  event.preventDefault()
+  const step = event.shiftKey ? 5 : 1
+  const wasPlaying = playing
+  if (wasPlaying) stopPlayback()
+  placePlayhead((state.playAt || 0) + (event.key === "ArrowRight" ? step : -step))
+  if (wasPlaying) play()
+})
 
 renderSongs()
 renderProjectActions()
