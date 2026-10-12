@@ -197,7 +197,7 @@ h2 { font: var(--type-section); }
 .seg, .choices, .row, .mobile-nav, .section-tools, .song-actions, .share-row { align-items: center; }
 .search, .bpm { display: flex; align-items: center; gap: 8px; }
 .search { margin: 8px 16px; }
-.search input, #song-title, #song-author, .bpm input, .field input:not([type="range"]), .field textarea, .share-row input {
+.search input, #song-title, #song-author, .bpm input, .field input:not([type="range"]), .field textarea, .field select, .share-row input {
   width: 100%;
   background: rgba(255, 251, 242, 0.08);
   border: 1px solid rgba(255, 251, 242, 0.22);
@@ -984,6 +984,16 @@ button.mini.on {
   text-align: left;
 }
 #inspector .empty { margin: 0; }
+.genre-package { display: flex; flex-direction: column; gap: 8px; }
+.genre-package > .btn { width: 100%; }
+.genre-package .ask, .genre-package .hint, .genre-package .field { margin: 0; }
+.package-more { color: var(--mute); font-size: 12px; }
+.package-more summary { cursor: pointer; color: var(--text); font-weight: 600; }
+.package-status { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.package-status li { display: flex; justify-content: space-between; gap: 8px; }
+.status-ready { color: var(--mint); }
+.status-partial { color: var(--gold); }
+.status-planned { color: var(--mute); }
 input[type="range"].slider::-webkit-slider-runnable-track,
 input[type="range"].fader::-webkit-slider-runnable-track {
   height: 8px;
@@ -1018,3 +1028,104 @@ input[type="range"].fader::-moz-range-thumb {
 }
 .strip { flex-basis: 132px; }
 .field .slider + span { color: var(--pink-light); font: var(--type-meta); }
+
+.label-top { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.label-top .layer-name { flex: 1; min-width: 0; }
+button.layer-delete {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(232, 184, 109, 0.85);
+  background: transparent;
+  color: var(--gold);
+  font-size: 16px;
+  line-height: 1;
+}
+.song-open, .track-meta, .strip-name { cursor: pointer; }
+
+@media (hover: hover) {
+  button.btn-primary:hover,
+  button.chip.on:hover,
+  button.plan.on:hover,
+  button.tile.on:hover,
+  button.section.on:hover,
+  button#play-btn:hover,
+  button.icon-btn:not(#rec-btn):hover {
+    background: var(--mint-hover);
+    color: var(--ink);
+    border-color: transparent;
+  }
+  button#play-btn.is-on:hover {
+    background: #18483C;
+    color: var(--mint);
+    box-shadow: 0 0 0 3px var(--mint);
+  }
+  button.btn-secondary:hover,
+  button.plan:hover,
+  button.tile:hover,
+  button.dock-btn:hover,
+  button.chip:hover,
+  button.section:hover,
+  button.mini:hover {
+    background: #1d5a4a;
+    border-color: var(--mint);
+    color: var(--text);
+  }
+  button.plan.on:hover,
+  button.tile.on:hover,
+  button.chip.on:hover,
+  button.section.on:hover,
+  button.mini.on:hover,
+  button.icon-btn.on:hover {
+    background: var(--mint-hover);
+    color: var(--ink);
+    border-color: transparent;
+  }
+  button.icon-btn[data-action="jump"]:hover,
+  button.icon-btn[data-action="undo"]:hover,
+  button.icon-btn[data-action="redo"]:hover,
+  button.icon-btn[data-action="close-panel"]:hover,
+  button.icon-btn[data-action="show-library"]:hover {
+    background: #1d5a4a;
+    color: var(--text);
+    border-color: var(--mint);
+  }
+  button#rec-btn:hover,
+  button.mic:hover {
+    filter: brightness(1.12);
+    box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.45);
+  }
+  button.btn-danger:hover,
+  button.layer-delete:hover {
+    background: rgba(232, 184, 109, 0.24);
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+  input:not([type="range"]):hover,
+  textarea:hover,
+  select:hover,
+  #song-title:hover,
+  #song-author:hover,
+  #search:hover,
+  #bpm:hover {
+    border-color: rgba(52, 211, 153, 0.95);
+  }
+  input[type="range"].slider:hover,
+  input[type="range"].fader:hover {
+    filter: brightness(1.15);
+  }
+  .song:hover,
+  .strip:hover,
+  .track:hover .track-label {
+    border-color: rgba(52, 211, 153, 0.8);
+  }
+  .track-meta:hover,
+  .song-open:hover,
+  .strip-name:hover {
+    color: var(--mint);
+  }
+}

@@ -852,6 +852,20 @@ function arrangePerformance(notes, options = {}) {
   return { notes: out, figure, touch, exact: touch === "beat" }
 }
 
+function patternHits(bpm, duration, pattern) {
+  const beat = 60 / Math.max(40, bpm || 92)
+  const cycle = Math.max(1, pattern.cycleBeats || 4)
+  const cycles = Math.max(1, Math.ceil((duration - 0.04) / (beat * cycle)))
+  const hits = []
+  for (let c = 0; c < cycles; c++) {
+    for (const hit of pattern.hits || []) {
+      const time = (c * cycle + hit.beat) * beat
+      if (time >= 0 && time < duration - 0.03) hits.push({ time, kind: hit.kind === "snare" ? "snare" : "kick" })
+    }
+  }
+  return hits
+}
+
 function pocketHits(bpm, duration, pocket) {
   const beat = 60 / Math.max(40, bpm || 92)
   const count = Math.max(4, Math.floor((duration - 0.04) / beat))
@@ -888,7 +902,8 @@ function transformAudio(samples, kind, options = {}) {
         hits = melody.map((note, index) => ({ time: note.time, kind: index % 2 === 0 ? "kick" : "snare" }))
       }
     }
-    if (options.pocket === "backbeat" || options.pocket === "boom") hits = pocketHits(bpm, duration, options.pocket)
+    if (options.pattern && options.pattern.hits && options.pattern.hits.length) hits = patternHits(bpm, duration, options.pattern)
+    else if (options.pocket === "backbeat" || options.pocket === "boom") hits = pocketHits(bpm, duration, options.pocket)
     if (hits.length < 2) return null
     return { samples: finish(renderDrums(hits, duration, rng, era)), proof: { hits, pocket: options.pocket || "played" } }
   }
@@ -1246,6 +1261,7 @@ function makeExample(id) {
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
+  patternHits,
   tempoFromAudio,
   tempoFromTimes,
   sampleRate: SR,

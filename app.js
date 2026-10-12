@@ -270,6 +270,9 @@ const state = {
   figure: "solo",
   touch: "hold",
   pocket: "played",
+  genre: "rnb",
+  subgenre: "contemporary-rnb",
+  blend: "gospel",
   songs: loadSongs(),
   song: null,
   layers: [],
@@ -1224,7 +1227,10 @@ function renderTracks() {
         : "rgba(255,251,242,0.28)"
       return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""} ${hear.className} ${edited ? "edited" : "original"}" data-id="${layer.id}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
         <div class="track-label">
-          <input class="layer-name" data-rename="${layer.id}" value="${esc(layer.name)}" maxlength="40" aria-label="Name this layer" />
+          <div class="label-top">
+            <input class="layer-name" data-rename="${layer.id}" value="${esc(layer.name)}" maxlength="40" aria-label="Name this layer" />
+            <button type="button" class="layer-delete" data-action="delete-layer" data-id="${layer.id}" aria-label="Delete ${esc(layer.name)}">×</button>
+          </div>
           <button class="track-meta" data-action="select-layer" data-id="${layer.id}">
             <small class="role">${edited ? "Edited" : "Original"}</small>
             <small>${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
@@ -1340,7 +1346,7 @@ function magicLog() {
     <h3>Magic Log</h3>
     <p class="hint">Original recordings stay on their own layers. An added part is marked Edited. Undo puts the last edit back.</p>
     ${rows ? `<ul>${rows}</ul>` : `<p class="hint">No layers yet.</p>`}
-    <p class="hint">Magic Clean, Magic Tune, Magic Erase, and Magic Marker are not connected. This page does not remove noise, correct pitch, erase a region, or offer strings or synth.</p>
+    <p class="hint">A genre package adds only the steps marked ready. Magic Clean, Magic Tune, Magic Timing, Magic Erase, and Magic Marker are listed and not connected. Strings, synth, and MIDI are not connected.</p>
   </section>`
 }
 
@@ -1385,6 +1391,7 @@ function renderMix(head, layer) {
     <label class="field">Layer name
       <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
     </label>
+    ${dangerButton("Delete layer", `data-action="delete-layer" data-id="${current.id}"`)}
     <p class="ask">For the whole song</p>
     <div class="mix-boxes">${Object.entries(SONG_MIXES).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
     <p class="ask">For one kind of part</p>
@@ -1435,6 +1442,52 @@ function applyMix(id) {
   $("save-status").textContent = `${song.name}. ${song.line}`
 }
 
+function statusWord(status) {
+  if (status === "ready") return "Ready"
+  if (status === "partial") return "Partial"
+  return "Not in this version"
+}
+
+function genrePanel() {
+  if (typeof SongbirdPackages === "undefined") return ""
+  const genres = SongbirdPackages.listGenres()
+  const current = SongbirdPackages.get(state.genre) || SongbirdPackages.get("rnb")
+  const hybrid = current.id === "hybrid"
+  const others = genres.filter((genre) => genre.id !== "hybrid")
+  if (!hybrid && !current.subgenres.some((item) => item.id === state.subgenre)) state.subgenre = current.subgenres[0].id
+  if (hybrid && !others.some((genre) => genre.id === state.subgenre)) state.subgenre = "rnb"
+  if (hybrid && (!others.some((genre) => genre.id === state.blend) || state.blend === state.subgenre)) {
+    state.blend = others.find((genre) => genre.id !== state.subgenre)?.id || "gospel"
+  }
+  const plan = SongbirdPackages.plan(current.id, state.subgenre, state.blend)
+  const genreOptions = genres.map((genre) => `<option value="${esc(genre.id)}" ${genre.id === current.id ? "selected" : ""}>${esc(genre.name)} · ${statusWord(genre.status)}</option>`).join("")
+  const subOptions = hybrid
+    ? others.map((genre) => `<option value="${esc(genre.id)}" ${genre.id === state.subgenre ? "selected" : ""}>${esc(genre.name)}</option>`).join("")
+    : current.subgenres.map((item) => `<option value="${esc(item.id)}" ${item.id === state.subgenre ? "selected" : ""}>${esc(item.name)}</option>`).join("")
+  const blendOptions = others.map((genre) => `<option value="${esc(genre.id)}" ${genre.id === state.blend ? "selected" : ""}>${esc(genre.name)}</option>`).join("")
+  const magic = SongbirdPackages.magic.map((item) => `<li><b>${esc(item.name)}</b><span class="status-${esc(item.status)}">${statusWord(item.status)}</span></li>`).join("")
+  return `<section class="genre-package">
+    <p class="ask">Genre package</p>
+    <p class="hint">${esc(current.description)}</p>
+    <label class="field">Package
+      <select id="genre-pack" aria-label="Genre package">${genreOptions}</select>
+    </label>
+    <label class="field">${hybrid ? "Harmony and bass from" : "Variation"}
+      <select id="genre-sub" aria-label="${hybrid ? "First package" : "Variation"}">${subOptions}</select>
+    </label>
+    ${hybrid ? `<label class="field">Drums from<select id="genre-blend" aria-label="Second package">${blendOptions}</select></label>` : ""}
+    <p class="hint">${plan.note ? esc(plan.note) : ""}</p>
+    <p class="hint"><b>Will add:</b> ${plan.will.length ? esc(plan.will.join(" ")) : "Nothing yet. Pick two different packages."}</p>
+    <p class="hint"><b>Not in this version:</b> ${esc(plan.wont.join(", "))}.</p>
+    ${filledButton("Apply ready steps", `data-action="apply-genre" ${state.transforming ? "disabled" : ""}`)}
+    <details class="package-more">
+      <summary>All Magic packages</summary>
+      <ul class="package-status">${magic}</ul>
+      <p class="hint">Partial means only some of that package plays. Not in this version means the control is listed and does not process audio.</p>
+    </details>
+  </section>`
+}
+
 function renderInspector() {
   const layer = selectedLayer()
   const head = (title) => `<div class="sheet-head"><h2>${title}</h2>${iconButton("close", `data-action="close-panel" aria-label="Close" title="Close"`)}</div>`
@@ -1476,6 +1529,7 @@ function renderInspector() {
       : ""
     const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
     body = `${head("Magic Transform")}
+      ${genrePanel()}
       <p class="hint">${current ? `${esc(current.name)} is selected.` : "Select a layer."} Singing stays your voice. Any other sound adds an instrument beside it and does not replace the vocal.</p>
       ${sources.length ? `<p class="ask">This layer</p>
         <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer first.</p>`}
@@ -1609,6 +1663,9 @@ function openSong(id) {
     state.shape = song.shape || null
     state.intent = song.intent || null
     state.bpm = song.bpm || 92
+    state.genre = song.genre || state.genre
+    state.subgenre = song.subgenre || state.subgenre
+    state.blend = song.blend || state.blend
     state.tempoSource = song.tempoSource || ""
     state.tempoLocked = !!song.tempoLocked
     $("bpm").value = state.bpm
@@ -1657,11 +1714,14 @@ function rememberSong() {
   state.song.shape = state.shape
   state.song.intent = state.intent
   state.song.bpm = state.bpm
+  state.song.genre = state.genre
+  state.song.subgenre = state.subgenre
+  state.song.blend = state.blend
   state.song.tempoSource = state.tempoSource
   state.song.tempoLocked = state.tempoLocked
   state.song.sections = state.sections
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId,
   }))
   saveSongs()
   $("save-status").textContent = "Saved just now"
@@ -2188,6 +2248,107 @@ function addTransformedLayer(sound) {
   }, 30)
 }
 
+function applyGenrePackage() {
+  if (state.transforming || typeof SongbirdPackages === "undefined") return
+  const profile = SongbirdPackages.get(state.genre)
+  const steps = SongbirdPackages.readySteps(state.genre, state.subgenre, state.blend)
+  const layers = state.layers.filter((layer) => buffers.get(layer.id + ":audio"))
+  const origin = layers.find((layer) => isVocalLayer(layer)) || layers.find((layer) => layer.sound !== "Drums") || layers[0]
+  if (!profile || !origin) {
+    state.transformNote = "Record a layer first. The package list is here, and nothing is applied until there is audio."
+    state.transformTone = "warn"
+    $("save-status").textContent = state.transformNote
+    renderInspector()
+    return
+  }
+  if (!steps.length) {
+    state.transformNote = "Those packages have no ready steps to combine. Nothing was changed."
+    state.transformTone = "warn"
+    $("save-status").textContent = state.transformNote
+    renderInspector()
+    return
+  }
+  state.transforming = true
+  state.transformNote = `Building the ready ${profile.name} steps…`
+  state.transformTone = ""
+  $("save-status").textContent = state.transformNote
+  renderInspector()
+  window.setTimeout(() => {
+    try {
+      const audio = buffers.get(origin.id + ":audio")
+      const copy = new Float32Array(audio.length)
+      copy.set(audio.getChannelData(0))
+      const colors = { Piano: "#f0a202", Rhodes: "#7ee0c8", "Acoustic guitar": "#ff8ab0", "Electric guitar": "#ff4d8d", Horn: "#F9A8D4", Drums: "#3d7eff", Bass: "#d98a00", Choir: "#b44dff" }
+      const made = []
+      for (const step of steps) {
+        const pattern = step.pattern ? SongbirdPackages.pattern(step.pattern) : null
+        const out = SongbirdMusic.transformAudio(copy, step.sound, {
+          bpm: state.bpm,
+          sampleRate: audio.sampleRate,
+          era: step.era,
+          ...(step.figure ? { figure: step.figure, touch: step.touch || "hold" } : {}),
+          ...(pattern ? { pattern } : {}),
+        })
+        if (out) made.push({ step, out, pattern })
+      }
+      if (!made.length) {
+        state.transformNote = `Couldn't find a melody in ${origin.name}. Nothing was added.`
+        state.transformTone = "warn"
+      } else {
+        snapshot()
+        const packageId = profile.id === "hybrid" ? `hybrid:${state.subgenre}:${state.blend}` : profile.id
+        state.layers = state.layers.filter((layer) => {
+          if (!layer.packageId) return true
+          if (layer.packageId === packageId) return false
+          if (profile.id === "hybrid" && String(layer.packageId).startsWith("hybrid:")) return false
+          return true
+        })
+        made.forEach((item, index) => {
+          const id = uid()
+          const step = item.step
+          state.layers.push({
+            id,
+            name: `${profile.name} ${step.role || step.sound}`,
+            sound: step.sound,
+            figure: step.figure || "",
+            touch: step.touch || "",
+            pocket: step.pattern || "",
+            from: `${profile.name} package · ${step.renders || step.sound}`,
+            color: colors[step.sound] || "#7aa2ff",
+            peaks: peaksFromSamples(item.out.samples),
+            gain: step.gain ?? 0.3,
+            pan: step.pan ?? (index % 2 === 0 ? -0.12 : 0.12),
+            low: 0,
+            high: 0,
+            space: step.sound === "Choir" ? 0.2 : 0.04,
+            mute: false,
+            solo: false,
+            live: true,
+            sourceId: origin.id,
+            packageId,
+          })
+          buffers.set(id + ":audio", audioBuffer(item.out.samples, SongbirdMusic.sampleRate))
+        })
+        if (profile.recipe.shape && SHAPES[profile.recipe.shape]) state.shape = profile.recipe.shape
+        state.selected = state.layers[state.layers.length - 1].id
+        const kept = isVocalLayer(origin) ? "Your singing stays." : "The original layer stays."
+        state.transformNote = `${profile.name} added ${made.length} ready ${made.length === 1 ? "layer" : "layers"}. ${kept} Undo removes this package.`
+        state.transformTone = ""
+        $("save-status").textContent = state.transformNote
+        rememberSong()
+        try { play() } catch { /* the new layers are still on the timeline */ }
+      }
+    } catch {
+      state.transformNote = "That didn't work. The original layer is unchanged."
+      state.transformTone = "warn"
+      $("save-status").textContent = state.transformNote
+    }
+    state.transforming = false
+    renderTracks()
+    renderInspector()
+  }, 30)
+}
+
 function spaceImpulse(ctx) {
   if (spaceImpulse.cache && spaceImpulse.cache.sampleRate === ctx.sampleRate) return spaceImpulse.cache
   const length = Math.floor(ctx.sampleRate * 1.1)
@@ -2476,6 +2637,28 @@ function fromControl(event) {
   return path.find((item) => item?.dataset?.action || item?.id === "search" || item?.id === "song-title" || item?.id === "song-author" || item?.id === "wish" || item?.id === "bpm" || item?.classList?.contains?.("layer-name") || item?.classList?.contains?.("share-email")) || event.target
 }
 
+document.body.addEventListener("change", (event) => {
+  const node = event.target
+  if (node?.id === "genre-pack") {
+    state.genre = node.value
+    const genre = SongbirdPackages.get(state.genre)
+    state.subgenre = genre?.id === "hybrid" ? "rnb" : (genre?.subgenres[0]?.id || "")
+    renderInspector()
+  }
+  if (node?.id === "genre-sub") {
+    state.subgenre = node.value
+    if (state.genre === "hybrid" && state.blend === state.subgenre) {
+      const other = SongbirdPackages.listGenres().find((genre) => genre.id !== "hybrid" && genre.id !== state.subgenre)
+      if (other) state.blend = other.id
+    }
+    renderInspector()
+  }
+  if (node?.id === "genre-blend") {
+    state.blend = node.value
+    renderInspector()
+  }
+})
+
 document.body.addEventListener("click", (event) => {
   const node = fromControl(event)
   if (!node?.dataset?.action) return
@@ -2706,6 +2889,7 @@ document.body.addEventListener("click", (event) => {
     renderInspector()
   }
   if (action === "apply-sound") addTransformedLayer(node.dataset.sound)
+  if (action === "apply-genre") applyGenrePackage()
   if (action === "apply-mix") applyMix(node.dataset.preset)
   if (action === "toggle-fine") {
     state.fine = !state.fine
@@ -2736,17 +2920,19 @@ document.body.addEventListener("click", (event) => {
     renderInspector()
   }
   if (action === "delete-layer") {
-    const layer = selectedLayer()
+    const layer = state.layers.find((item) => item.id === node.dataset.id) || selectedLayer()
     if (!layer) return
     snapshot()
-    buffers.delete(layer.id)
-    buffers.delete(layer.id + ":audio")
     state.layers = state.layers.filter((item) => item.id !== layer.id)
-    state.selected = state.layers[0]?.id ?? null
+    if (!state.layers.some((item) => item.id === state.selected)) state.selected = state.layers[0]?.id ?? null
     rememberSong()
     renderTracks()
     renderInspector()
-    if (playing) play(songSeconds(ac().currentTime))
+    $("save-status").textContent = `${layer.name} was removed. Undo puts it back.`
+    if (playing) {
+      if (state.layers.length) play(state.playAt || 0)
+      else stopPlayback()
+    }
   }
   if (action === "download-mix") void downloadMix()
   if (action === "video-note") {
