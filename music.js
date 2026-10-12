@@ -168,10 +168,36 @@ function tilt(samples, amount) {
   return samples
 }
 
+const PERIOD_TONE = {
+  "1900": { room: 1.8, warm: 1.55, tilt: -0.42, drive: 0, chorus: 0 },
+  "1920": { room: 1.35, warm: 1.15, tilt: -0.12, drive: 0.08, chorus: 0.05 },
+  "1950": { room: 0.95, warm: 1.05, tilt: 0.02, drive: 0.22, chorus: 0 },
+  "1960": { room: 1.2, warm: 1.3, tilt: -0.1, drive: 0.1, chorus: 0.08 },
+  "1970": { room: 1.05, warm: 0.95, tilt: 0.04, drive: 0.06, chorus: 0.2 },
+  "1980": { room: 0.5, warm: 0.4, tilt: 0.34, drive: 0.12, chorus: 0.38 },
+  "1990": { room: 0.42, warm: 0.75, tilt: -0.08, drive: 0.16, chorus: 0.06 },
+  "2000": { room: 0.32, warm: 0.38, tilt: 0.3, drive: 0.28, chorus: 0.1 },
+  today: { room: 0.28, warm: 0.32, tilt: 0.38, drive: 0.08, chorus: 0.04 },
+}
+
 function eraTone(era) {
   if (era === "modern") return { room: 0.4, warm: 0.55, tilt: 0.28 }
   if (era === "old") return { room: 1.55, warm: 1.4, tilt: -0.32 }
-  return null
+  return PERIOD_TONE[era] || null
+}
+
+function chorus(samples, amount) {
+  if (amount <= 0) return samples
+  const dry = samples.slice()
+  const depth = Math.floor(SR * 0.004 * amount)
+  const base = Math.floor(SR * 0.018)
+  for (let i = 0; i < samples.length; i++) {
+    const wobble = 0.5 + 0.5 * Math.sin((i / SR) * Math.PI * 1.4)
+    const delay = base + Math.floor(depth * wobble)
+    const earlier = i - delay
+    if (earlier >= 0) samples[i] = dry[i] * (1 - amount * 0.35) + dry[earlier] * amount * 0.45
+  }
+  return samples
 }
 
 function studioFinish(samples, profile, era) {
@@ -179,6 +205,8 @@ function studioFinish(samples, profile, era) {
   addRoom(samples, (profile.room || 0) * (tone ? tone.room : 1))
   tilt(samples, tone ? tone.tilt : 0)
   warm(samples, (profile.warm || 0) * (tone ? tone.warm : 1))
+  if (tone && tone.drive) drive(samples, tone.drive)
+  if (tone && tone.chorus) chorus(samples, tone.chorus)
   return samples
 }
 
@@ -295,6 +323,27 @@ function renderRhodes(notes, duration, rng, era) {
     }
   })
   return studioFinish(out, { room: modern ? 0.05 : 0.24, warm: modern ? 0.08 : 0.36 }, era)
+}
+
+function renderHorn(notes, duration, era) {
+  const out = silence(duration)
+  for (const note of notes) {
+    const start = Math.floor(note.time * SR)
+    if (start >= out.length || start < 0) continue
+    const length = Math.min(out.length - start, Math.floor(Math.max(note.dur, 0.4) * SR))
+    const freq = hzOf(Math.min(76, Math.max(52, note.midi)))
+    let phase = 0
+    for (let i = 0; i < length; i++) {
+      const t = i / SR
+      const vibrato = 1 + 0.014 * Math.sin(2 * Math.PI * 5 * t)
+      phase += (2 * Math.PI * freq * vibrato) / SR
+      const tone = Math.sin(phase) * 0.72 + Math.sin(phase * 2) * 0.26 + Math.sin(phase * 3) * 0.14 + Math.sin(phase * 5) * 0.06
+      const attack = Math.min(1, t / 0.045)
+      const release = Math.min(1, Math.max(0.001, note.dur - t) / 0.09)
+      out[start + i] += Math.tanh(tone * 1.35) * attack * release * 0.48
+    }
+  }
+  return studioFinish(out, { room: 0.24, warm: 0.18 }, era)
 }
 
 function renderBass(notes, duration, era) {
@@ -727,14 +776,24 @@ function transformAudio(samples, kind, options = {}) {
   const bpm = options.bpm || 92
   const duration = samples.length / SR
   const rng = options.rng || mulberry32(1)
-  const era = options.era === "modern" || options.era === "old" ? options.era : undefined
+  const era = options.era && eraTone(options.era) ? options.era : undefined
   if (kind === "Drums") {
-    const hits = hitsFromOnsets(detectOnsets(samples), bpm)
+    let hits = hitsFromOnsets(detectOnsets(samples), bpm)
+    if (hits.length < 2) {
+      const melody = detectNotes(samples)
+      hits = hitsFromOnsets(melody.map((note) => note.time), bpm)
+      if (hits.length < 2 && melody.length >= 2) {
+        hits = melody.map((note, index) => ({ time: note.time, kind: index % 2 === 0 ? "kick" : "snare" }))
+      }
+    }
     if (hits.length < 2) return null
     return { samples: finish(renderDrums(hits, duration, rng, era)), proof: { hits } }
   }
   if (kind === "Bass") {
-    const notes = detectNotes(samples, { minHz: 40, maxHz: 180, lowpass: 220, minEnergy: 0.00015 })
+    let notes = detectNotes(samples, { minHz: 40, maxHz: 180, lowpass: 220, minEnergy: 0.00015 })
+    if (!notes.length) {
+      notes = detectNotes(samples).map((note) => ({ ...note, midi: Math.max(36, note.midi - 12) }))
+    }
     if (!notes.length) return null
     return { samples: finish(renderBass(notes, duration, era)), proof: { notes } }
   }
@@ -748,6 +807,7 @@ function transformAudio(samples, kind, options = {}) {
     const key = options.key == null ? guessKey(notes) : options.key
     return { samples: finish(renderChoir(notes, duration, key, rng, era)), proof: { notes, key } }
   }
+  if (kind === "Horn") return { samples: finish(renderHorn(notes, duration, era)), proof: { notes } }
   return null
 }
 
