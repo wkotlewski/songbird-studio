@@ -451,9 +451,9 @@ function paintSky(now, level) {
   const awake = !!document.body.dataset.sound
   ctx.clearRect(0, 0, width, height)
   const wash = ctx.createLinearGradient(0, 0, width, height)
-  wash.addColorStop(0, "rgba(8, 14, 36, 0.25)")
-  wash.addColorStop(0.55, "rgba(18, 10, 40, 0.18)")
-  wash.addColorStop(1, "rgba(6, 16, 32, 0.4)")
+  wash.addColorStop(0, "rgba(7, 28, 23, 0.08)")
+  wash.addColorStop(0.55, "rgba(16, 53, 44, 0.05)")
+  wash.addColorStop(1, "rgba(7, 28, 23, 0.16)")
   ctx.fillStyle = wash
   ctx.fillRect(0, 0, width, height)
   for (let i = 0; i < CLOUDS.length; i++) {
