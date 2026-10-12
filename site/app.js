@@ -537,6 +537,7 @@ function readEnergy() {
 }
 
 function paintMeter() {
+  rideInput()
   if (!state.recording || !sky.micBins) return
   const meter = document.querySelector(".meter")
   if (!meter) return
@@ -662,31 +663,76 @@ function wakeSky() {
   }, 1400)
 }
 
-function attachMic(stream) {
+function armHotMic(stream) {
   releaseMic()
   const ctx = ac()
   const source = ctx.createMediaStreamSource(stream)
+  const raw = ctx.createAnalyser()
+  raw.fftSize = 1024
+  raw.smoothingTimeConstant = 0.2
+  const makeup = ctx.createGain()
+  makeup.gain.value = 4
+  const limiter = ctx.createDynamicsCompressor()
+  limiter.threshold.value = -1.5
+  limiter.knee.value = 2
+  limiter.ratio.value = 18
+  limiter.attack.value = 0.002
+  limiter.release.value = 0.1
   const analyser = ctx.createAnalyser()
   analyser.fftSize = 256
-  analyser.smoothingTimeConstant = 0.72
-  source.connect(analyser)
+  analyser.smoothingTimeConstant = 0.45
+  const dest = ctx.createMediaStreamDestination()
+  source.connect(raw)
+  source.connect(makeup)
+  makeup.connect(limiter)
+  limiter.connect(dest)
+  limiter.connect(analyser)
   const hear = state.mode === "live" || state.monitor === "original" || state.monitor === "both"
   if (hear) {
     const monitor = ctx.createGain()
-    monitor.gain.value = 0.35
-    source.connect(monitor)
+    monitor.gain.value = 0.4
+    limiter.connect(monitor)
     monitor.connect(ctx.destination)
     sky.monitor = monitor
   }
   sky.micSource = source
+  sky.rawAnalyser = raw
+  sky.rawTime = new Uint8Array(raw.fftSize)
+  sky.makeup = makeup
+  sky.limiter = limiter
+  sky.micDest = dest
   sky.micAnalyser = analyser
   sky.micBins = new Uint8Array(analyser.frequencyBinCount)
+  return dest.stream
+}
+
+function rideInput() {
+  const raw = sky.rawAnalyser
+  const makeup = sky.makeup
+  const time = sky.rawTime
+  if (!raw || !makeup || !time || !state.recording) return
+  raw.getByteTimeDomainData(time)
+  let peak = 0
+  for (let i = 0; i < time.length; i++) {
+    const sample = Math.abs(time[i] - 128) / 128
+    if (sample > peak) peak = sample
+  }
+  const desired = peak < 0.012 ? 4 : Math.min(12, Math.max(1, 0.72 / peak))
+  makeup.gain.value += (desired - makeup.gain.value) * 0.18
 }
 
 function releaseMic() {
   try { sky.micSource?.disconnect() } catch { /* already released */ }
+  try { sky.makeup?.disconnect() } catch { /* already released */ }
+  try { sky.limiter?.disconnect() } catch { /* already released */ }
   try { sky.monitor?.disconnect() } catch { /* already released */ }
+  try { sky.micDest?.stream?.getTracks().forEach((track) => track.stop()) } catch { /* already released */ }
   sky.micSource = null
+  sky.rawAnalyser = null
+  sky.rawTime = null
+  sky.makeup = null
+  sky.limiter = null
+  sky.micDest = null
   sky.micAnalyser = null
   sky.micBins = null
   sky.monitor = null
@@ -1787,7 +1833,7 @@ function renderInspector() {
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording || state.counting ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording || state.counting ? "recording" : "idle"}" aria-label="${state.recording || state.counting ? "Stop recording" : "Record"}"><span class="glyph" aria-hidden="true">${state.recording || state.counting ? "■" : "●"}</span></button>
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : "00:00"}</p>
-      <p class="hint">Headphones keep the song and the click out of the microphone.</p>
+      <p class="hint">Songbird turns the mic up in the app, so a quiet system input still records hot. It does not change the Mac volume slider. Headphones keep the song and the click out of the microphone.</p>
       ${outlinedButton(state.recMore ? "Hide monitoring" : "Headphones and monitoring", `data-action="toggle-rec-more"`)}
       ${state.recMore ? `<div class="seg">
         ${filterChip("Record First", `data-action="rec-mode" data-mode="first"`, state.mode === "first")}
@@ -2314,7 +2360,7 @@ async function toggleRecord() {
   renderInspector()
   try {
     recStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
+      audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true },
     })
   } catch {
     try {
@@ -2344,10 +2390,11 @@ async function toggleRecord() {
   state.counting = false
   state.countBeat = 0
   state.recording = true
-  attachMic(recStream)
+  let hotStream = null
+  try { hotStream = armHotMic(recStream) } catch { hotStream = null }
   beginSky("record")
   recChunks = []
-  const media = new MediaRecorder(recStream)
+  const media = new MediaRecorder(hotStream || recStream)
   media._wasTempo = tempoPass
   recorder = media
   media.ondataavailable = (event) => {
@@ -2388,8 +2435,8 @@ async function toggleRecord() {
   }, 250)
   syncRecordGuide()
   $("save-status").textContent = hearSong && !tempoPass
-    ? "You can hear the song. Only the microphone is recorded."
-    : `Recording at ${state.bpm}. Only the microphone is recorded.`
+    ? "You can hear the song. The mic is turned up in Songbird, and only that mic is recorded."
+    : `Recording at ${state.bpm}. The mic is turned up in Songbird so it comes in hot.`
   renderInspector()
 }
 
