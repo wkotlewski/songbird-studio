@@ -635,23 +635,11 @@ button.dock-btn.on[data-panel="record"] { border-color: rgba(236, 72, 153, 0.9);
   background: var(--line); margin: 6px auto 12px; border: 0;
 }
 .sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
-.sheet-head h2 { margin: 0; font-size: 22px; min-width: 0; overflow-wrap: anywhere; }
-#inspector-body { min-width: 0; max-width: 100%; }
-#inspector-body .hint,
-#inspector-body .ask,
-#inspector-body .plan,
-#inspector-body .plan b,
-#inspector-body .plan span,
-#inspector-body .field,
-#inspector-body button {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  max-width: 100%;
-}
+.sheet-head h2 { margin: 0; font-size: 22px; min-width: 0; }
 .seg { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; max-width: 100%; min-width: 0; }
 .seg button, .choice, .mini { min-height: 44px; padding: 8px 12px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 8px; min-width: 0; max-width: 100%; }
-.tile { min-height: 72px; min-width: 0; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; max-width: 100%; }
+.tile { min-height: 64px; min-width: 0; }
 .mic {
   width: 96px;
   height: 96px;
@@ -926,6 +914,76 @@ button.mini.on {
   border: 1px solid rgba(255, 251, 242, 0.16);
 }
 .seg button.chip { flex: 1 1 8em; min-width: 0; white-space: normal; }
+
+/* Panels share one vertical rhythm. Text wraps on words, not mid-word. */
+#inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+#inspector-body > * { margin: 0; }
+#inspector-body .hint,
+#inspector-body .ask,
+#inspector-body .plan,
+#inspector-body .plan b,
+#inspector-body .plan span,
+#inspector-body .field {
+  margin: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
+  line-height: 1.35;
+}
+#inspector-body .ask { font-weight: 600; }
+#inspector-body > .btn,
+#inspector-body > button.btn {
+  width: 100%;
+}
+#inspector-body > .row {
+  display: flex;
+  gap: 8px;
+}
+#inspector-body > .row > .btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+#inspector .grid {
+  grid-template-columns: 1fr 1fr;
+}
+#inspector .tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.25;
+  padding: 10px 12px;
+  white-space: normal;
+}
+#inspector .seg {
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+#inspector .seg button {
+  flex: 1 1 calc(50% - 8px);
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+}
+#inspector .mic { margin: 0 auto; }
+#inspector .choices button { max-width: 100%; }
+#inspector .mix-boxes .plan {
+  display: flex;
+  align-items: flex-start;
+  height: 100%;
+  text-align: left;
+}
+#inspector .empty { margin: 0; }
 input[type="range"].slider::-webkit-slider-runnable-track,
 input[type="range"].fader::-webkit-slider-runnable-track {
   height: 8px;
