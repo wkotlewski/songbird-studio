@@ -32,7 +32,9 @@ check("quiet storm drops drums", !P.readySteps("rnb", "quiet-storm").some((step)
 check("bossa does not use son clave", !P.readySteps("latin", "bossa-nova").some((step) => step.sound === "Drums"))
 check("salsa uses son clave", P.readySteps("latin", "salsa").some((step) => step.pattern === "sonclave"))
 check("afrobeats is not afrobeat", P.get("afrobeats").id !== P.get("afrobeat").id && P.readySteps("afrobeats", "contemporary-afrobeats")[0].sound !== P.readySteps("afrobeat", "afrobeat")[0].sound)
-check("magic clean is not ready", P.magic.find((item) => item.id === "magic-clean").operations.every((item) => item.status === "planned"))
+const clean = P.magic.find((item) => item.id === "magic-clean")
+check("magic clean noise and clarity are ready", ["noise", "clarity"].every((id) => clean.operations.find((item) => item.id === id).status === "ready"))
+check("magic clean breaths stay planned", clean.operations.find((item) => item.id === "breath").status === "planned")
 check("children uses the same engine", P.readySteps("children", "educational").every((step) => P.engineSounds.includes(step.sound)))
 
 const sr = M.sampleRate

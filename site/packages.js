@@ -1126,9 +1126,9 @@ const GENRES = [
 ]
 
 const MAGIC = [
-  { id: "magic-clean", name: "Magic Clean", category: "transformation", status: "planned", description: "Noise, hum, click, and breath tools. Not connected. Intentional claps, percussion, and expressive breath are not removed, because nothing here runs.", inputs: ["audio"], operations: [
-    ["noise", "Remove background noise"], ["room", "Reduce room noise and hum"], ["bleed", "Reduce metronome bleed"], ["clicks", "Remove clicks and pops"], ["clip", "Detect clipping"], ["breath", "Reduce breaths when asked"], ["artifacts", "Reduce recording artifacts"], ["clarity", "Improve vocal clarity"],
-  ].map(([id, name]) => ({ id, name, status: "planned" })) },
+  { id: "magic-clean", name: "Magic Clean", category: "transformation", status: "partial", description: "Magic clear on the selected layer softens hiss and brings the sound forward. Breaths, clicks, hum, and metronome bleed are not removed.", inputs: ["audio"], operations: [
+    ["noise", "Remove background noise", "ready"], ["room", "Reduce room noise and hum", "planned"], ["bleed", "Reduce metronome bleed", "planned"], ["clicks", "Remove clicks and pops", "planned"], ["clip", "Detect clipping", "planned"], ["breath", "Reduce breaths when asked", "planned"], ["artifacts", "Reduce recording artifacts", "planned"], ["clarity", "Improve vocal clarity", "ready"],
+  ].map(([id, name, status]) => ({ id, name, status })) },
   { id: "magic-tune", name: "Magic Tune", category: "transformation", status: "planned", description: "Pitch detection for correction, scale lock, transpose, and vibrato-aware tuning. Not connected. The genre packages do not retune your melody.", inputs: ["audio"], operations: [
     ["detect", "Detect pitch and key"], ["notes", "Correct selected notes"], ["gentle", "Gentle correction"], ["hard", "Stylized correction"], ["vibrato", "Preserve vibrato"], ["scale", "Stay in a chosen scale"], ["transpose", "Transpose"], ["harmony-tune", "Tune vocal harmonies"],
   ].map(([id, name]) => ({ id, name, status: "planned" })) },

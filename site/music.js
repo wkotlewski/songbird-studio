@@ -1613,6 +1613,167 @@ function starterAudio(options = {}) {
   return { samples: finish(samples), sampleRate: SR, bpm, kind }
 }
 
+function biquad(type, freq, sampleRate, q = 0.707, gainDb = 0) {
+  const w0 = (2 * Math.PI * freq) / sampleRate
+  const cos = Math.cos(w0)
+  const sin = Math.sin(w0)
+  const A = 10 ** (gainDb / 40)
+  const alpha = sin / (2 * q)
+  let b0 = 1
+  let b1 = 0
+  let b2 = 0
+  let a0 = 1
+  let a1 = 0
+  let a2 = 0
+  if (type === "highpass") {
+    b0 = (1 + cos) / 2
+    b1 = -(1 + cos)
+    b2 = (1 + cos) / 2
+    a0 = 1 + alpha
+    a1 = -2 * cos
+    a2 = 1 - alpha
+  } else if (type === "highshelf") {
+    const two = 2 * Math.sqrt(A) * alpha
+    b0 = A * (A + 1 + (A - 1) * cos + two)
+    b1 = -2 * A * (A - 1 + (A + 1) * cos)
+    b2 = A * (A + 1 + (A - 1) * cos - two)
+    a0 = A + 1 - (A - 1) * cos + two
+    a1 = 2 * (A - 1 - (A + 1) * cos)
+    a2 = A + 1 - (A - 1) * cos - two
+  } else if (type === "lowshelf") {
+    const two = 2 * Math.sqrt(A) * alpha
+    b0 = A * (A + 1 - (A - 1) * cos + two)
+    b1 = 2 * A * (A - 1 - (A + 1) * cos)
+    b2 = A * (A + 1 - (A - 1) * cos - two)
+    a0 = A + 1 + (A - 1) * cos + two
+    a1 = -2 * (A - 1 + (A + 1) * cos)
+    a2 = A + 1 + (A - 1) * cos - two
+  } else {
+    b0 = 1 + alpha * A
+    b1 = -2 * cos
+    b2 = 1 - alpha * A
+    a0 = 1 + alpha / A
+    a1 = -2 * cos
+    a2 = 1 - alpha / A
+  }
+  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 }
+}
+
+function runBiquad(samples, coeff) {
+  const out = new Float32Array(samples.length)
+  let x1 = 0
+  let x2 = 0
+  let y1 = 0
+  let y2 = 0
+  for (let i = 0; i < samples.length; i++) {
+    const x0 = samples[i]
+    const y0 = coeff.b0 * x0 + coeff.b1 * x1 + coeff.b2 * x2 - coeff.a1 * y1 - coeff.a2 * y2
+    x2 = x1
+    x1 = x0
+    y2 = y1
+    y1 = y0
+    out[i] = y0
+  }
+  return out
+}
+
+function noiseFloorRms(samples, sampleRate) {
+  const frame = Math.max(1, Math.round(sampleRate * 0.02))
+  const levels = []
+  for (let i = 0; i < samples.length; i += frame) {
+    let sum = 0
+    const end = Math.min(samples.length, i + frame)
+    for (let j = i; j < end; j++) sum += samples[j] * samples[j]
+    levels.push(Math.sqrt(sum / (end - i)))
+  }
+  if (!levels.length) return 0
+  levels.sort((a, b) => a - b)
+  return levels[Math.min(levels.length - 1, Math.floor(levels.length * 0.2))]
+}
+
+function followLevel(samples, sampleRate) {
+  const env = new Float32Array(samples.length)
+  const att = Math.exp(-1 / (0.0015 * sampleRate))
+  const rel = Math.exp(-1 / (0.08 * sampleRate))
+  let level = 0
+  for (let i = 0; i < samples.length; i++) {
+    const abs = Math.abs(samples[i])
+    level = abs > level ? att * level + (1 - att) * abs : rel * level + (1 - rel) * abs
+    env[i] = Math.max(level, abs)
+  }
+  return env
+}
+
+function highBand(samples, sampleRate, freq) {
+  const blend = Math.exp((-2 * Math.PI * freq) / sampleRate)
+  const out = new Float32Array(samples.length)
+  let y = 0
+  let prev = 0
+  for (let i = 0; i < samples.length; i++) {
+    y = blend * (y + samples[i] - prev)
+    prev = samples[i]
+    out[i] = y
+  }
+  return out
+}
+
+function inputMakeup(peak, noise) {
+  const floor = Math.max(0.004, noise || 0)
+  if (peak < floor * 1.8) return 1.15
+  return Math.min(4.5, Math.max(1.15, 0.48 / Math.max(peak, 0.02)))
+}
+
+function enhanceAudio(samples, sampleRate, options = {}) {
+  const amount = Math.min(1, Math.max(0.15, options.amount || 0.65))
+  const mode = options.mode || "clear"
+  const source = samples instanceof Float32Array ? samples : Float32Array.from(samples)
+  let out = new Float32Array(source)
+  if (mode === "clear" || mode === "hiss" || mode === "smooth") {
+    out = runBiquad(out, biquad("highpass", 75, sampleRate, 0.7))
+  }
+  const noise = noiseFloorRms(source, sampleRate)
+  const env = followLevel(out, sampleRate)
+  const hiss = mode === "bright" || mode === "warm" ? null : highBand(out, sampleRate, mode === "hiss" ? 4200 : 5600)
+  const open = Math.max(1e-5, noise * (mode === "hiss" ? 2.2 : 2.8) * (1.15 - amount * 0.35))
+  const closed = mode === "hiss" ? 0.08 : 0.16
+  if (mode === "clear" || mode === "hiss") {
+    const next = new Float32Array(out.length)
+    for (let i = 0; i < out.length; i++) {
+      const level = env[i]
+      let gate = 1
+      if (level < open) {
+        const t = level / open
+        gate = closed + (1 - closed) * t * t
+      }
+      const quiet = level < open * 1.4
+      const pull = hiss ? hiss[i] * amount * (quiet ? (mode === "hiss" ? 0.9 : 0.72) : 0.18) : 0
+      next[i] = out[i] * gate - pull * (quiet ? gate : 1)
+    }
+    out = next
+  }
+  if (mode === "clear" || mode === "bright") {
+    out = runBiquad(out, biquad("highshelf", 2800, sampleRate, 0.7, 1.5 + amount * 3))
+  }
+  if (mode === "warm") {
+    out = runBiquad(out, biquad("lowshelf", 180, sampleRate, 0.7, 1.5 + amount * 3.5))
+    out = runBiquad(out, biquad("highshelf", 7000, sampleRate, 0.7, -1.5 - amount * 2))
+  }
+  if (mode === "smooth") {
+    out = runBiquad(out, biquad("peaking", 6200, sampleRate, 1.2, -2 - amount * 4))
+  }
+  let srcPeak = 0
+  let outPeak = 0
+  for (let i = 0; i < source.length; i++) {
+    srcPeak = Math.max(srcPeak, Math.abs(source[i]))
+    outPeak = Math.max(outPeak, Math.abs(out[i]))
+  }
+  if (outPeak > 1e-6 && srcPeak > 1e-6) {
+    const gain = Math.min(srcPeak / outPeak, 1.4)
+    for (let i = 0; i < out.length; i++) out[i] *= gain
+  }
+  return out
+}
+
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
@@ -1627,4 +1788,6 @@ globalThis.SongbirdMusic = {
   tuneVoice,
   starterAudio,
   fixTiming,
+  inputMakeup,
+  enhanceAudio,
 }
