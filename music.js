@@ -1720,7 +1720,7 @@ function highBand(samples, sampleRate, freq) {
 function inputMakeup(peak, noise) {
   const floor = Math.max(0.004, noise || 0)
   if (peak < floor * 1.8) return 1.15
-  return Math.min(4.5, Math.max(1.15, 0.48 / Math.max(peak, 0.02)))
+  return Math.min(8, Math.max(1.15, 0.85 / Math.max(peak, 0.02)))
 }
 
 function enhanceAudio(samples, sampleRate, options = {}) {

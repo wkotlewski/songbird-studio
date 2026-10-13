@@ -450,6 +450,43 @@ function ac() {
   return audioCtx
 }
 
+const playBuses = new WeakMap()
+
+function playBus(ctx) {
+  const existing = playBuses.get(ctx)
+  if (existing) return existing
+  const input = ctx.createGain()
+  const limiter = ctx.createDynamicsCompressor()
+  limiter.threshold.value = -1.5
+  limiter.knee.value = 2
+  limiter.ratio.value = 12
+  limiter.attack.value = 0.003
+  limiter.release.value = 0.1
+  input.connect(limiter)
+  limiter.connect(ctx.destination)
+  playBuses.set(ctx, input)
+  return input
+}
+
+function playbackLift(buffer) {
+  const data = buffer.getChannelData(0)
+  if (!data.length) return 1
+  let peak = 0
+  let sum = 0
+  let count = 0
+  const step = Math.max(1, Math.floor(data.length / 20000))
+  for (let i = 0; i < data.length; i += step) {
+    const level = Math.abs(data[i])
+    if (level > peak) peak = level
+    sum += level
+    count += 1
+  }
+  if (peak < 0.02) return 1
+  const crest = peak / Math.max(sum / count, 1e-6)
+  const cap = crest > 3 ? 8 : 3
+  return Math.min(cap, Math.max(1, 0.92 / peak))
+}
+
 const CLOUDS = [
   { x: 0.18, y: 0.28, color: "46,230,199" },
   { x: 0.74, y: 0.36, color: "180,77,255" },
@@ -3701,6 +3738,8 @@ function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
   high.frequency.value = 4200
   high.gain.value = layer.high || 0
   const gain = ctx.createGain()
+  const lift = ctx.createGain()
+  lift.gain.value = playbackLift(buffer)
   const gate = ctx.createGain()
   gate.gain.value = audible(layer) ? 1 : 0
   const hole = ctx.createGain()
@@ -3729,7 +3768,8 @@ function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
   }
   source.connect(low)
   low.connect(high)
-  high.connect(gain)
+  high.connect(lift)
+  lift.connect(gain)
   gain.connect(gate)
   gate.connect(hole)
   hole.connect(pan)
@@ -3805,7 +3845,7 @@ function play(fromSec, options = {}) {
   let ended = 0
   for (const layer of candidates) {
     const buffer = buffers.get(layer.id + ":audio")
-    const nodes = scheduleLayer(ctx, layer, buffer, from, span, ctx.destination, ctx.currentTime)
+    const nodes = scheduleLayer(ctx, layer, buffer, from, span, playBus(ctx), ctx.currentTime)
     if (!nodes) continue
     const watch = ctx.createAnalyser()
     watch.fftSize = 64
@@ -3897,7 +3937,7 @@ async function downloadMix() {
   $("save-status").textContent = "Making the song file…"
   if (note) note.textContent = "Making the song file…"
   const offline = new OfflineAudioContext(2, Math.max(1, Math.ceil(span * rate)), rate)
-  for (const layer of live) scheduleLayer(offline, layer, buffers.get(layer.id + ":audio"), 0, span, offline.destination, 0)
+  for (const layer of live) scheduleLayer(offline, layer, buffers.get(layer.id + ":audio"), 0, span, playBus(offline), 0)
   const rendered = await offline.startRendering()
   const wav = encodeWav(rendered)
   const name = (state.song?.title || "Songbird").replace(/[^\w\s-]+/g, "").trim() || "Songbird"
