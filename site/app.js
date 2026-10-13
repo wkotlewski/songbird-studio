@@ -400,8 +400,13 @@ function loadSongs() {
 }
 
 function saveSongs() {
-  const mine = state.songs.filter((song) => !song.demo).map((song) => ({ ...song, privacy: "Shared", sharedWith: songEmails(song) }))
-  localStorage.setItem("songbird-songs", JSON.stringify(mine))
+  try {
+    const mine = state.songs.filter((song) => !song.demo).map((song) => ({ ...song, privacy: "Shared", sharedWith: songEmails(song) }))
+    localStorage.setItem("songbird-songs", JSON.stringify(mine))
+    return true
+  } catch {
+    return false
+  }
 }
 
 function saveDemoShare(song) {
@@ -2198,8 +2203,26 @@ function newSong() {
   $("save-status").textContent = "Clap, snap, or beatbox the tempo. Or just start humming."
 }
 
+function ensureSong() {
+  if (state.song && !state.song.demo) return state.song
+  const song = { id: uid(), title: $("song-title")?.value.trim() || "Untitled song", privacy: "Shared", demo: false, sharedWith: [], layers: [] }
+  state.songs.unshift(song)
+  state.song = song
+  renderSongs()
+  renderProjectActions()
+  return song
+}
+
 function rememberSong() {
-  if (!state.song || state.song.demo) return
+  if (state.song?.demo) return
+  if (!state.song) {
+    const named = $("song-title")?.value.trim()
+    const authored = $("song-author")?.value.trim()
+    if (!state.layers.length && !named && !authored) return
+    ensureSong()
+  }
+  const previousTitle = state.song.title
+  const previousAuthor = state.song.author || ""
   state.song.title = $("song-title").value.trim() || "Untitled song"
   state.song.author = $("song-author")?.value.trim() || ""
   if (!state.song.demo) state.song.credit = state.song.author ? `Author: ${state.song.author}. Original recording in this browser.` : ""
@@ -2216,8 +2239,9 @@ function rememberSong() {
   state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections }) => ({
     id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections,
   }))
-  saveSongs()
-  $("save-status").textContent = "Saved just now"
+  const stored = saveSongs()
+  if (previousTitle !== state.song.title || previousAuthor !== (state.song.author || "")) renderSongs()
+  $("save-status").textContent = stored ? "Saved just now" : "This song is in the list. This browser couldn't store a copy."
 }
 
 function addLayer(blob, name) {
