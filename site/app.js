@@ -325,6 +325,8 @@ const state = {
   pendingMagic: "",
   mode: "first",
   monitor: "original",
+  openingSound: false,
+  missingSound: false,
   recording: false,
   counting: false,
   countBeat: 0,
@@ -948,7 +950,7 @@ function shareSong(id, raw) {
   state.deleteFor = null
   const page = "https://wkotlewski.github.io/songbird-studio/"
   const subject = encodeURIComponent(`Songbird: ${song.title}`)
-  const body = encodeURIComponent(`${song.title} is in Songbird.\n\nOpen Songbird: ${page}\n\nThe recording stays in the browser where it was made. Attach the song file from Finish if you want them to hear it.`)
+  const body = encodeURIComponent(`${song.title} is in Songbird.\n\nOpen Songbird: ${page}\n\nThe song stays on the device where it was made. Attach the song file from Finish if you want them to hear it.`)
   const link = document.createElement("a")
   link.href = `mailto:${email}?subject=${subject}&body=${body}`
   document.body.appendChild(link)
@@ -972,7 +974,10 @@ function deleteSong(id) {
     localStorage.setItem("songbird-shares", JSON.stringify(shares))
   }
   state.songs = state.songs.filter((item) => item.id !== id)
-  if (!song.demo) saveSongs()
+  if (!song.demo) {
+    saveSongs()
+    void deleteSongAudio(id)
+  }
   state.shareFor = null
   state.deleteFor = null
   if (state.song?.id === id) {
@@ -2135,17 +2140,124 @@ function tilePhrase(buffer, seconds) {
   return audioBuffer(made.samples, rate)
 }
 
+const audioSaved = new Map()
+let persistChain = Promise.resolve(true)
+
+function audioDb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("no indexedDB"))
+      return
+    }
+    const req = indexedDB.open("songbird", 1)
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains("audio")) req.result.createObjectStore("audio")
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
 function dropLayerAudio() {
+  const songId = state.song?.id
   for (const layer of state.layers) {
     buffers.delete(layer.id)
-    buffers.delete(layer.id + ":audio")
+    for (const kind of ["audio", "original", "timing"]) {
+      buffers.delete(layer.id + ":" + kind)
+      if (songId) audioSaved.delete(`${songId}:${layer.id}:${kind}`)
+    }
   }
+}
+
+function persistSongAudio() {
+  if (!state.song || state.song.demo || typeof indexedDB === "undefined") return persistChain
+  const songId = state.song.id
+  const jobs = []
+  for (const layer of state.layers) {
+    for (const kind of ["audio", "original", "timing"]) {
+      const buf = buffers.get(layer.id + ":" + kind)
+      if (!buf) continue
+      const key = `${songId}:${layer.id}:${kind}`
+      if (audioSaved.get(key) === buf) continue
+      const samples = new Float32Array(buf.length)
+      samples.set(buf.getChannelData(0))
+      jobs.push({ key, buf, record: { sampleRate: buf.sampleRate, samples } })
+    }
+  }
+  const keep = new Set(state.layers.flatMap((layer) => ["audio", "original", "timing"].map((kind) => `${songId}:${layer.id}:${kind}`)))
+  const run = () => audioDb().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction("audio", "readwrite")
+    const store = tx.objectStore("audio")
+    for (const job of jobs) store.put(job.record, job.key)
+    const keys = store.getAllKeys()
+    keys.onsuccess = () => {
+      for (const key of keys.result || []) {
+        if (String(key).startsWith(songId + ":") && !keep.has(String(key))) store.delete(key)
+      }
+    }
+    tx.oncomplete = () => {
+      for (const job of jobs) audioSaved.set(job.key, job.buf)
+      resolve(true)
+    }
+    tx.onerror = () => reject(tx.error)
+  })).catch(() => false)
+  persistChain = persistChain.then(run, run)
+  return persistChain
+}
+
+function restoreSongAudio(songId, layers) {
+  if (typeof indexedDB === "undefined") return Promise.resolve(0)
+  return audioDb().then((db) => Promise.all(layers.flatMap((layer) => ["audio", "original", "timing"].map((kind) => new Promise((resolve) => {
+    if (buffers.get(layer.id + ":" + kind)) {
+      resolve(kind === "audio" ? 1 : 0)
+      return
+    }
+    const req = db.transaction("audio", "readonly").objectStore("audio").get(`${songId}:${layer.id}:${kind}`)
+    req.onsuccess = () => {
+      const record = req.result
+      if (!record?.samples?.length) {
+        resolve(0)
+        return
+      }
+      const samples = record.samples instanceof Float32Array ? record.samples : Float32Array.from(record.samples)
+      const buf = audioBuffer(samples, record.sampleRate || 44100)
+      buffers.set(layer.id + ":" + kind, buf)
+      audioSaved.set(`${songId}:${layer.id}:${kind}`, buf)
+      resolve(kind === "audio" ? 1 : 0)
+    }
+    req.onerror = () => resolve(0)
+  })))).then((counts) => counts.reduce((sum, n) => sum + n, 0))).catch(() => 0)
+}
+
+function deleteSongAudio(songId) {
+  if (typeof indexedDB === "undefined") return Promise.resolve()
+  return audioDb().then((db) => new Promise((resolve) => {
+    const tx = db.transaction("audio", "readwrite")
+    const store = tx.objectStore("audio")
+    const req = store.getAllKeys()
+    req.onsuccess = () => {
+      for (const key of req.result || []) {
+        if (String(key).startsWith(songId + ":")) {
+          store.delete(key)
+          audioSaved.delete(String(key))
+        }
+      }
+    }
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => resolve()
+  })).catch(() => {})
 }
 
 function openSong(id) {
   const song = state.songs.find((item) => item.id === id)
   if (!song) return
-  dropLayerAudio()
+  if (state.song?.id !== id) {
+    persistSongAudio()
+    stopPlayback()
+    dropLayerAudio()
+  } else {
+    stopPlayback()
+  }
   state.song = song
   $("song-title").value = song.title
   showSongCredit()
@@ -2217,8 +2329,25 @@ function openSong(id) {
   renderRuler()
   renderTracks()
   renderInspector()
-  $("save-status").textContent = "Saved on this device · audio stays in this tab"
+  const kept = !song.demo && state.layers.some((layer) => buffers.get(layer.id + ":audio"))
+  state.openingSound = !song.demo && state.layers.length > 0 && !kept
+  state.missingSound = false
+  $("save-status").textContent = state.openingSound ? "Opening the saved sound…" : "Saved on this device"
   renderProjectActions()
+  if (!state.openingSound) return
+  const songId = song.id
+  const audioKept = !!song.audioKept
+  void persistChain.then(() => restoreSongAudio(songId, state.layers)).then((count) => {
+    if (state.song?.id !== songId) return
+    state.openingSound = false
+    state.missingSound = count < 1
+    $("save-status").textContent = state.missingSound
+      ? (audioKept
+        ? "The sound didn't open from this device. Try Play again in a moment."
+        : "This song is in the list, but the sound was not kept. Record the layer again to hear it.")
+      : "Saved on this device"
+    renderTracks()
+  })
 }
 
 function newSong() {
@@ -2269,9 +2398,17 @@ function rememberSong() {
   state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections }) => ({
     id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections,
   }))
+  state.song.audioKept = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
   const stored = saveSongs()
+  const songId = state.song.id
+  void persistSongAudio().then((ok) => {
+    if (state.song?.id !== songId) return
+    if (ok === false && $("save-status")?.textContent === "Saved on this device") {
+      $("save-status").textContent = "This song is in the list. This browser couldn't store the sound."
+    }
+  })
   if (previousTitle !== state.song.title || previousAuthor !== (state.song.author || "")) renderSongs()
-  $("save-status").textContent = stored ? "Saved just now" : "This song is in the list. This browser couldn't store a copy."
+  $("save-status").textContent = stored ? "Saved on this device" : "This song is in the list. This browser couldn't store a copy."
 }
 
 function addLayer(blob, name) {
@@ -3639,9 +3776,15 @@ function play(fromSec, options = {}) {
   if (!candidates.length) {
     stopPlayback(keepClick)
     const anyAudio = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
-    $("save-status").textContent = anyAudio
-      ? "Mute or solo is hiding every layer. Turn a layer on to hear it."
-      : "Nothing recorded to play yet. The colored layout is a picture of the song."
+    $("save-status").textContent = state.openingSound
+      ? "Opening the saved sound…"
+      : anyAudio
+        ? "Mute or solo is hiding every layer. Turn a layer on to hear it."
+        : state.missingSound
+          ? (state.song?.audioKept
+            ? "The sound didn't open from this device. Try Play again in a moment."
+            : "This song is in the list, but the sound was not kept. Record the layer again to hear it.")
+          : "Nothing recorded to play yet. The colored layout is a picture of the song."
     return
   }
   stopPlayback(keepClick)

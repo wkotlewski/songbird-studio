@@ -25,13 +25,13 @@ My Music and Studio are the two places. Record, Build, Transform, Mix, and Finis
 - **Finish** downloads a song file. Nothing is uploaded.
 - **Undo** steps back through edits.
 
-Songs you make stay listed in this browser. The recording itself stays in the tab.
+Songs you keep stay on this device, including the sound, so opening the project plays it again.
 
 ## For engineers
 
 The public page is a static site: HTML, CSS, and JavaScript, hosted on GitHub Pages. There is no application framework and no server.
 
-Sound runs in the browser with the Web Audio API. The microphone uses the MediaRecorder API. Song titles and settings stay in the browser's local storage.
+Sound runs in the browser with the Web Audio API. The microphone uses the MediaRecorder API. Song titles and recordings stay in this browser.
 
 Genre packages are Songbird's own. They are informed by open music references, which are credited here and are not bundled into the page:
 
