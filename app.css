@@ -1220,3 +1220,79 @@ button.layer-delete {
     color: var(--mint);
   }
 }
+
+@media (max-width: 759px) {
+  .studio-bar {
+    gap: 6px;
+    padding: 8px 10px 6px;
+  }
+  .title-row {
+    flex-direction: row;
+    align-items: center;
+  }
+  .title-row #song-title,
+  .author-field {
+    width: auto;
+    max-width: none;
+  }
+  .title-row #song-title {
+    flex: 1 1 auto;
+    padding: 8px 12px;
+    font-size: 16px;
+  }
+  .author-field {
+    flex: 0 1 38%;
+  }
+  .author-field span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
+  #song-author { padding: 8px 10px; }
+  #save-status {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #project-actions,
+  #studio > .legal { display: none; }
+  .transport {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    order: 4;
+  }
+  .bpm,
+  #click-btn {
+    flex: none;
+    order: 5;
+  }
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+    flex: none;
+  }
+  .stage {
+    flex: 1 1 auto;
+    min-height: 32dvh;
+  }
+  .dock {
+    grid-template-columns: repeat(5, minmax(64px, 1fr));
+    gap: 6px;
+    padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
+  }
+  button.dock-btn {
+    min-height: 44px;
+    padding: 6px 8px;
+  }
+  .dock .plan-copy span { display: none; }
+  .ruler-layout,
+  .track { grid-template-columns: 92px 1fr; }
+  .track-label .layer-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #inspector { max-height: min(48dvh, 420px); }
+}
