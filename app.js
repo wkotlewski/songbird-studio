@@ -320,6 +320,7 @@ const state = {
   vibe: "claps",
   keyPc: 0,
   magicWish: "",
+  enhanceAmount: 0.65,
   magicStep: 0,
   pendingMagic: "",
   mode: "first",
@@ -676,8 +677,12 @@ function armHotMic(stream) {
   const raw = ctx.createAnalyser()
   raw.fftSize = 1024
   raw.smoothingTimeConstant = 0.2
+  const rumble = ctx.createBiquadFilter()
+  rumble.type = "highpass"
+  rumble.frequency.value = 80
+  rumble.Q.value = 0.7
   const makeup = ctx.createGain()
-  makeup.gain.value = 4
+  makeup.gain.value = 1.15
   const limiter = ctx.createDynamicsCompressor()
   limiter.threshold.value = -1.5
   limiter.knee.value = 2
@@ -688,8 +693,9 @@ function armHotMic(stream) {
   analyser.fftSize = 256
   analyser.smoothingTimeConstant = 0.45
   const dest = ctx.createMediaStreamDestination()
-  source.connect(raw)
-  source.connect(makeup)
+  source.connect(rumble)
+  rumble.connect(raw)
+  rumble.connect(makeup)
   makeup.connect(limiter)
   limiter.connect(dest)
   limiter.connect(analyser)
@@ -702,6 +708,8 @@ function armHotMic(stream) {
     sky.monitor = monitor
   }
   sky.micSource = source
+  sky.rumble = rumble
+  sky.noisePeak = 0.02
   sky.rawAnalyser = raw
   sky.rawTime = new Uint8Array(raw.fftSize)
   sky.makeup = makeup
@@ -723,17 +731,24 @@ function rideInput() {
     const sample = Math.abs(time[i] - 128) / 128
     if (sample > peak) peak = sample
   }
-  const desired = peak < 0.012 ? 4 : Math.min(12, Math.max(1, 0.72 / peak))
+  const noise = sky.noisePeak || peak
+  sky.noisePeak = peak < noise ? noise * 0.85 + peak * 0.15 : noise * 0.998 + peak * 0.002
+  const desired = typeof SongbirdMusic !== "undefined" && SongbirdMusic.inputMakeup
+    ? SongbirdMusic.inputMakeup(peak, sky.noisePeak)
+    : 1.15
   makeup.gain.value += (desired - makeup.gain.value) * 0.18
 }
 
 function releaseMic() {
   try { sky.micSource?.disconnect() } catch { /* already released */ }
+  try { sky.rumble?.disconnect() } catch { /* already released */ }
   try { sky.makeup?.disconnect() } catch { /* already released */ }
   try { sky.limiter?.disconnect() } catch { /* already released */ }
   try { sky.monitor?.disconnect() } catch { /* already released */ }
   try { sky.micDest?.stream?.getTracks().forEach((track) => track.stop()) } catch { /* already released */ }
   sky.micSource = null
+  sky.rumble = null
+  sky.noisePeak = null
   sky.rawAnalyser = null
   sky.rawTime = null
   sky.makeup = null
@@ -1671,7 +1686,7 @@ function magicLog() {
     <h3>Magic Log</h3>
     <p class="hint">Original recordings stay on their own layers. An added part is marked Edited. Undo puts the last edit back.</p>
     ${rows ? `<ul>${rows}</ul>` : `<p class="hint">No layers yet.</p>`}
-    <p class="hint">A genre package adds only the steps marked ready. Magic Clean, Magic Tune, Magic Timing, Magic Erase, and Magic Marker are listed and not connected. Strings, synth, and MIDI are not connected.</p>
+    <p class="hint">Magic clear softens hiss on the selected layer. Magic Tune, Magic Eraser, and Magic Marker are listed and do not process audio. Strings, synth, and MIDI are not connected.</p>
   </section>`
 }
 
@@ -1900,7 +1915,7 @@ function genrePanel() {
       <summary>Magic and production packages</summary>
       <ul class="package-status">${magic}</ul>
       <ul class="package-status">${SongbirdPackages.production.map((item) => `<li><b>${esc(item.name)}</b><span class="status-${esc(item.status)}">${statusWord(item.status)}</span></li>`).join("")}</ul>
-      <p class="hint">Partial means only some of that package plays. Not in this version means the control is listed and does not process audio. Preview plays the ready steps without adding them. Apply puts them on the timeline, and Undo removes that package.</p>
+      <p class="hint">Partial means some of that package plays. Magic clear, above, softens hiss on the selected layer. Magic Tune, Magic Eraser, and Magic Marker are listed and do not process audio.</p>
     </details>
   </section>`
 }
@@ -1922,7 +1937,7 @@ function renderInspector() {
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording || state.counting ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording || state.counting ? "recording" : "idle"}" aria-label="${state.recording || state.counting ? "Stop recording" : "Record"}"><span class="glyph" aria-hidden="true">${state.recording || state.counting ? "■" : "●"}</span></button>
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : "00:00"}</p>
-      <p class="hint">Songbird turns the mic up in the app, so a quiet system input still records hot. It does not change the Mac volume slider. Headphones keep the song and the click out of the microphone.</p>
+      <p class="hint">Songbird lifts a quiet voice and holds the hiss down. It does not move the Mac volume slider. Headphones keep the song and the click out of the microphone. Magic clear, in Transform, tidies the take after you keep it.</p>
       ${outlinedButton(state.recMore ? "Hide monitoring" : "Headphones and monitoring", `data-action="toggle-rec-more"`)}
       ${state.recMore ? `<div class="seg">
         ${filterChip("Record First", `data-action="rec-mode" data-mode="first"`, state.mode === "first")}
@@ -1963,6 +1978,21 @@ function renderInspector() {
       <p class="hint">${current ? `${esc(current.name)} is selected.` : "Record a layer first."} Hit Magic again for another idea. A description can steer it. Mix, after this, is for every layer.</p>
       ${sources.length ? `<p class="ask">This layer</p>
         <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer, or add a starter from Record.</p>`}
+      <p class="ask">Enhance this sound</p>
+      <p class="hint">Magic clear tidies the selected layer the way a photo editor tidies a picture: less hiss, and the sound a little more present. Brighten, warm, or smooth it. Revert puts the original back.</p>
+      <label class="field">How much
+        <input id="enhance-amount" class="slider" type="range" min="0.25" max="1" step="0.05" value="${state.enhanceAmount || 0.65}" aria-label="How much to enhance" />
+        <span data-enhance-readout>${enhanceLabel(state.enhanceAmount || 0.65)}</span>
+      </label>
+      <div class="magic-actions">
+        ${filledButton(state.transforming ? "Working…" : "Magic clear", `data-action="enhance" data-mode="clear" ${locked}`)}
+      </div>
+      <div class="choices">
+        ${filterChip("Clear hiss", `data-action="enhance" data-mode="hiss" ${locked}`)}
+        ${filterChip("Brighten", `data-action="enhance" data-mode="bright" ${locked}`)}
+        ${filterChip("Warm", `data-action="enhance" data-mode="warm" ${locked}`)}
+        ${filterChip("Smooth", `data-action="enhance" data-mode="smooth" ${locked}`)}
+      </div>
       <label class="field">Describe it, if you want
         <textarea id="magic-wish" rows="2" placeholder="Warm piano chords, a little room">${esc(state.magicWish || "")}</textarea>
       </label>
@@ -2468,7 +2498,7 @@ async function toggleRecord() {
   renderInspector()
   try {
     recStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     })
   } catch {
     try {
@@ -2808,6 +2838,47 @@ function addStarter() {
   renderInspector()
   $("save-status").textContent = `${layer.name} is in, in the key of ${keyName}, at ${bpm}. Record from the mic when you want your voice on top.`
   try { play() } catch { /* the starter is still on the timeline */ }
+}
+
+function enhanceLabel(amount) {
+  if (amount < 0.45) return "A light touch"
+  if (amount < 0.8) return "A clear tidy"
+  return "Strong"
+}
+
+function applyEnhance(mode) {
+  if (state.transforming) return
+  const names = { clear: "Magic clear", hiss: "Clear hiss", bright: "Brighten", warm: "Warm", smooth: "Smooth" }
+  const layer = state.layers.find((item) => item.id === state.selected) || state.layers.find((item) => buffers.get(item.id + ":audio"))
+  const audio = layer && buffers.get(layer.id + ":audio")
+  if (!layer || !audio || typeof SongbirdMusic.enhanceAudio !== "function") {
+    state.transformNote = "Keep a recording first, then Magic clear can tidy it."
+    state.transformTone = "warn"
+    $("save-status").textContent = state.transformNote
+    renderInspector()
+    return
+  }
+  const slider = $("enhance-amount")
+  if (slider) state.enhanceAmount = Math.min(1, Math.max(0.25, Number(slider.value) || 0.65))
+  snapshot([layer.id])
+  if (!buffers.get(layer.id + ":original")) buffers.set(layer.id + ":original", audio)
+  const source = audio.getChannelData(0)
+  const copy = new Float32Array(source.length)
+  copy.set(source)
+  const made = SongbirdMusic.enhanceAudio(copy, audio.sampleRate, { mode: mode || "clear", amount: state.enhanceAmount })
+  const next = audioBuffer(made, audio.sampleRate)
+  buffers.set(layer.id + ":audio", next)
+  layer.peaks = peaksFromSamples(made)
+  if (!layer.from) layer.from = "enhanced"
+  state.selected = layer.id
+  state.arrived = layer.id
+  state.transformNote = `${names[mode] || "Magic clear"} is on ${layer.name}. Revert puts the original back. Undo steps back one edit.`
+  state.transformTone = ""
+  wakeSky()
+  rememberSong()
+  renderTracks()
+  renderInspector()
+  $("save-status").textContent = state.transformNote
 }
 
 function magicNote(fallback) {
@@ -3814,6 +3885,7 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "add-starter") addStarter()
   if (action === "magic-again") applyMagic()
+  if (action === "enhance") applyEnhance(node.dataset.mode || "clear")
   if (action === "revert-original") revertToOriginal()
   if (action === "tempo-pass") {
     if (!state.recording) state.tempoPass = true
@@ -4188,6 +4260,11 @@ document.body.addEventListener("input", (event) => {
     state.timingSlack = Math.min(0.4, Math.max(0.08, Number(node.value) || 0.18))
     const mark = node.parentElement?.querySelector("[data-timing-readout]")
     if (mark) mark.textContent = timingSlackLabel(state.timingSlack)
+  }
+  if (node.id === "enhance-amount") {
+    state.enhanceAmount = Math.min(1, Math.max(0.25, Number(node.value) || 0.65))
+    const mark = node.parentElement?.querySelector("[data-enhance-readout]")
+    if (mark) mark.textContent = enhanceLabel(state.enhanceAmount)
   }
   if (node.id === "bpm") {
     state.bpm = Math.min(200, Math.max(40, Number(node.value) || 92))
