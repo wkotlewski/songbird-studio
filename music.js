@@ -241,21 +241,37 @@ function renderPianoNote(out, note, gain, rng, hammer, exact) {
   const length = Math.min(out.length - start, Math.floor((exact ? note.dur : Math.max(note.dur, 0.75)) * SR))
   const base = hzOf(note.midi)
   const partials = STUDIO.piano.partials
-  const phases = new Float32Array(partials)
-  const steps = new Float32Array(partials)
+  // Each partial is a resonator (two multiplies a sample) with its own decay
+  // multiplier, instead of a sin() and an exp() per partial per sample.
+  // It is the same tone, several times faster, so phones keep up.
+  const bank = new Float64Array(partials * 4)
   for (let harmonic = 1; harmonic <= partials; harmonic++) {
     const freq = base * harmonic * Math.sqrt(1 + STUDIO.piano.stretch * harmonic * harmonic)
-    steps[harmonic - 1] = (2 * Math.PI * freq) / SR
+    const w = (2 * Math.PI * freq) / SR
+    const k = (harmonic - 1) * 4
+    bank[k] = 2 * Math.cos(w)
+    bank[k + 1] = Math.sin(w)
+    bank[k + 2] = 0
+    bank[k + 3] = Math.exp(-(1.05 + harmonic * 0.95) / SR)
   }
+  const amps = new Float64Array(partials)
+  for (let h = 0; h < partials; h++) amps[h] = 1 / (h + 1)
+  const strikeLen = Math.floor(SR * 0.006)
+  const attackLen = SR * 0.005
   for (let i = 0; i < length; i++) {
-    const t = i / SR
     let sample = 0
-    for (let harmonic = 0; harmonic < partials; harmonic++) {
-      phases[harmonic] += steps[harmonic]
-      sample += Math.sin(phases[harmonic]) * Math.exp(-t * (1.05 + (harmonic + 1) * 0.95)) / (harmonic + 1)
+    let alive = false
+    for (let h = 0, k = 0; h < partials; h++, k += 4) {
+      const next = bank[k] * bank[k + 1] - bank[k + 2]
+      bank[k + 2] = bank[k + 1]
+      bank[k + 1] = next
+      sample += bank[k + 2] * amps[h]
+      amps[h] *= bank[k + 3]
+      if (amps[h] > 1e-4) alive = true
     }
-    const strike = hammer && t < 0.006 ? (rng() * 2 - 1) * (1 - t / 0.006) * 0.28 : 0
-    const attack = Math.min(1, t / 0.005)
+    if (!alive) break
+    const strike = hammer && i < strikeLen ? (rng() * 2 - 1) * (1 - i / strikeLen) * 0.28 : 0
+    const attack = i < attackLen ? i / attackLen : 1
     out[start + i] += (sample * 0.7 + strike) * attack * gain
   }
 }
@@ -337,17 +353,42 @@ function renderRhodes(notes, duration, rng, era, style = {}) {
     if (start >= out.length || start < 0) return
     const length = Math.min(out.length - start, Math.floor((style.exact ? note.dur : Math.max(note.dur, 0.7)) * SR))
     const freq = hzOf(note.midi)
-    let bodyPhase = 0
-    let tinePhase = 0
+    const wb = (2 * Math.PI * freq) / SR
+    const wt = (2 * Math.PI * freq * (modern ? 3.02 : 2.5)) / SR
+    const wr = (2 * Math.PI * rate) / SR
+    const cb = 2 * Math.cos(wb)
+    const ct = 2 * Math.cos(wt)
+    const cr = 2 * Math.cos(wr)
+    let b1 = Math.sin(wb)
+    let b0 = 0
+    let t1 = Math.sin(wt)
+    let t0 = 0
+    const tremStart = 2 * Math.PI * rate * note.time
+    let r1 = Math.sin(tremStart)
+    let r0 = Math.sin(tremStart - wr)
+    const bodyFall = Math.exp(-(modern ? 1.5 : 1.05) / SR)
+    const tineFall = Math.exp(-(modern ? 9 : 5.5) / SR)
+    let bodyAmp = 1
+    let tineAmp = 1
+    const tineMix = modern ? 0.32 : 0.16
+    const attackLen = SR * (modern ? 0.004 : 0.014)
     for (let i = 0; i < length; i++) {
-      const t = i / SR
-      bodyPhase += (2 * Math.PI * freq) / SR
-      tinePhase += (2 * Math.PI * freq * (modern ? 3.02 : 2.5)) / SR
-      const body = Math.sin(bodyPhase) * Math.exp(-t * (modern ? 1.5 : 1.05))
-      const tine = Math.sin(tinePhase) * Math.exp(-t * (modern ? 9 : 5.5))
-      const trem = 1 - depth + depth * Math.sin(2 * Math.PI * rate * (note.time + t))
-      const attack = Math.min(1, t / (modern ? 0.004 : 0.014))
-      out[start + i] += (body * 0.58 + tine * (modern ? 0.32 : 0.16)) * trem * attack * 0.72
+      const body = b1 * bodyAmp
+      const tine = t1 * tineAmp
+      const trem = 1 - depth + depth * r1
+      const attack = i < attackLen ? i / attackLen : 1
+      out[start + i] += (body * 0.58 + tine * tineMix) * trem * attack * 0.72
+      let next = cb * b1 - b0
+      b0 = b1
+      b1 = next
+      next = ct * t1 - t0
+      t0 = t1
+      t1 = next
+      next = cr * r1 - r0
+      r0 = r1
+      r1 = next
+      bodyAmp *= bodyFall
+      tineAmp *= tineFall
     }
   })
   return studioFinish(out, { room: modern ? 0.05 : 0.24, warm: modern ? 0.08 : 0.36 }, era)
@@ -365,7 +406,15 @@ function renderHorn(notes, duration, era, style = {}) {
       const t = i / SR
       const vibrato = 1 + 0.014 * Math.sin(2 * Math.PI * 5 * t)
       phase += (2 * Math.PI * freq * vibrato) / SR
-      const tone = Math.sin(phase) * 0.72 + Math.sin(phase * 2) * 0.26 + Math.sin(phase * 3) * 0.14 + Math.sin(phase * 5) * 0.06
+      // Harmonics 2, 3 and 5 from one sin and cos (angle sums), not four sin calls.
+      const s1 = Math.sin(phase)
+      const c1 = Math.cos(phase)
+      const s2 = 2 * s1 * c1
+      const c2 = 1 - 2 * s1 * s1
+      const s3 = s2 * c1 + c2 * s1
+      const c3 = c2 * c1 - s2 * s1
+      const s5 = s3 * c2 + c3 * s2
+      const tone = s1 * 0.72 + s2 * 0.26 + s3 * 0.14 + s5 * 0.06
       const attack = Math.min(1, t / 0.045)
       const release = Math.min(1, Math.max(0.001, note.dur - t) / 0.09)
       out[start + i] += Math.tanh(tone * 1.35) * attack * release * 0.48
@@ -381,17 +430,35 @@ function renderBass(notes, duration, era, style = {}) {
     if (start >= out.length) continue
     const length = Math.min(out.length - start, Math.floor((style.exact ? note.dur : Math.max(note.dur, 0.4)) * SR))
     const freq = hzOf(note.midi)
-    let phase = 0
+    const w = (2 * Math.PI * freq) / SR
+    const c = 2 * Math.cos(w)
+    const cs = 2 * Math.cos(w / 2)
+    let f1 = Math.sin(w)
+    let f0 = 0
+    let s1 = Math.sin(w / 2)
+    let s0 = 0
+    const fall = Math.exp(-0.7 / SR)
+    let decay = 1
+    const useSub = note.midi >= 40
     for (let i = 0; i < length; i++) {
       const t = i / SR
-      phase += (2 * Math.PI * freq) / SR
-      const fundamental = Math.sin(phase)
-      const sub = note.midi >= 40 ? Math.sin(phase * 0.5) * STUDIO.bass.sub : fundamental * 0.2
-      const grit = Math.tanh(fundamental * 2.1) * STUDIO.bass.grit
+      const fundamental = f1
+      const sub = useSub ? s1 * STUDIO.bass.sub : fundamental * 0.2
+      // tanh(x * 2.1) for |x| <= 1, as a cheap rational curve.
+      const x = fundamental * 2.1
+      const x2 = x * x
+      const grit = Math.max(-1, Math.min(1, (x * (27 + x2)) / (27 + 9 * x2))) * STUDIO.bass.grit
       const attack = Math.min(1, t / 0.01)
       const release = Math.min(1, Math.max(0, note.dur - t) / 0.07)
-      const hold = 0.62 + 0.38 * Math.exp(-t * 0.7)
+      const hold = 0.62 + 0.38 * decay
       out[start + i] += (sub + fundamental * STUDIO.bass.body + grit) * attack * release * hold * 0.55
+      let next = c * f1 - f0
+      f0 = f1
+      f1 = next
+      next = cs * s1 - s0
+      s0 = s1
+      s1 = next
+      decay *= fall
     }
   }
   return studioFinish(out, STUDIO.bass, era)
@@ -452,9 +519,22 @@ function renderDrums(hits, duration, rng, era) {
       all.push({ time: Math.max(0, time + nudge), kind: "hat" })
     }
   }
+  // A kit has a few takes of each drum, not a fresh synthesis for every hit.
+  // Four takes per drum keep the human variation and save most of the work.
+  const takes = {}
+  const takeOf = (kind) => {
+    if (!takes[kind]) takes[kind] = []
+    const list = takes[kind]
+    if (list.length < 4) {
+      const made = renderHit(kind, rng, era)
+      list.push(made)
+      return made
+    }
+    return list[Math.floor(rng() * list.length)]
+  }
   for (const hit of all) {
     const nudge = hit.kind === "hat" || hit.time < 0.02 ? 0 : (rng() - 0.5) * 0.01
-    const sound = renderHit(hit.kind, rng, era)
+    const sound = takeOf(hit.kind)
     const hat = STUDIO.drums.hat * (era === "modern" ? 1.2 : era === "old" ? 0.7 : 1)
     const level = hit.kind === "hat" ? hat : 1
     const start = Math.floor((hit.time + nudge) * SR)
@@ -733,14 +813,23 @@ function singVowel(out, note, gain, rng) {
   const length = Math.min(out.length - start, Math.floor(note.dur * SR))
   const freq = hzOf(note.midi)
   const weights = vowelWeights(freq)
-  const phases = new Float32Array(weights.length)
-  const steps = weights.map((_, index) => (2 * Math.PI * freq * (index + 1)) / SR)
+  const count = weights.length
+  const coef = new Float64Array(count)
+  const now = new Float64Array(count)
+  const before = new Float64Array(count)
+  for (let h = 0; h < count; h++) {
+    const w = (2 * Math.PI * freq * (h + 1)) / SR
+    coef[h] = 2 * Math.cos(w)
+    now[h] = Math.sin(w)
+  }
   for (let i = 0; i < length; i++) {
     const t = i / SR
     let sample = 0
-    for (let harmonic = 0; harmonic < weights.length; harmonic++) {
-      phases[harmonic] += steps[harmonic]
-      sample += Math.sin(phases[harmonic]) * weights[harmonic]
+    for (let h = 0; h < count; h++) {
+      sample += now[h] * weights[h]
+      const next = coef[h] * now[h] - before[h]
+      before[h] = now[h]
+      now[h] = next
     }
     const attack = Math.min(1, t / 0.045)
     const release = Math.min(1, Math.max(0, note.dur - t) / 0.09)
@@ -885,18 +974,121 @@ function pocketHits(bpm, duration, pocket) {
   return hits
 }
 
+// A layer kept from the mic is one phrase looped to fill the song, like a
+// loop pedal. When the audio really is that loop repeated, Songbird builds
+// the new instrument for one pass and loops it, so every pass matches and a
+// one-minute layer costs the same as its phrase. Anything else renders whole.
+function loopPlan(samples, rate, kind, options) {
+  const loop = Math.round(options.loopSamples || 0)
+  if (!loop || loop < rate * 0.5 || loop > rate * 40) return null
+  if (samples.length < loop * 1.5) return null
+  if (plannedDrums(kind, options)) return null
+  if (!isLooped(samples, loop)) return null
+  return { inSamples: loop, period: (loop * SR) / rate, total: Math.round((samples.length * SR) / rate) }
+}
+
+function isLooped(samples, loop) {
+  if (!loop || samples.length < loop * 1.5) return false
+  const span = samples.length - loop
+  const checks = Math.min(span, 2048)
+  let heard = 0
+  for (let n = 0; n < checks; n++) {
+    const i = Math.floor((n / checks) * span)
+    const a = samples[i]
+    if (Math.abs(a - samples[i + loop]) > 1e-6) return false
+    if (Math.abs(a) > 1e-4) heard += 1
+  }
+  return heard > 0
+}
+
+// Run a sample-by-sample edit on one pass of a looped layer, then loop the
+// result. outRate is the rate the edit returns.
+function onEachLoop(samples, rate, loop, outRate, run) {
+  const passes = Math.round(loop || 0)
+  if (!passes || passes > rate * 60 || !isLooped(samples, passes)) return null
+  const made = run(samples.slice(0, passes))
+  if (!made) return null
+  return tileLoop(made, (passes * outRate) / rate, Math.round((samples.length * outRate) / rate))
+}
+
+function tileLoop(phrase, period, total) {
+  const out = new Float32Array(total)
+  for (let k = 0; ; k++) {
+    const start = Math.round(k * period)
+    if (start >= total) break
+    const room = Math.min(phrase.length, total - start)
+    out.set(room === phrase.length ? phrase : phrase.subarray(0, room), start)
+  }
+  return out
+}
+
+const notesMemo = new WeakMap()
+
+function detectNotesOnce(samples, options = {}) {
+  let byOptions = notesMemo.get(samples)
+  if (!byOptions) {
+    byOptions = new Map()
+    notesMemo.set(samples, byOptions)
+  }
+  const key = JSON.stringify(options)
+  if (!byOptions.has(key)) byOptions.set(key, detectNotes(samples, options))
+  return byOptions.get(key).map((note) => ({ ...note }))
+}
+
 function transformAudio(samples, kind, options = {}) {
-  samples = toEngineRate(samples, options.sampleRate || SR)
-  const cap = SR * 40
+  const rate = options.sampleRate || SR
+  const loop = loopPlan(samples, rate, kind, options)
+  if (loop) {
+    const phrase = toEngineRate(samples.subarray(0, loop.inSamples), rate)
+    const made = transformCore(phrase, kind, options)
+    if (!made) return null
+    return { ...made, samples: tileLoop(made.samples, loop.period, loop.total), loop: { period: loop.period / SR } }
+  }
+  samples = toEngineRate(samples, rate)
+  const cap = SR * (plannedDrums(kind, options) ? 300 : 40)
   if (samples.length > cap) samples = samples.subarray(0, cap)
+  return transformCore(samples, kind, options)
+}
+
+// A drum pattern or pocket is written on the beat grid, so it does not need
+// to listen to the recording, and it can run the whole length of the layer.
+function plannedDrums(kind, options) {
+  return kind === "Drums" && !!((options.pattern && options.pattern.hits && options.pattern.hits.length) || options.pocket === "backbeat" || options.pocket === "boom")
+}
+
+// A genre package turns one layer into several parts. The melody is found
+// once and shared by every part.
+function transformSteps(samples, steps, options = {}) {
+  const rate = options.sampleRate || SR
+  const results = []
+  const prepared = new Map()
+  for (const step of steps || []) {
+    const stepOptions = { ...options, ...step.options }
+    const loop = loopPlan(samples, rate, step.sound, stepOptions)
+    const key = loop ? "loop" : "whole"
+    if (!prepared.has(key)) {
+      if (loop) prepared.set(key, toEngineRate(samples.subarray(0, loop.inSamples), rate))
+      else prepared.set(key, toEngineRate(samples, rate))
+    }
+    const source = prepared.get(key)
+    const cap = SR * (plannedDrums(step.sound, stepOptions) ? 300 : 40)
+    let made = transformCore(source.length > cap ? source.subarray(0, cap) : source, step.sound, stepOptions)
+    if (made && loop) made = { ...made, samples: tileLoop(made.samples, loop.period, loop.total) }
+    results.push(made ? { samples: made.samples, proof: made.proof } : null)
+  }
+  return results
+}
+
+function transformCore(samples, kind, options = {}) {
   const bpm = options.bpm || 92
   const duration = samples.length / SR
   const rng = options.rng || mulberry32(1)
   const era = options.era && eraTone(options.era) ? options.era : undefined
   if (kind === "Drums") {
-    let hits = hitsFromOnsets(detectOnsets(samples), bpm)
-    if (hits.length < 2) {
-      const melody = detectNotes(samples)
+    const planned = (options.pattern && options.pattern.hits && options.pattern.hits.length) || options.pocket === "backbeat" || options.pocket === "boom"
+    let hits = planned ? [] : hitsFromOnsets(detectOnsets(samples), bpm)
+    if (!planned && hits.length < 2) {
+      const melody = detectNotesOnce(samples)
       hits = hitsFromOnsets(melody.map((note) => note.time), bpm)
       if (hits.length < 2 && melody.length >= 2) {
         hits = melody.map((note, index) => ({ time: note.time, kind: index % 2 === 0 ? "kick" : "snare" }))
@@ -909,9 +1101,9 @@ function transformAudio(samples, kind, options = {}) {
     return { samples: finish(renderDrums(hits, duration, rng, era)), proof: { hits, pocket: options.pocket || "played" } }
   }
   if (kind === "Bass") {
-    let notes = detectNotes(samples, { minHz: 40, maxHz: 180, lowpass: 220, minEnergy: 0.00015 })
+    let notes = detectNotesOnce(samples, { minHz: 40, maxHz: 180, lowpass: 220, minEnergy: 0.00015 })
     if (!notes.length) {
-      notes = detectNotes(samples).map((note) => ({ ...note, midi: Math.max(36, note.midi - 12) }))
+      notes = detectNotesOnce(samples).map((note) => ({ ...note, midi: Math.max(36, note.midi - 12) }))
     }
     if (!notes.length) return null
     const arranged = options.figure ? arrangePerformance(notes, { ...options, kind: "Bass" }) : null
@@ -919,7 +1111,7 @@ function transformAudio(samples, kind, options = {}) {
     const style = arranged ? { plain: true, exact: arranged.exact } : {}
     return { samples: finish(renderBass(play, duration, era, style)), proof: { notes }, figure: arranged }
   }
-  const notes = detectNotes(samples)
+  const notes = detectNotesOnce(samples)
   if (!notes.length) return null
   const arranged = options.figure ? arrangePerformance(notes, { ...options, kind }) : null
   const play = arranged ? arranged.notes : notes
@@ -1314,7 +1506,11 @@ function pitchHz(frame, sampleRate) {
   return sampleRate / (best + shift)
 }
 
-function tuneVoice(samples, sampleRate, strength) {
+function tuneVoice(samples, sampleRate, strength, loopSamples) {
+  if (loopSamples) {
+    const looped = onEachLoop(samples, sampleRate, loopSamples, SR, (pass) => tuneVoice(pass, sampleRate, strength))
+    if (looped) return looped
+  }
   const src = toEngineRate(samples, sampleRate)
   const amount = Math.max(0, Math.min(1, strength || 0))
   if (amount <= 0) return src
@@ -1720,10 +1916,14 @@ function highBand(samples, sampleRate, freq) {
 function inputMakeup(peak, noise) {
   const floor = Math.max(0.004, noise || 0)
   if (peak < floor * 1.8) return 1.15
-  return Math.min(8, Math.max(1.15, 0.85 / Math.max(peak, 0.02)))
+  return Math.min(4.5, Math.max(1.15, 0.48 / Math.max(peak, 0.02)))
 }
 
 function enhanceAudio(samples, sampleRate, options = {}) {
+  if (options.loopSamples) {
+    const looped = onEachLoop(samples, sampleRate, options.loopSamples, sampleRate, (pass) => enhanceAudio(pass, sampleRate, { ...options, loopSamples: 0 }))
+    if (looped) return looped
+  }
   const amount = Math.min(1, Math.max(0.15, options.amount || 0.65))
   const mode = options.mode || "clear"
   const source = samples instanceof Float32Array ? samples : Float32Array.from(samples)
@@ -1777,6 +1977,7 @@ function enhanceAudio(samples, sampleRate, options = {}) {
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
+  transformSteps,
   patternHits,
   tempoFromAudio,
   tempoFromTimes,
