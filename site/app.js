@@ -844,54 +844,113 @@ function wakeSky() {
   }, 1400)
 }
 
+// The take is the microphone as it arrives, like Voice Memos: no booster,
+// no limiter, nothing played back into the room while you record. The
+// analyser here only drives the meter and the sky.
+let captureLoaded = null
+
+function captureReady() {
+  const ctx = ac()
+  if (!ctx.audioWorklet) return Promise.resolve(false)
+  if (!captureLoaded) captureLoaded = ctx.audioWorklet.addModule("capture-worklet.js").then(() => true, () => false)
+  return captureLoaded
+}
+
+// Records the raw microphone sample by sample and hands back a lossless WAV.
+// It behaves like a MediaRecorder (state, stop, onstop) so the rest of the
+// studio doesn't need to know. Returns null if this browser can't do it.
+function startCapture(stream) {
+  const ctx = ac()
+  if (!ctx.audioWorklet || !sky.micSource) return null
+  let node
+  try {
+    node = new AudioWorkletNode(ctx, "songbird-capture", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })
+  } catch {
+    return null
+  }
+  const quiet = ctx.createGain()
+  quiet.gain.value = 0
+  sky.micSource.connect(node)
+  node.connect(quiet)
+  quiet.connect(ctx.destination)
+  const chunks = []
+  const take = {
+    state: "recording",
+    mimeType: "audio/wav",
+    firstSample: null,
+    wav: null,
+    onstop: null,
+    ondataavailable: null,
+    start() {},
+    stop() {
+      if (take.state !== "recording") return
+      take.state = "inactive"
+      node.port.postMessage("stop")
+    },
+  }
+  node.port.onmessage = (event) => {
+    const data = event.data || {}
+    if (data.start != null) take.firstSample = data.start
+    if (data.samples) chunks.push(data.samples)
+    if (!data.done) return
+    try { sky.micSource?.disconnect(node) } catch { /* already gone */ }
+    try { node.disconnect() } catch { /* already gone */ }
+    try { quiet.disconnect() } catch { /* already gone */ }
+    const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+    const samples = new Float32Array(Math.max(1, total))
+    let at = 0
+    for (const chunk of chunks) {
+      samples.set(chunk, at)
+      at += chunk.length
+    }
+    cleanTake(samples, ctx.sampleRate)
+    take.wav = new Blob([encodeWav(audioBuffer(samples, ctx.sampleRate))], { type: "audio/wav" })
+    take.onstop?.()
+  }
+  return take
+}
+
+// The only clean-up on a take: remove rumble below the voice, and bring the
+// level up so it plays back as loud and clear as a voice memo. Peaks land at
+// -1 dB, and a quiet take is lifted at most 6×, so hiss isn't pulled up.
+function cleanTake(samples, rate) {
+  const cut = Math.exp((-2 * Math.PI * 40) / rate)
+  let y = 0
+  let x1 = 0
+  let peak = 0
+  for (let i = 0; i < samples.length; i++) {
+    const x = samples[i]
+    y = cut * (y + x - x1)
+    x1 = x
+    samples[i] = y
+    const level = Math.abs(y)
+    if (level > peak) peak = level
+  }
+  if (peak < 1e-4) return samples
+  const gain = Math.min(6, 0.89 / peak)
+  for (let i = 0; i < samples.length; i++) samples[i] *= gain
+  return samples
+}
+
 function armHotMic(stream) {
   releaseMic()
   const ctx = ac()
   const source = ctx.createMediaStreamSource(stream)
-  const raw = ctx.createAnalyser()
-  raw.fftSize = 1024
-  raw.smoothingTimeConstant = 0.2
-  const rumble = ctx.createBiquadFilter()
-  rumble.type = "highpass"
-  rumble.frequency.value = 80
-  rumble.Q.value = 0.7
-  const makeup = ctx.createGain()
-  makeup.gain.value = 1.15
-  const limiter = ctx.createDynamicsCompressor()
-  limiter.threshold.value = -1.5
-  limiter.knee.value = 2
-  limiter.ratio.value = 18
-  limiter.attack.value = 0.002
-  limiter.release.value = 0.1
   const analyser = ctx.createAnalyser()
   analyser.fftSize = 256
   analyser.smoothingTimeConstant = 0.45
-  const dest = ctx.createMediaStreamDestination()
-  source.connect(rumble)
-  rumble.connect(raw)
-  rumble.connect(makeup)
-  makeup.connect(limiter)
-  limiter.connect(dest)
-  limiter.connect(analyser)
-  const hear = state.mode === "live" || state.monitor === "original" || state.monitor === "both"
-  if (hear) {
+  source.connect(analyser)
+  if (state.mode === "live") {
     const monitor = ctx.createGain()
     monitor.gain.value = 0.4
-    limiter.connect(monitor)
+    source.connect(monitor)
     monitor.connect(ctx.destination)
     sky.monitor = monitor
   }
   sky.micSource = source
-  sky.rumble = rumble
-  sky.noisePeak = 0.02
-  sky.rawAnalyser = raw
-  sky.rawTime = new Uint8Array(raw.fftSize)
-  sky.makeup = makeup
-  sky.limiter = limiter
-  sky.micDest = dest
   sky.micAnalyser = analyser
   sky.micBins = new Uint8Array(analyser.frequencyBinCount)
-  return dest.stream
+  return stream
 }
 
 function rideInput() {
@@ -2173,7 +2232,7 @@ function renderInspector() {
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to stack a layer" : "Tap to start a loop") : "00:00"}</p>
       ${looperBox()}
       ${state.looper ? `<p class="hint">Tempo ${state.bpm}. It counts 1, 2, 3, 4, then the loop plays from the top while the mic records. Only the mic is kept.</p>` : ""}
-      <p class="hint">Songbird lifts a quiet voice and holds the hiss down. It does not move the Mac volume slider. Headphones keep the song and the click out of the microphone. Magic clear, in Transform, tidies the take after you keep it.</p>
+      <p class="hint">Songbird records like Voice Memos: your mic as it is, full quality, with nothing added while you sing. It only evens out the level after. Headphones keep the click and the loop out of your take. Magic clear, in Transform, can tidy it later.</p>
       ${outlinedButton(state.recMore ? "Hide monitoring" : "Headphones and monitoring", `data-action="toggle-rec-more"`)}
       ${state.recMore ? `<div class="seg">
         ${filterChip("Record First", `data-action="rec-mode" data-mode="first"`, state.mode === "first")}
@@ -2994,7 +3053,8 @@ function clickAt(time, accent) {
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()
   osc.frequency.value = accent ? 1680 : 1120
-  const peak = accent ? 0.24 : 0.11
+  // Softer while the mic is open, so less of it lands in the take.
+  const peak = (accent ? 0.24 : 0.11) * (state.recording ? 0.45 : 1)
   gain.gain.setValueAtTime(0.0001, time)
   gain.gain.exponentialRampToValueAtTime(peak, time + 0.004)
   gain.gain.exponentialRampToValueAtTime(0.0001, time + (accent ? 0.06 : 0.04))
@@ -3096,8 +3156,10 @@ async function toggleRecord() {
   renderInspector()
   try {
     audioSession("play-and-record")
+    // Phone-call processing (echo cancelling, noise gating, auto volume)
+    // makes singing and instruments thin and wobbly, so it stays off.
     recStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
     })
   } catch {
     try {
@@ -3110,6 +3172,7 @@ async function toggleRecord() {
       return
     }
   }
+  await captureReady()
   if (!state.arming) {
     recStream?.getTracks().forEach((track) => track.stop())
     return
@@ -3133,11 +3196,10 @@ async function toggleRecord() {
   state.counting = false
   state.countBeat = 0
   state.recording = true
-  let hotStream = null
-  try { hotStream = armHotMic(recStream) } catch { hotStream = null }
+  try { armHotMic(recStream) } catch { /* the take still records */ }
   beginSky("record")
   recChunks = []
-  const media = new MediaRecorder(hotStream || recStream)
+  const media = startCapture(recStream) || new MediaRecorder(recStream, { audioBitsPerSecond: 256000 })
   media._wasTempo = tempoPass
   recorder = media
   media.ondataavailable = (event) => {
@@ -3145,7 +3207,8 @@ async function toggleRecord() {
   }
   media.onstop = () => {
     recordedSeconds = recStarted ? Math.max(0, (performance.now() - recStarted) / 1000) : 0
-    pendingBlob = new Blob(recChunks, { type: media.mimeType || "audio/webm" })
+    pendingBlob = media.wav || new Blob(recChunks, { type: media.mimeType || "audio/webm" })
+    if (media.firstSample != null) recLead = Math.max(0, media.songStart - media.firstSample) + media.outLatency
     state.recording = false
     state.counting = false
     state.countBeat = 0
@@ -3170,6 +3233,8 @@ async function toggleRecord() {
   // You sing to what you hear, and you hear it a little late. That much is
   // trimmed off the front of a loop so the layers line up.
   recLead = Math.max(0, songStart - takeStart) + (ctx.outputLatency || 0) + (ctx.baseLatency || 0)
+  media.songStart = songStart
+  media.outLatency = (ctx.outputLatency || 0) + (ctx.baseLatency || 0)
   window.clearTimeout(recAutoStop)
   const closeAt = state.looper && !tempoPass ? loopTarget() : 0
   loopClock.start = songStart + (ctx.outputLatency || 0) + (ctx.baseLatency || 0)
@@ -3207,8 +3272,8 @@ async function toggleRecord() {
   }, 250)
   syncRecordGuide()
   $("save-status").textContent = hearSong && !tempoPass
-    ? "You can hear the song. The mic is turned up in Songbird, and only that mic is recorded."
-    : `Recording at ${state.bpm}. The mic is turned up in Songbird so it comes in hot.`
+    ? "Recording. You hear the song, and only your mic goes in the take."
+    : `Recording at ${state.bpm}, full quality.`
   renderInspector()
 }
 
