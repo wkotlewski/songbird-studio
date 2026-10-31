@@ -1438,3 +1438,49 @@ button.layer-delete {
 .listen-btn.on { background: var(--surface); color: var(--text); border: 2px solid var(--mint); }
 .looper .polish-ask { margin: 14px 0 0; }
 .looper .choices + .hint { margin-top: 8px; }
+
+/* Magic: ask in words, or pick a sound. */
+.magic-ask { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 4px; }
+.magic-ask textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(52, 211, 153, 0.55);
+  background: var(--surface-low);
+  color: var(--text);
+  font: var(--type-body);
+  font-size: 16px;
+}
+.magic-ask textarea:focus { outline: 2px solid var(--mint); outline-offset: 1px; }
+.magic-go { min-height: 52px; font-size: 16px; }
+.magic-suggest { gap: 8px; margin: 10px 0 6px; }
+.magic-suggest .chip { min-height: 40px; font-weight: 500; }
+.magic-chat { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.magic-chat li { display: flex; flex-direction: column; gap: 4px; }
+.magic-chat .you { align-self: flex-end; max-width: 85%; margin: 0; padding: 8px 12px; border-radius: 16px 16px 4px 16px; background: var(--mint); color: var(--ink); font-size: 14px; }
+.magic-chat .did { align-self: flex-start; max-width: 92%; margin: 0; padding: 8px 12px; border-radius: 16px 16px 16px 4px; background: var(--surface); border: 1px solid rgba(255, 251, 242, 0.16); font-size: 14px; line-height: 1.4; }
+.magic-chat .did.warn-text { border-color: rgba(232, 184, 109, 0.7); }
+.magic-h { margin: 22px 0 4px; font: var(--type-section); font-size: 18px; }
+.family-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 6px 0 10px; }
+.family {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 72px;
+  padding: 8px 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  background: var(--surface);
+  color: var(--text);
+  font: var(--type-button);
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.2;
+}
+.family span { font-size: 24px; line-height: 1; }
+.family.on { background: var(--mint); color: var(--ink); border-color: transparent; }
+.magic-actions .btn { min-height: 48px; }

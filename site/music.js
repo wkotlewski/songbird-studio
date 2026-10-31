@@ -1974,6 +1974,355 @@ function enhanceAudio(samples, sampleRate, options = {}) {
   return out
 }
 
+// ---------------------------------------------------------------------------
+// Performance plans. The page turns a plan into sound with recorded
+// instrument samples. A plan is notes (or drum hits) for one pass of the
+// layer, already tidied: snapped to the beat, kept in key, and voiced for a
+// solo, chords, or a section.
+
+const MAJOR = [0, 2, 4, 5, 7, 9, 11]
+const MINOR = [0, 2, 3, 5, 7, 8, 10]
+
+function keyOf(notes) {
+  // Weighted by how long each note is held. Tries major and natural minor.
+  const weight = new Float64Array(12)
+  for (const note of notes) weight[((Math.round(note.midi) % 12) + 12) % 12] += Math.max(0.05, note.dur)
+  const pc = (note) => ((Math.round(note.midi) % 12) + 12) % 12
+  const total = weight.reduce((a, b) => a + b, 0) || 1
+  // Tunes tend to start and, above all, end on home.
+  const home = new Float64Array(12)
+  if (notes.length) {
+    home[pc(notes[0])] += total * 0.25
+    home[pc(notes[notes.length - 1])] += total * 0.45
+  }
+  let best = { root: 0, scale: MAJOR, score: -1 }
+  for (let root = 0; root < 12; root++) {
+    for (const scale of [MAJOR, MINOR]) {
+      let score = 0
+      for (const step of scale) score += weight[(root + step) % 12]
+      score += weight[root] * 0.6 + home[root] + home[(root + 7) % 12] * 0.2 + home[(root + scale[2]) % 12] * 0.15
+      if (scale === MAJOR) score += total * 0.01
+      if (score > best.score + 1e-9) best = { root, scale, score }
+    }
+  }
+  return { root: best.root, minor: best.scale === MINOR, scale: best.scale }
+}
+
+function inKey(midi, key) {
+  const pc = (((midi - key.root) % 12) + 12) % 12
+  if (key.scale.includes(pc)) return midi
+  // Out of key: go to the nearer scale note (up wins a tie, like a lift).
+  return key.scale.includes((pc + 1) % 12) ? midi + 1 : midi - 1
+}
+
+function scaleStep(midi, steps, key) {
+  const rel = midi - key.root
+  const oct = Math.floor(rel / 12)
+  const pc = ((rel % 12) + 12) % 12
+  let index = key.scale.indexOf(pc)
+  if (index < 0) index = key.scale.findIndex((step) => step > pc) - 1
+  if (index < 0) index = 0
+  const total = oct * 7 + index + steps
+  return key.root + Math.floor(total / 7) * 12 + key.scale[((total % 7) + 7) % 7]
+}
+
+function fitRange(notes, low, high) {
+  if (!notes.length || low == null) return notes
+  // Stay in the octave you sang when the instrument can play it there;
+  // otherwise move whole octaves to fit the most notes.
+  let shift = 0
+  let fewest = Infinity
+  for (const candidate of [0, 12, -12, 24, -24]) {
+    const outside = notes.filter((note) => note.midi + candidate < low || note.midi + candidate > high).length
+    if (outside < fewest) {
+      fewest = outside
+      shift = candidate
+    }
+  }
+  return notes.map((note) => {
+    let midi = note.midi + shift
+    while (midi < low) midi += 12
+    while (midi > high) midi -= 12
+    return { ...note, midi }
+  })
+}
+
+function snapTimes(notes, bpm, total, grid) {
+  const step = (60 / bpm) / grid
+  const out = []
+  for (const note of notes) {
+    const start = Math.max(0, Math.round(note.time / step) * step)
+    const end = Math.max(start + step, Math.round((note.time + note.dur) / step) * step)
+    if (start >= total - 0.01) continue
+    const prev = out[out.length - 1]
+    if (prev && Math.abs(prev.time - start) < 1e-6) {
+      // Two notes landed on the same step: keep the longer one.
+      if (note.dur > prev.dur) out[out.length - 1] = { ...note, time: start, dur: Math.min(end, total) - start }
+      continue
+    }
+    if (prev && prev.time + prev.dur > start) prev.dur = Math.max(step * 0.5, start - prev.time)
+    out.push({ ...note, time: start, dur: Math.min(end, total) - start })
+  }
+  return out
+}
+
+function joinShortGaps(notes) {
+  const out = []
+  for (const note of notes) {
+    const prev = out[out.length - 1]
+    if (prev && prev.midi === note.midi && note.time - (prev.time + prev.dur) < 0.09) prev.dur = note.time + note.dur - prev.time
+    else out.push({ ...note })
+  }
+  return out.filter((note) => note.dur >= 0.08)
+}
+
+function chordTones(midi, key, low) {
+  let root = midi
+  while (root > low + 12) root -= 12
+  while (root < low) root += 12
+  return [root, scaleStep(root, 2, key), scaleStep(root, 4, key)]
+}
+
+function voicePlan(melody, options, key) {
+  const figure = options.figure || "solo"
+  const touch = options.touch || "played"
+  const bpm = options.bpm || 92
+  const beat = 60 / bpm
+  const low = options.low ?? 48
+  const high = options.high ?? 84
+  const events = []
+  const add = (midi, time, dur, vel) => {
+    if (time < 0 || dur <= 0.02) return
+    let m = Math.round(midi)
+    while (m < low) m += 12
+    while (m > high) m -= 12
+    events.push({ midi: m, time, dur, vel })
+  }
+  const hits = (note) => {
+    if (touch !== "beat") return [{ time: note.time, dur: note.dur }]
+    const out = []
+    let time = Math.ceil(note.time / beat - 0.25) * beat
+    if (time > note.time + beat * 0.25) time = note.time
+    for (; time < note.time + note.dur - 0.03; time += beat) out.push({ time, dur: Math.min(beat * 0.9, note.time + note.dur - time) })
+    return out.length ? out : [{ time: note.time, dur: note.dur }]
+  }
+  if (figure === "bass") {
+    // A bass line: the root under each bar, on beats 1 and 3, with the
+    // melody's lowest pull deciding the root.
+    const bar = beat * 4
+    const total = options.total
+    for (let start = 0; start < total - 0.05; start += bar) {
+      const inside = melody.filter((note) => note.time < start + bar && note.time + note.dur > start)
+      if (!inside.length) continue
+      const weight = new Map()
+      for (const note of inside) {
+        const pc = ((note.midi % 12) + 12) % 12
+        weight.set(pc, (weight.get(pc) || 0) + Math.min(note.dur, bar))
+      }
+      const first = inside[0]
+      const pc = [...weight.entries()].sort((a, b) => b[1] - a[1] || (a[0] === ((first.midi % 12) + 12) % 12 ? -1 : 1))[0][0]
+      let root = low + ((pc - low) % 12 + 12) % 12
+      if (root > low + 9) root -= 12
+      if (root < low) root += 12
+      const half = touch === "held" ? [0] : [0, 2]
+      for (const b of half) {
+        const t = start + b * beat
+        if (t < total - 0.05) add(root, t, Math.min(touch === "held" ? bar * 0.95 : beat * 1.8, total - t), 0.9)
+      }
+    }
+    return events
+  }
+  for (const note of melody) {
+    let tones = [note.midi]
+    if (figure === "chords") tones = chordTones(note.midi, key, Math.max(low, 48))
+    if (figure === "section") tones = [note.midi, scaleStep(note.midi, -2, key), scaleStep(note.midi, -4, key)]
+    for (const hit of hits(note)) {
+      tones.forEach((midi, i) => {
+        const strum = touch === "strum" ? i * 0.028 : 0
+        add(midi, hit.time + strum, Math.max(0.08, hit.dur - strum), i === 0 ? 0.9 : 0.72)
+      })
+    }
+  }
+  return events
+}
+
+// Hits from a clap, tap, or beatbox take, named by how they sound: a low
+// thump is a kick, a short bright tick is a hat, and the rest is a snare.
+function drumHits(samples, bpm, snap) {
+  const times = mergeTimes([detectOnsets(samples), detectPulses(samples)])
+  const look = Math.floor(SR * 0.04)
+  const lowAlpha = (2 * Math.PI * 150) / SR
+  const found = times.map((time) => {
+    const start = Math.floor(time * SR)
+    let low = 0
+    let all = 0
+    let y = 0
+    let crossings = 0
+    let peak = 0
+    for (let i = 0; i < look && start + i < samples.length; i++) {
+      const x = samples[start + i]
+      y += lowAlpha * (x - y)
+      low += y * y
+      all += x * x
+      peak = Math.max(peak, Math.abs(x))
+      if (i && (samples[start + i - 1] >= 0) !== (x >= 0)) crossings++
+    }
+    const lowShare = all ? low / all : 0
+    const zcr = crossings / look
+    const kind = lowShare > 0.32 ? "kick" : zcr > 0.28 && lowShare < 0.06 ? "hat" : "snare"
+    return { time, kind, vel: Math.min(1, 0.45 + peak * 1.2) }
+  })
+  const kinds = new Set(found.map((hit) => hit.kind))
+  const beat = 60 / bpm
+  if (kinds.size === 1 && found.length >= 2) {
+    // Every hit sounds alike (claps): kick on 1 and 3, snare on 2 and 4.
+    for (const hit of found) {
+      const place = ((Math.round(hit.time / beat) % 4) + 4) % 4
+      hit.kind = place === 0 || place === 2 ? "kick" : "snare"
+    }
+  }
+  if (snap) {
+    const step = beat / 4
+    const seen = new Set()
+    return found.filter((hit) => {
+      hit.time = Math.max(0, Math.round(hit.time / step) * step)
+      const key = `${hit.kind}@${hit.time.toFixed(4)}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+  return found
+}
+
+function planPerformance(samples, sampleRate, options = {}) {
+  const rate = sampleRate || SR
+  let source = samples
+  let loop = false
+  const loopSamples = Math.round(options.loopSamples || 0)
+  if (loopSamples && isLooped(samples, loopSamples)) {
+    source = samples.subarray(0, loopSamples)
+    loop = true
+  }
+  const audio = toEngineRate(source, rate)
+  const pass = audio.length / SR
+  const total = samples.length / rate
+  const bpm = options.bpm || 92
+  const snap = options.snap !== false
+  if (options.mode === "drums") {
+    let hits = drumHits(audio, bpm, snap)
+    if (options.single) hits = hits.map((hit) => ({ ...hit, kind: options.single }))
+    else if (options.fill !== false && hits.length >= 2) {
+      // A full kit keeps time with a hi-hat on every eighth note.
+      const beat = 60 / bpm
+      const last = Math.max(...hits.map((hit) => hit.time))
+      const end = loop ? pass : Math.min(pass, last + beat)
+      for (let t = 0; t < end - 0.01; t += beat / 2) {
+        if (!hits.some((hit) => hit.kind === "hat" && Math.abs(hit.time - t) < 0.02)) hits.push({ time: t, kind: "hat", vel: (Math.round(t / (beat / 2)) % 2 ? 0.45 : 0.6) })
+      }
+      if (!loop || options.crash) hits.push({ time: 0, kind: "crash", vel: 0.55 })
+    }
+    hits.sort((a, b) => a.time - b.time)
+    return { hits, pass, total, loop }
+  }
+  let melody = joinShortGaps(detectNotesOnce(audio))
+  if (!melody.length) return { error: "no-notes", pass, total, loop }
+  const key = keyOf(melody)
+  if (options.inKey !== false) melody = melody.map((note) => ({ ...note, midi: inKey(note.midi, key) }))
+  if (options.transpose) melody = melody.map((note) => ({ ...note, midi: note.midi + options.transpose }))
+  const shifted = options.transpose ? { ...key, root: (key.root + options.transpose + 120) % 12 } : key
+  if (snap) melody = snapTimes(melody, bpm, pass, options.grid || 2)
+  if (options.figure !== "bass") melody = fitRange(melody, options.low, options.high)
+  const events = voicePlan(melody, { ...options, total: pass }, shifted)
+  return { events, key: shifted, pass, total, loop, melody }
+}
+
+// Pitch shift a recording by a steady number of semitones, keeping its
+// length and timing. One pass of a loop is shifted and looped again.
+function shiftPitch(samples, sampleRate, semitones, loopSamples) {
+  if (loopSamples) {
+    const looped = onEachLoop(samples, sampleRate, loopSamples, SR, (pass) => shiftPitch(pass, sampleRate, semitones, 0))
+    if (looped) return looped
+  }
+  const src = toEngineRate(samples, sampleRate)
+  const ratio = 2 ** (semitones / 12)
+  if (Math.abs(ratio - 1) < 1e-4) return src
+  // Stretch the sound longer by the ratio, keeping its pitch (WSOLA), then
+  // play it back faster by the same ratio: same length, new pitch.
+  const long = wsolaStretch(src, ratio)
+  const out = new Float32Array(src.length)
+  for (let i = 0; i < out.length; i++) {
+    const pos = i * ratio
+    const index = Math.floor(pos)
+    if (index + 1 >= long.length) break
+    const frac = pos - index
+    out[i] = long[index] * (1 - frac) + long[index + 1] * frac
+  }
+  return out
+}
+
+// Waveform-similarity overlap-add: lengthens or shortens a sound without
+// changing its pitch, lining each grain up with the last so it stays smooth.
+function wsolaStretch(src, factor) {
+  const win = 1024
+  const hopOut = win / 2
+  const hopIn = hopOut / factor
+  const tol = 256
+  const length = Math.ceil(src.length * factor) + win
+  const out = new Float32Array(length)
+  const norm = new Float32Array(length)
+  const window = new Float32Array(win)
+  for (let i = 0; i < win; i++) window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / win)
+  let prev = 0
+  for (let k = 0; ; k++) {
+    const outPos = k * hopOut
+    const ideal = Math.round(k * hopIn)
+    if (ideal + win + tol >= src.length || outPos + win >= length) break
+    let pick = ideal
+    if (k > 0) {
+      // The grain that best continues what came out last.
+      const want = prev + hopOut
+      let best = -Infinity
+      for (let d = -tol; d <= tol; d += 2) {
+        const cand = ideal + d
+        if (cand < 0 || cand + win >= src.length) continue
+        let corr = 0
+        for (let i = 0; i < win; i += 4) corr += src[want + i] * src[cand + i]
+        if (corr > best) {
+          best = corr
+          pick = cand
+        }
+      }
+    }
+    for (let i = 0; i < win; i++) {
+      out[outPos + i] += src[pick + i] * window[i]
+      norm[outPos + i] += window[i]
+    }
+    prev = pick
+  }
+  for (let i = 0; i < length; i++) out[i] = norm[i] > 0.1 ? out[i] / norm[i] : out[i]
+  return out
+}
+
+// Change the tempo: a factor above 1 is slower (longer). Pitch stays.
+function timeStretch(samples, sampleRate, factor, loopSamples) {
+  const src = toEngineRate(samples, sampleRate)
+  const fit = (made, length) => {
+    const out = new Float32Array(length)
+    out.set(made.subarray(0, Math.min(length, made.length)))
+    return out
+  }
+  const pass = loopSamples ? Math.round((loopSamples * SR) / sampleRate) : 0
+  if (pass && isLooped(src, pass)) {
+    const onePass = fit(wsolaStretch(src.subarray(0, pass), factor), Math.round(pass * factor))
+    const total = Math.round(src.length * factor)
+    const out = new Float32Array(total)
+    for (let at = 0; at < total; at += onePass.length) out.set(onePass.length <= total - at ? onePass : onePass.subarray(0, total - at), at)
+    return { samples: out, loopSamples: onePass.length }
+  }
+  return { samples: fit(wsolaStretch(src, factor), Math.round(src.length * factor)), loopSamples: 0 }
+}
+
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
@@ -1991,4 +2340,8 @@ globalThis.SongbirdMusic = {
   fixTiming,
   inputMakeup,
   enhanceAudio,
+  planPerformance,
+  shiftPitch,
+  timeStretch,
+  keyOf,
 }
