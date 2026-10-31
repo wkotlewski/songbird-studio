@@ -519,10 +519,69 @@ function loopedBuffer(samples, sampleRate, loopSamples) {
   return buffer
 }
 
+// iPhone and iPad: Web Audio is quiet by default. It obeys the silent
+// switch, and after the mic is used it can stay routed to the earpiece or
+// be "interrupted". Songbird asks for a music session (speaker, ignores the
+// silent switch) whenever it isn't recording, and wakes the audio back up.
+const appleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+let quietKeeper = null
+
+function audioSession(kind) {
+  try {
+    if (navigator.audioSession && navigator.audioSession.type !== kind) navigator.audioSession.type = kind
+  } catch { /* older browsers have no audio session */ }
+}
+
+function silentWavUrl() {
+  const rate = 8000
+  const length = rate / 2
+  const bytes = new ArrayBuffer(44 + length * 2)
+  const view = new DataView(bytes)
+  const write = (offset, text) => { for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i)) }
+  write(0, "RIFF"); view.setUint32(4, 36 + length * 2, true); write(8, "WAVE"); write(12, "fmt ")
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true)
+  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true)
+  write(36, "data"); view.setUint32(40, length * 2, true)
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }))
+}
+
+// Older iPhones have no audioSession setting. A silent looping <audio>
+// element switches the page to media playback, which does the same job.
+function keepSpeakerOn() {
+  if (state.recording || state.arming || state.counting) {
+    audioSession("play-and-record")
+    return
+  }
+  audioSession("playback")
+  if (!appleMobile || navigator.audioSession) return
+  try {
+    if (!quietKeeper) {
+      quietKeeper = new Audio(silentWavUrl())
+      quietKeeper.loop = true
+      quietKeeper.setAttribute("playsinline", "")
+    }
+    if (quietKeeper.paused) void quietKeeper.play().catch(() => {})
+  } catch { /* nothing else to try */ }
+}
+
 function ac() {
-  if (!audioCtx) audioCtx = new AudioContext()
-  if (audioCtx.state === "suspended") void audioCtx.resume()
+  if (!audioCtx) {
+    audioCtx = new AudioContext()
+    audioCtx.onstatechange = () => {
+      if (audioCtx.state !== "running" && (playing || state.recording)) void audioCtx.resume().catch(() => {})
+    }
+  }
+  if (audioCtx.state !== "running") void audioCtx.resume().catch(() => {})
   return audioCtx
+}
+
+// Every tap is a chance to unlock sound on a phone. iPhone counts a tap as
+// permission on touchend and click, so all three are listened to.
+for (const type of ["pointerdown", "touchend", "click"]) {
+  document.addEventListener(type, () => {
+    keepSpeakerOn()
+    if (audioCtx && audioCtx.state !== "running") void audioCtx.resume().catch(() => {})
+  }, { capture: true, passive: true })
 }
 
 const CLOUDS = [
@@ -855,6 +914,7 @@ function rideInput() {
 }
 
 function releaseMic() {
+  window.setTimeout(keepSpeakerOn, 0)
   try { sky.micSource?.disconnect() } catch { /* already released */ }
   try { sky.rumble?.disconnect() } catch { /* already released */ }
   try { sky.makeup?.disconnect() } catch { /* already released */ }
@@ -2877,7 +2937,14 @@ async function keepLoopTake() {
   $("save-status").textContent = first
     ? `Loop closed: ${loopWords(passSec)}. It's playing. Tap record to stack the next layer, or Transform to turn it into an instrument.`
     : `Layer ${stack} is on the loop. Tap record for another, or Mix when it feels right.`
+  keepSpeakerOn()
   try { play(0) } catch { /* the loop is still on the timeline */ }
+  const ctx = ac()
+  window.setTimeout(() => {
+    if (ctx.state !== "running" && state.panel === "record") {
+      $("save-status").textContent = "Your loop is ready. Tap ▶ Play to hear it."
+    }
+  }, 400)
 }
 
 function useTempo(bpm, source, lock) {
@@ -3028,6 +3095,7 @@ async function toggleRecord() {
   state.arming = true
   renderInspector()
   try {
+    audioSession("play-and-record")
     recStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     })
