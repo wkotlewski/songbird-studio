@@ -71,6 +71,19 @@ check("a package builds every ready step", packaged.length === rnb.length && pac
 const enhanced = M.enhanceAudio(looped, sr, { mode: "clear", loopSamples: phrase.length })
 check("enhance keeps a loop a loop", enhanced.length === looped.length && enhanced[500] === enhanced[500 + phrase.length * 3])
 
+// Performance plans: a slightly late, slightly sharp C major hum.
+const tuneHum = new Float32Array(Math.round(sr * (60 / 92) * 8))
+const tuneNotes = [[60, 0, 1], [62, 1, 1], [64, 2, 1], [67, 3, 1], [64, 4, 2], [62, 6, 1], [60, 7, 1]]
+for (const [m, b, d] of tuneNotes) { const t0 = Math.floor((b * (60 / 92) + 0.05) * sr); let ph = 0; for (let i = 0; i < d * (60 / 92) * 0.85 * sr; i++) { ph += 2 * Math.PI * 440 * 2 ** ((m - 69 + 0.25) / 12) / sr; tuneHum[t0 + i] = 0.3 * Math.sin(ph) } }
+const planned = M.planPerformance(tuneHum, sr, { bpm: 92, figure: "solo", low: 48, high: 84 })
+check("a hum becomes its notes, on the beat, in tune", planned.events.map((e) => e.midi).join(",") === "60,62,64,67,64,62,60" && planned.events.every((e) => Math.abs(e.time / (60 / 92) - Math.round(e.time / (60 / 92))) < 1e-6))
+check("the key of a C major tune is C major", planned.key.root === 0 && !planned.key.minor)
+check("chords sit under the tune", M.planPerformance(tuneHum, sr, { bpm: 92, figure: "chords", low: 48, high: 84 }).events.length === 21)
+const up = M.shiftPitch(tuneHum, sr, 2)
+check("transpose keeps the length", Math.abs(up.length / 44100 - tuneHum.length / sr) < 0.01)
+const slower = M.timeStretch(looped, sr, 1.25, phrase.length)
+check("a slower loop is still a loop", slower.loopSamples === Math.round(phrase.length * 44100 / sr * 1.25) && Math.abs(slower.samples.length - Math.round(looped.length * 44100 / sr * 1.25)) <= 1)
+
 if (failures.length) {
   console.error(failures.join("\n"))
   process.exit(1)
