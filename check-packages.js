@@ -56,6 +56,21 @@ const boom = P.pattern("boom")
 const hits = M.patternHits(84, 4, boom).filter((hit) => hit.time < 60 / 84 * 4 - 0.01)
 check("boom cell has kicks and snares", hits.some((hit) => hit.kind === "kick") && hits.some((hit) => hit.kind === "snare"))
 
+// Loop pedal: a phrase looped to fill the song is built once and looped.
+const phrase = hum.subarray(0, sr * 2)
+const looped = new Float32Array(sr * 30)
+for (let i = 0; i < looped.length; i++) looped[i] = phrase[i % phrase.length]
+const loopPiano = M.transformAudio(looped, "Piano", { bpm: 84, sampleRate: sr, loopSamples: phrase.length })
+check("a looped layer is built one pass at a time", loopPiano && loopPiano.loop && loopPiano.samples.length === looped.length)
+check("every pass of a built loop matches", loopPiano && [0, 1000, 40000].every((i) => loopPiano.samples[i] === loopPiano.samples[i + phrase.length * 7]))
+const notLooped = hum.slice()
+const wholePiano = M.transformAudio(notLooped, "Piano", { bpm: 84, sampleRate: sr, loopSamples: sr })
+check("audio that is not a loop renders whole", wholePiano && !wholePiano.loop)
+const packaged = M.transformSteps(looped, rnb.map((step) => ({ sound: step.sound, options: { era: step.era, figure: step.figure, touch: step.touch, pattern: step.pattern ? P.pattern(step.pattern) : undefined } })), { bpm: 84, sampleRate: sr, loopSamples: phrase.length })
+check("a package builds every ready step", packaged.length === rnb.length && packaged.every((item) => item && item.samples.length >= sr * 29))
+const enhanced = M.enhanceAudio(looped, sr, { mode: "clear", loopSamples: phrase.length })
+check("enhance keeps a loop a loop", enhanced.length === looped.length && enhanced[500] === enhanced[500 + phrase.length * 3])
+
 if (failures.length) {
   console.error(failures.join("\n"))
   process.exit(1)
