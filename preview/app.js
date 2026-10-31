@@ -282,6 +282,8 @@ let recLead = 0
 let recAutoStop = 0
 // The loop clock: when the take's first beat is heard, and how long the loop is.
 const loopClock = { start: 0, length: 0, raf: 0, closedAt: 0 }
+// The beat lights: when beat 1 is heard, and which beat of the bar it is.
+const beatLights = { origin: Infinity, firstBeat: 0, raf: 0 }
 let playing = false
 let playStarted = 0
 let playFrom = 0
@@ -365,6 +367,9 @@ const state = {
   looper: true,
   loopBars: 4,
   loopSec: null,
+  // Headphones on: the click is heard while you record. Off: it's silent in
+  // the take and you follow the beat lights. null means Songbird guesses.
+  headphones: null,
 }
 
 const $ = (id) => document.getElementById(id)
@@ -2228,9 +2233,11 @@ function renderInspector() {
       ${micMode ? `${state.looper ? "" : `<p class="hint">Tempo is ${state.bpm}. You'll see it, then it counts 1, 2, 3, 4, then the song plays while the mic records. Only the mic is kept.</p>`}
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording || state.counting ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording || state.counting ? "recording" : "idle"}" aria-label="${state.recording || state.counting ? "Stop recording" : "Record"}"><span class="glyph" aria-hidden="true">${state.recording || state.counting ? "■" : "●"}</span></button>
+      ${beatLightsMarkup()}
       ${state.looper ? loopClockMarkup() : ""}
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to stack a layer" : "Tap to start a loop") : "00:00"}</p>
       ${looperBox()}
+      ${headphonesBox()}
       ${state.looper ? `<p class="hint">Tempo ${state.bpm}. It counts 1, 2, 3, 4, then the loop plays from the top while the mic records. Only the mic is kept.</p>` : ""}
       <p class="hint">Songbird records like Voice Memos: your mic as it is, full quality, with nothing added while you sing. It only evens out the level after. Headphones keep the click and the loop out of your take. Magic clear, in Transform, can tidy it later.</p>
       ${outlinedButton(state.recMore ? "Hide monitoring" : "Headphones and monitoring", `data-action="toggle-rec-more"`)}
@@ -2813,6 +2820,61 @@ async function keepTake(name, stayOpen) {
 
 // A block that drains as the loop runs out, so you know when it ends without
 // counting: "Keep going…", then 3, 2, 1, then "Stop" as it closes the loop.
+function beatLightsMarkup() {
+  const live = state.recording || state.counting
+  return `<div class="beat-lights" id="beat-lights" aria-hidden="true" ${live ? "" : "hidden"}>${[0, 1, 2, 3].map((i) => `<i class="${i === 0 ? "one" : ""}"></i>`).join("")}</div>`
+}
+
+function runBeatLights() {
+  cancelAnimationFrame(beatLights.raf)
+  let lit = -2
+  const frame = () => {
+    const box = $("beat-lights")
+    if (!state.recording && !state.counting) {
+      beatLights.raf = 0
+      if (box) box.hidden = true
+      return
+    }
+    if (box && audioCtx) {
+      box.hidden = false
+      const beat = 60 / Math.max(40, state.bpm || 92)
+      let index = -1
+      if (state.counting) index = state.countBeat ? state.countBeat - 1 : -1
+      else {
+        const into = audioCtx.currentTime - beatLights.origin
+        // Light for the first 40% of each beat, then go dark until the next.
+        if (into >= 0 && (into % beat) / beat < 0.4) index = (beatLights.firstBeat + Math.floor(into / beat)) % 4
+      }
+      if (index !== lit) {
+        lit = index
+        box.querySelectorAll("i").forEach((dot, i) => dot.classList.toggle("on", i === index))
+      }
+    }
+    beatLights.raf = requestAnimationFrame(frame)
+  }
+  beatLights.raf = requestAnimationFrame(frame)
+}
+
+// A best guess from the microphone's name (AirPods, a headset, wired
+// earbuds). You can always set it yourself in Record.
+function guessHeadphones(stream) {
+  if (state.headphonesSet) return
+  const label = stream?.getAudioTracks?.()[0]?.label || ""
+  state.headphones = /airpods|headphone|headset|earpods|earbuds|buds|beats|bluetooth|hands-?free/i.test(label)
+}
+
+function headphonesBox() {
+  const on = !!state.headphones
+  const busy = state.recording || state.counting ? "disabled" : ""
+  return `<div class="phones-row">
+    <div>
+      <p class="ask">Headphones</p>
+      <p class="hint">${on ? "You'll hear the click while you record." : "The click is silent while you record, so it stays out of your take. Follow the beat lights."}</p>
+    </div>
+    <button class="switch ${on ? "on" : ""}" data-action="toggle-phones" role="switch" aria-checked="${on ? "true" : "false"}" aria-label="I'm wearing headphones" ${busy}><span></span></button>
+  </div>`
+}
+
 function loopClockMarkup() {
   const justClosed = loopClock.closedAt && performance.now() - loopClock.closedAt < 1500
   const live = state.recording || state.counting || justClosed
@@ -3049,12 +3111,17 @@ async function finishRecording(wasTempo) {
 }
 
 function clickAt(time, accent) {
+  if (state.recording && !state.headphones) {
+    // No headphones: the click would go straight into the take, so it is
+    // only seen, as the beat lights and the sky.
+    sky.flashes.push({ when: time, strength: accent ? 1 : 0.42 })
+    return
+  }
   const ctx = ac()
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()
   osc.frequency.value = accent ? 1680 : 1120
-  // Softer while the mic is open, so less of it lands in the take.
-  const peak = (accent ? 0.24 : 0.11) * (state.recording ? 0.45 : 1)
+  const peak = (accent ? 0.24 : 0.11) * (state.recording ? 0.6 : 1)
   gain.gain.setValueAtTime(0.0001, time)
   gain.gain.exponentialRampToValueAtTime(peak, time + 0.004)
   gain.gain.exponentialRampToValueAtTime(0.0001, time + (accent ? 0.06 : 0.04))
@@ -3129,6 +3196,7 @@ async function countIn() {
   renderTracks()
   renderInspector()
   if (state.looper && !state.tempoPass) runLoopClock()
+  runBeatLights()
   $("save-status").textContent = `Tempo ${state.bpm}. Then a count of four.`
   const countStart = ctx.currentTime + beat + 0.12
   for (let i = 1; i <= 4; i++) {
@@ -3172,6 +3240,7 @@ async function toggleRecord() {
       return
     }
   }
+  guessHeadphones(recStream)
   await captureReady()
   if (!state.arming) {
     recStream?.getTracks().forEach((track) => track.stop())
@@ -3235,6 +3304,9 @@ async function toggleRecord() {
   recLead = Math.max(0, songStart - takeStart) + (ctx.outputLatency || 0) + (ctx.baseLatency || 0)
   media.songStart = songStart
   media.outLatency = (ctx.outputLatency || 0) + (ctx.baseLatency || 0)
+  beatLights.origin = songStart + media.outLatency
+  beatLights.firstBeat = fromBeat % 4
+  if (!tempoPass) runBeatLights()
   window.clearTimeout(recAutoStop)
   const closeAt = state.looper && !tempoPass ? loopTarget() : 0
   loopClock.start = songStart + (ctx.outputLatency || 0) + (ctx.baseLatency || 0)
@@ -4683,6 +4755,15 @@ document.body.addEventListener("click", (event) => {
     renderInspector()
   }
   if (action === "add-starter") addStarter()
+  if (action === "toggle-phones") {
+    if (state.recording || state.counting) return
+    state.headphones = !state.headphones
+    state.headphonesSet = true
+    renderInspector()
+    $("save-status").textContent = state.headphones
+      ? "Headphones on. You'll hear the click while you record."
+      : "No headphones. The click stays silent while you record. Watch the beat lights."
+  }
   if (action === "toggle-looper") {
     if (state.recording || state.counting) return
     state.looper = !state.looper
