@@ -74,7 +74,7 @@ button:disabled { opacity: 0.42; cursor: not-allowed; }
 .btn-primary:hover { background: var(--mint-hover); }
 .btn-primary:active { background: var(--mint-press); }
 .btn-secondary {
-  background: transparent;
+  background: var(--surface);
   color: var(--text);
   border-color: rgba(52, 211, 153, 0.55);
   padding: 0 16px;
@@ -106,12 +106,11 @@ button:disabled { opacity: 0.42; cursor: not-allowed; }
 .icon-btn.on { box-shadow: inset 0 0 0 2px var(--ink); }
 .chip {
   padding: 8px 14px;
-  background: rgba(8, 14, 18, 0.28);
+  background: var(--surface);
   color: var(--text);
-  border: 1px solid rgba(255, 251, 242, 0.22);
-  backdrop-filter: blur(16px) saturate(1.5);
-  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid rgba(52, 211, 153, 0.55);
 }
+.chip:hover { background: var(--surface-high); }
 .chip.on, .choice.on, .seg button.on, .choices button.on, .plan.on, .tile.on, .section.on {
   color: var(--ink);
   background: var(--mint);
@@ -135,7 +134,10 @@ body[data-screen="studio"] #library { display: none; }
   overflow: hidden;
   background: transparent;
 }
-#library, #inspector, .studio-bar, .dock, .mobile-nav, .note, .song, .strip, .magic-log, .empty, .track-label {
+/* Track labels and the ruler sit over the moving sky, so they are a deep
+   tint instead of a live blur: a blur there is redrawn on every frame. */
+.track-label { box-shadow: inset 0 1px 0 rgba(255, 251, 242, 0.22); }
+#library, #inspector, .studio-bar, .dock, .mobile-nav, .note, .song, .strip, .magic-log, .empty {
   background: rgba(8, 14, 18, 0.46);
   backdrop-filter: blur(28px) saturate(1.5);
   -webkit-backdrop-filter: blur(28px) saturate(1.5);
@@ -203,8 +205,6 @@ h2 { font: var(--type-section); }
   border: 1px solid rgba(255, 251, 242, 0.22);
   border-radius: 20px;
   padding: 12px 14px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 #song-title { font-size: 18px; font-weight: 700; }
 .title-block { flex: 1 1 220px; min-width: 0; max-width: 100%; }
@@ -329,9 +329,7 @@ h2 { font: var(--type-section); }
   z-index: 6;
   margin: 0 -12px 8px;
   padding: 8px 12px 8px;
-  background: rgba(8, 14, 18, 0.78);
-  backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  background: rgba(8, 14, 18, 0.88);
 }
 .ruler-layout { display: grid; grid-template-columns: 148px 1fr; gap: 8px; align-items: start; }
 .ruler-gutter {
@@ -354,9 +352,7 @@ h2 { font: var(--type-section); }
   border: 1px solid rgba(255, 251, 242, 0.22);
   border-radius: 999px;
   color: var(--text);
-  background: rgba(8, 14, 18, 0.32);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(8, 14, 18, 0.62);
   font-size: 11px;
   font-weight: 700;
   padding: 0 8px;
@@ -551,8 +547,6 @@ h2 { font: var(--type-section); }
   border-radius: 12px;
   min-width: 0;
   background: rgba(8, 14, 18, 0.86);
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
 }
 .track-label .layer-name {
   width: 100%;
@@ -593,11 +587,15 @@ h2 { font: var(--type-section); }
   bottom: 0;
   height: auto;
   border-radius: 10px;
+  padding: 0 8px;
+  overflow: hidden;
+}
+.wave .bars {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 8px;
-  overflow: hidden;
+  height: 100%;
+  transform-origin: center;
 }
 .wave i {
   display: block;
@@ -606,36 +604,36 @@ h2 { font: var(--type-section); }
   background: rgba(255, 255, 255, 0.88);
   flex: none;
 }
-body[data-sound="play"] .track:not(.quiet) .wave {
-  box-shadow: 0 0 calc(8px + var(--pulse, 0) * 22px) var(--wave, var(--cyan));
+/* While a song plays, each layer breathes with its own sound. Only transform
+   and opacity change per frame, so phones can keep up. */
+body[data-sound="play"] .track:not(.quiet) .wave::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 18px var(--wave, var(--mint)), 0 0 22px var(--wave, var(--mint));
+  opacity: calc(0.25 + var(--pulse, 0) * 0.75);
+  pointer-events: none;
 }
-body[data-sound="play"] .track:not(.quiet) .wave i {
-  transform-origin: center;
+body[data-sound="play"] .track:not(.quiet) .wave .bars {
   transform: scaleY(calc(0.72 + var(--pulse, 0) * 0.62));
-  filter: brightness(calc(1 + var(--pulse, 0) * 0.7));
-}
-body[data-sound="play"] .track.quiet .wave,
-body[data-sound="play"] .track.quiet .wave i,
-body[data-sound="play"] .track.quiet .wave::after {
-  animation: none;
-  box-shadow: none;
-  filter: none;
-  transform: none;
+  will-change: transform;
 }
 body[data-sound="play"] .track:not(.quiet) .wave::after {
   content: "";
   position: absolute;
-  inset: 0;
-  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.55) 50%, transparent 58%);
-  background-size: 42% 100%;
-  background-repeat: no-repeat;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42%;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.06) 40%, rgba(255, 255, 255, 0.32) 50%, transparent 60%);
   animation: sweep 2.8s linear infinite;
-  mix-blend-mode: screen;
+  will-change: transform;
   pointer-events: none;
 }
 @keyframes sweep {
-  from { background-position: -45% 0; }
-  to { background-position: 150% 0; }
+  from { transform: translateX(-110%); }
+  to { transform: translateX(260%); }
 }
 .playhead {
   position: absolute;
@@ -648,10 +646,15 @@ body[data-sound="play"] .track:not(.quiet) .wave::after {
   box-shadow: 0 0 8px rgba(52, 211, 153, 0.35);
 }
 body[data-sound="play"] .playhead {
-  box-shadow:
-    0 0 8px #fff,
-    0 0 16px rgba(52, 211, 153, 0.95),
-    0 0 calc(16px + var(--pulse) * 30px) rgba(236, 72, 153, 0.7);
+  box-shadow: 0 0 8px #fff, 0 0 16px rgba(52, 211, 153, 0.95);
+  will-change: transform;
+}
+body[data-sound="play"] .playhead::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-shadow: 0 0 46px 4px rgba(236, 72, 153, 0.7);
+  opacity: calc(0.3 + var(--pulse, 0) * 0.7);
 }
 body[data-sound="play"] .playhead::before {
   content: "";
@@ -678,7 +681,7 @@ body[data-sound="record"] .mic {
   transform: scale(calc(1 + var(--pulse) * 0.05));
 }
 body[data-sound] .stage {
-  box-shadow: inset 0 0 calc(18px + var(--pulse) * 24px) rgba(255, 251, 242, 0.14);
+  box-shadow: inset 0 0 28px rgba(255, 251, 242, 0.12);
 }
 .empty {
   margin: 28px 12px;
@@ -732,7 +735,8 @@ button.dock-btn.on[data-panel="record"] { border-color: rgba(236, 72, 153, 0.9);
 .mic:disabled { filter: grayscale(0.4); }
 .meter { height: 36px; display: flex; align-items: center; justify-content: center; gap: 3px; }
 .meter i { width: 4px; height: 8px; background: var(--cyan); border-radius: 99px; display: block; }
-.meter.go i { animation: hop 0.6s ease-in-out infinite alternate; }
+.meter.live i { height: 36px; transform: scaleY(0.2); will-change: transform; }
+.meter.go:not(.live) i { animation: hop 0.6s ease-in-out infinite alternate; }
 @keyframes hop { to { height: 28px; } }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .primary { background: var(--mint); color: var(--ink); border: 0; min-height: 48px; padding: 0 18px; }
@@ -815,11 +819,11 @@ input[type="range"].fader {
 
 @media (prefers-reduced-motion: reduce) {
   #inspector { transition: none; }
-  .meter.go i, .meter.live i { animation: none; height: 18px; }
+  .meter.go i { animation: none; height: 18px; }
   body[data-sound="play"] .wave::after,
   .track.arrived .wave { animation: none; }
   body[data-sound="play"] .wave::after { opacity: 0.35; }
-  body[data-sound="play"] .wave i,
+  body[data-sound="play"] .track:not(.quiet) .wave .bars,
   body[data-sound="record"] .mic { transform: none; }
 }
 
@@ -1264,7 +1268,8 @@ button.layer-delete {
     order: 4;
   }
   .bpm,
-  #click-btn {
+  #click-btn,
+  #loop-btn {
     flex: none;
     order: 5;
   }
@@ -1296,3 +1301,46 @@ button.layer-delete {
   }
   #inspector { max-height: min(48dvh, 420px); }
 }
+
+/* Loop pedal: the record panel's first choice. One switch, one row of
+   lengths, and the big record button underneath. */
+.looper {
+  margin: 12px 0 4px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 251, 242, 0.16);
+  background: rgba(7, 28, 23, 0.55);
+}
+.looper.on { border-color: rgba(52, 211, 153, 0.55); }
+.looper-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.looper-head .ask { margin: 0 0 2px; }
+.looper-head .hint { margin: 0; }
+.looper .choices { margin-top: 10px; flex-wrap: nowrap; gap: 6px; }
+.looper .choices .chip { flex: 1 1 0; min-width: 0; padding: 8px 6px; white-space: nowrap; }
+.looper .btn { margin-top: 10px; }
+.looper-new { background: none; border: 0; padding: 8px 0 0; color: var(--mint); font: var(--type-button); text-decoration: underline; text-underline-offset: 3px; min-height: 32px; }
+.switch {
+  flex: none;
+  position: relative;
+  width: 56px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.55);
+  background: var(--surface-low);
+  padding: 0;
+}
+.switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 0.18s ease;
+}
+.switch.on { background: var(--mint); border-color: transparent; }
+.switch.on span { transform: translateX(24px); background: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .switch span { transition: none; } }
+.switch::after { content: ""; position: absolute; inset: -8px; }
+#rec-time { text-align: center; }
