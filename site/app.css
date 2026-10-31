@@ -1278,6 +1278,18 @@ button.layer-delete {
     height: 44px;
     flex: none;
   }
+  /* Phone transport: the buttons share the full width, each at least 52px,
+     with space between so a thumb doesn't hit the neighbour. */
+  .transport { gap: 8px; justify-content: space-between; }
+  .transport .icon-btn {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 48px;
+    max-width: 68px;
+    height: 52px;
+  }
+  .transport #play-btn { max-width: 80px; }
+  .transport .glyph { font-size: 20px; }
   .stage {
     flex: 1 1 auto;
     min-height: 32dvh;
@@ -1405,3 +1417,24 @@ button.layer-delete {
   background: rgba(7, 28, 23, 0.55);
 }
 .phones-row .ask, .phones-row .hint { margin: 0 0 2px; }
+
+/* One big Listen / Stop in Record, so you never hunt for the small one. */
+.listen-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  margin: 12px 0 4px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--mint);
+  color: var(--ink);
+  font: var(--type-button);
+  font-size: 17px;
+}
+.listen-btn span { font-size: 18px; }
+.listen-btn.on { background: var(--surface); color: var(--text); border: 2px solid var(--mint); }
+.looper .polish-ask { margin: 14px 0 0; }
+.looper .choices + .hint { margin-top: 8px; }

@@ -370,6 +370,9 @@ const state = {
   // Headphones on: the click is heard while you record. Off: it's silent in
   // the take and you follow the beat lights. null means Songbird guesses.
   headphones: null,
+  // Polish on each loop as it closes. The raw take is kept; Revert brings it back.
+  snap: true,
+  tune: true,
 }
 
 const $ = (id) => document.getElementById(id)
@@ -979,6 +982,7 @@ function rideInput() {
 
 function releaseMic() {
   window.setTimeout(keepSpeakerOn, 0)
+  window.setTimeout(setGuideLevel, 0)
   try { sky.micSource?.disconnect() } catch { /* already released */ }
   try { sky.rumble?.disconnect() } catch { /* already released */ }
   try { sky.makeup?.disconnect() } catch { /* already released */ }
@@ -2236,6 +2240,7 @@ function renderInspector() {
       ${beatLightsMarkup()}
       ${state.looper ? loopClockMarkup() : ""}
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to stack a layer" : "Tap to start a loop") : "00:00"}</p>
+      ${!state.recording && !state.counting && songHasSound() ? `<button class="listen-btn ${playing ? "on" : ""}" data-action="play" id="listen-btn" aria-label="${playing ? "Stop" : "Play what you have"}"><span aria-hidden="true">${playing ? "■" : "▶"}</span>${playing ? "Stop" : "Listen to what you have"}</button>` : ""}
       ${looperBox()}
       ${headphonesBox()}
       ${state.looper ? `<p class="hint">Tempo ${state.bpm}. It counts 1, 2, 3, 4, then the loop plays from the top while the mic records. Only the mic is kept.</p>` : ""}
@@ -2869,7 +2874,7 @@ function headphonesBox() {
   return `<div class="phones-row">
     <div>
       <p class="ask">Headphones</p>
-      <p class="hint">${on ? "You'll hear the click while you record." : "The click is silent while you record, so it stays out of your take. Follow the beat lights."}</p>
+      <p class="hint">${on ? "You'll hear the click and your loop at full volume while you record." : "While you record, the click is silent and your loop plays very softly, so the mic doesn't pick them up. Hold the phone close to hear it, and follow the beat lights."}</p>
     </div>
     <button class="switch ${on ? "on" : ""}" data-action="toggle-phones" role="switch" aria-checked="${on ? "true" : "false"}" aria-label="I'm wearing headphones" ${busy}><span></span></button>
   </div>`
@@ -2957,6 +2962,12 @@ function looperBox() {
     ${state.looper ? `<div class="choices" role="group" aria-label="Loop length">
       ${lengths.map(([bars, label]) => filterChip(label, `data-action="loop-bars" data-bars="${bars}" ${busy}`, state.loopBars === bars)).join("")}
     </div>
+    <p class="ask polish-ask">Make it tight</p>
+    <div class="choices" role="group" aria-label="Polish each loop">
+      ${filterChip("Snap to beat", `data-action="toggle-snap" aria-pressed="${state.snap}" ${busy}`, state.snap)}
+      ${filterChip("Tune pitch", `data-action="toggle-tune" aria-pressed="${state.tune}" ${busy}`, state.tune)}
+    </div>
+    <p class="hint">${state.snap || state.tune ? "Each loop is tightened as it closes. Your raw take is kept: Revert, in Transform, brings it back." : "Off: loops keep your timing and pitch exactly as you sang them."}</p>
     ${set ? `<button class="looper-new" data-action="new-loop" ${busy}>New loop length</button>` : ""}` : ""}
   </div>`
 }
@@ -2984,6 +2995,36 @@ function loopWords(seconds) {
 // A loop take becomes one pass of whole bars, repeated for the song, the way
 // a loop pedal closes a loop. The first take sets the loop. Later takes are
 // one pass, or as many whole passes as you sang.
+// Snap to beat: notes that land near a beat or half-beat move onto it, and
+// a steady off-beat feel is left alone. Tune: sung or hummed notes are eased
+// toward the nearest note. Claps and taps have no pitch, so tuning leaves
+// them as they are. Both run off the main thread.
+async function polishPass(pass, rate) {
+  let samples = pass
+  let outRate = rate
+  let moved = 0
+  const words = []
+  if (state.snap) {
+    const fixed = await engine.call("fixTiming", [{ id: "take", samples: pass.slice(), sampleRate: rate, start: 0 }], { bpm: state.bpm || 92, slack: 0.3 })
+    const one = fixed && fixed[0]
+    if (one && one.moved && one.samples) {
+      samples = one.samples
+      moved = one.moved
+      words.push("snapped")
+    }
+  }
+  if (state.tune) {
+    samples = await engine.call("tuneVoice", samples.slice(), outRate, 0.9)
+    outRate = SongbirdMusic.sampleRate
+    words.push("tuned")
+  }
+  if (!words.length) return null
+  const notes = []
+  if (state.snap) notes.push(moved ? `${moved} ${moved === 1 ? "note" : "notes"} snapped to the beat.` : "Already on the beat.")
+  if (state.tune) notes.push("Pitch tuned.")
+  return { samples, rate: outRate, words: words.join(", "), note: notes.join(" ") }
+}
+
 async function keepLoopTake() {
   const blob = pendingBlob
   if (!blob) return
@@ -3022,6 +3063,17 @@ async function keepLoopTake() {
   }
   let peak = 0
   for (let i = 0; i < passLength; i += 16) peak = Math.max(peak, Math.abs(pass[i]))
+  const rawPass = pass
+  const rawRate = rate
+  let polished = null
+  if (peak >= 0.002 && (state.snap || state.tune)) {
+    $("save-status").textContent = state.snap && state.tune ? "Snapping to the beat and tuning…" : state.snap ? "Snapping to the beat…" : "Tuning…"
+    try {
+      polished = await polishPass(pass, rate)
+    } catch {
+      polished = null
+    }
+  }
   if (peak < 0.002) {
     if (first) state.loopSec = null
     pendingBlob = null
@@ -3031,19 +3083,30 @@ async function keepLoopTake() {
   }
   if (first && (!state.lengthSec || !songHasSound())) state.lengthSec = Math.max(1, Math.ceil(60 / state.loopSec)) * state.loopSec
   const songSec = Math.max(state.lengthSec || 60, passSec)
-  const total = Math.round(songSec * rate)
-  const tiled = new Float32Array(total)
-  for (let at = 0; at < total; at += passLength) tiled.set(passLength <= total - at ? pass : pass.subarray(0, total - at), at)
+  const tileOut = (one, oneRate) => {
+    const total = Math.round(songSec * oneRate)
+    const out = new Float32Array(total)
+    for (let at = 0; at < total; at += one.length) out.set(one.length <= total - at ? one : one.subarray(0, total - at), at)
+    return out
+  }
+  const usePass = polished ? polished.samples : rawPass
+  const useRate = polished ? polished.rate : rawRate
+  const tiled = tileOut(usePass, useRate)
   const count = state.layers.filter((layer) => layer.loop).length
   addLayer(blob, `Loop ${count + 1}`)
   const layer = state.layers[state.layers.length - 1]
-  const buffer = loopedBuffer(tiled, rate, passLength)
+  const buffer = loopedBuffer(tiled, useRate, usePass.length)
   buffers.set(layer.id + ":audio", buffer)
+  if (polished) {
+    // The raw take stays, so Revert in Transform gets it back exactly.
+    buffers.set(layer.id + ":original", loopedBuffer(tileOut(rawPass, rawRate), rawRate, rawPass.length))
+  }
   layer.peaks = peaksFromSamples(tiled)
   layer.loop = true
   layer.lengthSec = Math.round(songSec * 100) / 100
   layer.range = { start: 0, end: songSec }
   layer.from = `loop · ${loopWords(passSec)}`
+  if (polished?.words) layer.from += ` · ${polished.words}`
   layer.sections = [{ id: uid(), name: "Loop", start: 0, end: 1 }]
   recordOrigin = 0
   recordedSeconds = 0
@@ -3055,9 +3118,10 @@ async function keepLoopTake() {
   renderInspector()
   wakeSky()
   const stack = state.layers.filter((item) => item.loop).length
+  const polishNote = polished?.note ? ` ${polished.note}` : ""
   $("save-status").textContent = first
-    ? `Loop closed: ${loopWords(passSec)}. It's playing. Tap record to stack the next layer, or Transform to turn it into an instrument.`
-    : `Layer ${stack} is on the loop. Tap record for another, or Mix when it feels right.`
+    ? `Loop closed: ${loopWords(passSec)}.${polishNote} It's playing. Tap record to stack the next layer, or Transform to turn it into an instrument.`
+    : `Layer ${stack} is on the loop.${polishNote} Tap record for another, or Mix when it feels right.`
   keepSpeakerOn()
   try { play(0) } catch { /* the loop is still on the timeline */ }
   const ctx = ac()
@@ -3265,6 +3329,7 @@ async function toggleRecord() {
   state.counting = false
   state.countBeat = 0
   state.recording = true
+  setGuideLevel()
   try { armHotMic(recStream) } catch { /* the take still records */ }
   beginSky("record")
   recChunks = []
@@ -4361,6 +4426,37 @@ function spaceBus(ctx, destination) {
   return verb
 }
 
+// Everything you've recorded plays through one bus. While the mic is open
+// without headphones, it plays very low, a guide only you can follow, so the
+// phone's mic doesn't pick it up. With headphones it plays at full level.
+let busNode = null
+const GUIDE_LEVEL = 0.1
+
+function syncListen(on) {
+  const button = $("listen-btn")
+  if (!button) return
+  button.classList.toggle("on", on)
+  button.setAttribute("aria-label", on ? "Stop" : "Play what you have")
+  button.innerHTML = `<span aria-hidden="true">${on ? "■" : "▶"}</span>${on ? "Stop" : "Listen to what you have"}`
+}
+
+function songBus(ctx) {
+  if (!busNode || busNode.context !== ctx) {
+    busNode = ctx.createGain()
+    busNode.connect(ctx.destination)
+  }
+  setGuideLevel()
+  return busNode
+}
+
+function setGuideLevel() {
+  if (!busNode) return
+  const quiet = state.recording && !state.headphones
+  const now = busNode.context.currentTime
+  busNode.gain.cancelScheduledValues(now)
+  busNode.gain.setTargetAtTime(quiet ? GUIDE_LEVEL : 1, now, 0.03)
+}
+
 function refreshMix(layer) {
   const nodes = mixNodes.get(layer.id)
   if (!nodes || !playing) return
@@ -4514,6 +4610,7 @@ function play(fromSec, options = {}) {
   playStarted = ctx.currentTime
   const playButton = $("play-btn")
   if (playButton) {
+    syncListen(true)
     playButton.classList.add("is-on")
     playButton.setAttribute("aria-label", "Stop")
     const playIcon = playButton.querySelector(".glyph")
@@ -4525,7 +4622,7 @@ function play(fromSec, options = {}) {
   let ended = 0
   for (const layer of candidates) {
     const buffer = buffers.get(layer.id + ":audio")
-    const nodes = scheduleLayer(ctx, layer, buffer, from, span, ctx.destination, ctx.currentTime)
+    const nodes = scheduleLayer(ctx, layer, buffer, from, span, songBus(ctx), ctx.currentTime)
     if (!nodes) continue
     const watch = ctx.createAnalyser()
     watch.fftSize = 64
@@ -4661,6 +4758,7 @@ function stopPlayback(keepClick) {
   if (!keepClick) endSky()
   const playButton = $("play-btn")
   if (playButton) {
+    syncListen(false)
     playButton.classList.remove("is-on")
     playButton.setAttribute("aria-label", "Play")
     const playIcon = playButton.querySelector(".glyph")
@@ -4755,10 +4853,17 @@ document.body.addEventListener("click", (event) => {
     renderInspector()
   }
   if (action === "add-starter") addStarter()
+  if (action === "toggle-snap" || action === "toggle-tune") {
+    if (state.recording || state.counting) return
+    const key = action === "toggle-snap" ? "snap" : "tune"
+    state[key] = !state[key]
+    renderInspector()
+  }
   if (action === "toggle-phones") {
     if (state.recording || state.counting) return
     state.headphones = !state.headphones
     state.headphonesSet = true
+    setGuideLevel()
     renderInspector()
     $("save-status").textContent = state.headphones
       ? "Headphones on. You'll hear the click while you record."
