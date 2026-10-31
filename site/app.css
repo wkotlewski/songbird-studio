@@ -1378,3 +1378,30 @@ button.layer-delete {
 .loop-clock.ending .loop-clock-bar { border-color: var(--pink-light); }
 .loop-clock.closed .loop-clock-word { color: var(--mint); }
 .loop-clock.closed .loop-clock-bar { border-color: var(--mint); }
+
+/* Beat lights: the metronome you can see. Beat 1 is pink, the rest mint. */
+.beat-lights { display: flex; justify-content: center; gap: 14px; margin: 14px 0 2px; }
+.beat-lights[hidden] { display: none; }
+.beat-lights i {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 251, 242, 0.14);
+  border: 1px solid rgba(255, 251, 242, 0.28);
+  transition: transform 0.06s ease, background-color 0.06s ease;
+}
+.beat-lights i.on { background: var(--mint); border-color: var(--mint); transform: scale(1.35); box-shadow: 0 0 16px rgba(52, 211, 153, 0.8); }
+.beat-lights i.one.on { background: var(--pink-light); border-color: var(--pink-light); box-shadow: 0 0 18px rgba(249, 168, 212, 0.9); }
+@media (prefers-reduced-motion: reduce) { .beat-lights i, .beat-lights i.on { transition: none; transform: none; } }
+.phones-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 4px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 251, 242, 0.16);
+  background: rgba(7, 28, 23, 0.55);
+}
+.phones-row .ask, .phones-row .hint { margin: 0 0 2px; }
