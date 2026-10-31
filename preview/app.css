@@ -1344,3 +1344,37 @@ button.layer-delete {
 @media (prefers-reduced-motion: reduce) { .switch span { transition: none; } }
 .switch::after { content: ""; position: absolute; inset: -8px; }
 #rec-time { text-align: center; }
+
+/* Loop clock: a block that drains as the loop runs out. */
+.loop-clock { margin: 12px 0 4px; text-align: center; }
+.loop-clock[hidden] { display: none; }
+.loop-clock-bar {
+  position: relative;
+  height: 28px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 251, 242, 0.1);
+  border: 1px solid rgba(249, 168, 212, 0.45);
+}
+.loop-clock-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--pink), var(--pink-light));
+  transform-origin: left center;
+  will-change: transform;
+}
+.loop-clock-bar i {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: rgba(7, 28, 23, 0.55);
+}
+.loop-clock-word { margin: 10px 0 0; font: var(--type-display); font-size: 34px; color: var(--text); }
+.loop-clock-sub { margin: 2px 0 0; min-height: 18px; font: var(--type-helper); font-size: 14px; color: var(--mute); }
+.loop-clock.ending .loop-clock-word { color: var(--pink-light); }
+.loop-clock.ending .loop-clock-bar { border-color: var(--pink-light); }
+.loop-clock.closed .loop-clock-word { color: var(--mint); }
+.loop-clock.closed .loop-clock-bar { border-color: var(--mint); }
