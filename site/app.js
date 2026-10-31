@@ -280,6 +280,8 @@ let recordOrigin = 0
 let recordedSeconds = 0
 let recLead = 0
 let recAutoStop = 0
+// The loop clock: when the take's first beat is heard, and how long the loop is.
+const loopClock = { start: 0, length: 0, raf: 0, closedAt: 0 }
 let playing = false
 let playStarted = 0
 let playFrom = 0
@@ -2107,6 +2109,7 @@ function renderInspector() {
       ${micMode ? `${state.looper ? "" : `<p class="hint">Tempo is ${state.bpm}. You'll see it, then it counts 1, 2, 3, 4, then the song plays while the mic records. Only the mic is kept.</p>`}
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording || state.counting ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording || state.counting ? "recording" : "idle"}" aria-label="${state.recording || state.counting ? "Stop recording" : "Record"}"><span class="glyph" aria-hidden="true">${state.recording || state.counting ? "■" : "●"}</span></button>
+      ${state.looper ? loopClockMarkup() : ""}
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to stack a layer" : "Tap to start a loop") : "00:00"}</p>
       ${looperBox()}
       ${state.looper ? `<p class="hint">Tempo ${state.bpm}. It counts 1, 2, 3, 4, then the loop plays from the top while the mic records. Only the mic is kept.</p>` : ""}
@@ -2689,6 +2692,69 @@ async function keepTake(name, stayOpen) {
   wakeSky()
 }
 
+// A block that drains as the loop runs out, so you know when it ends without
+// counting: "Keep going…", then 3, 2, 1, then "Stop" as it closes the loop.
+function loopClockMarkup() {
+  const justClosed = loopClock.closedAt && performance.now() - loopClock.closedAt < 1500
+  const live = state.recording || state.counting || justClosed
+  const bars = loopClock.length ? Math.max(1, Math.round(loopClock.length / barSeconds())) : Math.max(1, state.loopBars || 4)
+  const ticks = Array.from({ length: Math.max(0, bars - 1) }, (_, i) => `<i style="left:${(((i + 1) / bars) * 100).toFixed(2)}%"></i>`).join("")
+  return `<div class="loop-clock ${justClosed ? "closed" : ""}" id="loop-clock" ${live ? "" : "hidden"}>
+    <div class="loop-clock-bar"><span class="loop-clock-fill" style="transform:scaleX(${justClosed ? 0 : 1})"></span>${loopClock.length ? ticks : ""}</div>
+    <p class="loop-clock-word" aria-live="polite">${justClosed ? "Stop" : state.counting ? "Get ready…" : "Keep going…"}</p>
+    <p class="loop-clock-sub">${justClosed ? "Loop closed. Listen to it play." : ""}</p>
+  </div>`
+}
+
+function runLoopClock() {
+  cancelAnimationFrame(loopClock.raf)
+  const frame = () => {
+    const box = $("loop-clock")
+    if (!state.recording && !state.counting) {
+      loopClock.raf = 0
+      return
+    }
+    if (box) {
+      box.hidden = false
+      const fill = box.querySelector(".loop-clock-fill")
+      const wordNode = box.querySelector(".loop-clock-word")
+      const subNode = box.querySelector(".loop-clock-sub")
+      const now = audioCtx ? audioCtx.currentTime : 0
+      const beat = 60 / Math.max(40, state.bpm || 92)
+      const bar = beat * 4
+      const into = now - loopClock.start
+      let word = "Keep going…"
+      let sub = ""
+      let left = 1
+      if (state.counting || into < 0) {
+        word = state.counting ? (state.countBeat ? String(state.countBeat) : "Get ready…") : "Go!"
+        sub = "Start on the next 1"
+      } else if (loopClock.length) {
+        const remaining = Math.max(0, loopClock.length - into)
+        left = remaining / loopClock.length
+        const bars = Math.max(1, Math.round(loopClock.length / bar))
+        const barNow = Math.min(bars, Math.floor(into / bar) + 1)
+        const beatsLeft = Math.ceil(remaining / beat - 0.001)
+        if (remaining <= 0.02) word = "Stop"
+        else if (beatsLeft <= 3) word = String(beatsLeft)
+        sub = remaining <= 0.02 ? "" : beatsLeft <= 3 ? "Almost there" : `Bar ${barNow} of ${bars}`
+        box.classList.toggle("ending", beatsLeft <= 3)
+      } else {
+        // Free length: the block fills once per bar, and you stop when you're done.
+        const barNow = Math.floor(into / bar) + 1
+        left = 1 - (into % bar) / bar
+        word = "Keep going…"
+        sub = `Bar ${barNow} · tap the square when you're done`
+      }
+      if (fill) fill.style.transform = `scaleX(${left.toFixed(4)})`
+      if (wordNode && wordNode.textContent !== word) wordNode.textContent = word
+      if (subNode && subNode.textContent !== sub) subNode.textContent = sub
+    }
+    loopClock.raf = requestAnimationFrame(frame)
+  }
+  loopClock.raf = requestAnimationFrame(frame)
+}
+
 function looperBox() {
   const lengths = [[2, "2 bars"], [4, "4 bars"], [8, "8 bars"], [0, "Free"]]
   const busy = state.recording || state.counting || state.arming ? "disabled" : ""
@@ -2935,6 +3001,7 @@ async function countIn() {
   renderRuler()
   renderTracks()
   renderInspector()
+  if (state.looper && !state.tempoPass) runLoopClock()
   $("save-status").textContent = `Tempo ${state.bpm}. Then a count of four.`
   const countStart = ctx.currentTime + beat + 0.12
   for (let i = 1; i <= 4; i++) {
@@ -2986,6 +3053,11 @@ async function toggleRecord() {
   if (recordOrigin > span - 0.4) recordOrigin = 0
   if (!tempoPass) {
     if (playing) stopPlayback()
+    if (state.looper) {
+      loopClock.start = Infinity
+      loopClock.length = loopTarget()
+      loopClock.closedAt = 0
+    }
     const counted = await countIn()
     if (!counted) return
   }
@@ -3032,9 +3104,19 @@ async function toggleRecord() {
   recLead = Math.max(0, songStart - takeStart) + (ctx.outputLatency || 0) + (ctx.baseLatency || 0)
   window.clearTimeout(recAutoStop)
   const closeAt = state.looper && !tempoPass ? loopTarget() : 0
+  loopClock.start = songStart + (ctx.outputLatency || 0) + (ctx.baseLatency || 0)
+  loopClock.length = closeAt
+  loopClock.closedAt = 0
+  runLoopClock()
   if (closeAt) {
     recAutoStop = window.setTimeout(() => {
-      if (recorder === media && state.recording) cancelRecord()
+      if (recorder === media && state.recording) {
+        loopClock.closedAt = performance.now()
+        cancelRecord()
+        window.setTimeout(() => {
+          if (!state.recording && !state.counting && state.panel === "record") renderInspector()
+        }, 1600)
+      }
     }, (closeAt + recLead + 0.12) * 1000)
   }
   recStarted = performance.now()
@@ -3043,11 +3125,8 @@ async function toggleRecord() {
     if (!node || state.counting) return
     const seconds = Math.floor((performance.now() - recStarted) / 1000)
     const target = state.looper && !tempoPass ? loopTarget() : 0
-    if (target) {
-      const bars = Math.max(1, Math.round(target / barSeconds()))
-      const into = Math.max(0, (performance.now() - recStarted) / 1000 - recLead)
-      const bar = Math.min(bars, Math.floor(into / barSeconds()) + 1)
-      node.textContent = `Bar ${bar} of ${bars} · the loop closes by itself`
+    if (state.looper && !tempoPass) {
+      node.textContent = target ? "The loop closes by itself. Tap the square to stop early." : "Tap the square when you're done. It rounds to whole bars."
       node.classList.remove("count-beat")
       syncRecordGuide()
       return
