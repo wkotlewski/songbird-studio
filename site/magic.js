@@ -201,10 +201,23 @@ async function buildPart(choice, source) {
       single: drums && choice.drums === "single" ? choice.single : null,
       figure: drums ? null : choice.play,
       touch: choice.rhythm,
+      // How chords are played: guitars strum a pattern, pianos play block
+      // chords, and strings, voices, organs, and pads hold them.
+      style: choice.rhythm === "beat" ? "beat" : choice.family === "guitar" ? "strum" : /organ|pad|strings|choir|brass|oohs|harp/.test(choice.instrument || "") || ["strings", "voices", "horns", "synths", "woodwinds"].includes(choice.family) ? "held" : "block",
       low: info?.low,
       high: info?.high,
       snap: true,
       transpose: state.transpose || 0,
+    })
+  } else if (drums && melodyLayer()) {
+    // Nothing to drum along with: build a groove that fits the song itself.
+    const lead = melodyLayer()
+    const leadAudio = sourceAudio(lead)
+    plan = await engine.call("planPerformance", samplesOf(leadAudio), leadAudio.sampleRate, {
+      bpm: state.bpm || 92,
+      loopSamples: leadAudio.loopSamples || 0,
+      mode: "groove",
+      single: choice.drums === "single" ? choice.single : null,
     })
   } else {
     const seconds = state.loopSec || state.lengthSec || 60
@@ -310,7 +323,7 @@ async function makePart(choice, options = {}) {
         loop: !!made.loopSamples,
         lengthSec: Math.round((made.samples.length / made.rate) * 100) / 100,
         range: source?.range ? { ...source.range } : { start: 0, end: made.samples.length / made.rate },
-        from: source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : "a groove on the beat",
+        from: source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : melodyLayer() ? `a groove that fits ${melodyLayer().name}` : "a groove on the beat",
       }
       state.layers.push(layer)
       buffers.set(id + ":audio", buffer)
@@ -394,6 +407,18 @@ async function tightenAll(what = { snap: true, tune: true }) {
     buffers.set(layer.id + ":audio", buffer)
     layer.peaks = peaksFromSamples(buffer.getChannelData(0))
     layer.tight = true
+  }
+  // Parts that follow a recording are rebuilt, so they sit with the tightened take.
+  const tightened = new Set(changed.map((item) => item.layer.id))
+  const followers = state.layers.filter((layer) => layer.make && tightened.has(layer.make.sourceId) && buffers.get(layer.id + ":audio"))
+  for (const layer of followers) {
+    try {
+      const made = await buildPart(layer.make, state.layers.find((item) => item.id === layer.make.sourceId))
+      if (!made.error) {
+        buffers.set(layer.id + ":audio", loopedBuffer(made.samples, made.rate, made.loopSamples))
+        layer.peaks = peaksFromSamples(made.samples)
+      }
+    } catch { /* the part stays as it was */ }
   }
   rememberSong()
   renderTracks()
