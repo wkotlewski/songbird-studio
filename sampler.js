@@ -36,6 +36,25 @@
     return 0
   }
 
+  // How long a note takes to speak: a bow or a breath swells in, where a
+  // piano is instant. That much is started early so the note is heard on
+  // the beat, not after it.
+  function speakTime(buffer, offset) {
+    const data = buffer.getChannelData(0)
+    const rate = buffer.sampleRate
+    const from = Math.floor(offset * rate)
+    const look = Math.min(data.length, from + Math.floor(rate * 0.6))
+    const block = Math.floor(rate * 0.005)
+    let peak = 0
+    for (let i = from; i < look; i += 8) peak = Math.max(peak, Math.abs(data[i]))
+    for (let at = from; at < look; at += block) {
+      let max = 0
+      for (let i = at; i < at + block && i < look; i += 2) max = Math.max(max, Math.abs(data[i]))
+      if (max >= peak * 0.5) return Math.min(0.12, (at - from) / rate)
+    }
+    return 0
+  }
+
   // Each sample loads once, the first time a part needs it, and only the
   // samples a part actually plays are fetched.
   function loadOne(url, ctx) {
@@ -43,7 +62,10 @@
       const job = fetch(url).then((res) => {
         if (!res.ok) throw new Error(`missing ${url}`)
         return res.arrayBuffer()
-      }).then((data) => decode(ctx, data)).then((buffer) => ({ buffer, offset: firstSound(buffer) }))
+      }).then((data) => decode(ctx, data)).then((buffer) => {
+        const offset = firstSound(buffer)
+        return { buffer, offset, speak: speakTime(buffer, offset) }
+      })
       loaded.set(url, job)
       job.catch(() => loaded.delete(url))
     }
@@ -143,15 +165,17 @@
         source.playbackRate.value = 2 ** ((event.midi - near) / 12)
         const gain = ctx.createGain()
         const level = (event.vel ?? 0.85) * (options.level ?? 1)
+        const lead = Math.min(sample.speak || 0, event.time) / source.playbackRate.value
+        const begin = event.time - lead
         const end = event.time + Math.max(0.08, event.dur)
-        gain.gain.setValueAtTime(0, event.time)
-        gain.gain.linearRampToValueAtTime(level, event.time + (held ? 0.03 : 0.004))
+        gain.gain.setValueAtTime(0, begin)
+        gain.gain.linearRampToValueAtTime(level, begin + (held ? 0.03 : 0.004))
         const release = held ? 0.18 : 0.6
         gain.gain.setValueAtTime(level, end)
         gain.gain.linearRampToValueAtTime(0.0001, end + release)
         source.connect(gain)
         gain.connect(out)
-        source.start(event.time, sample.offset)
+        source.start(begin, sample.offset)
         source.stop(end + release + 0.02)
       }
     }

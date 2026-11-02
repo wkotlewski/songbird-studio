@@ -1710,8 +1710,10 @@ function renderRuler() {
       return `<button class="section ${on ? "on" : ""}" data-action="pick-section" data-id="${esc(section.id)}" style="width:${(section.end - section.start) * 100}%" title="${esc(section.name)}, ${sectionClock(section)}">${esc(section.name)}</button>`
     })
     .join("")}</div>`
+  // The section tools and zoom live in a bar above the song that doesn't
+  // scroll sideways with it, so no button ever slides off the screen.
   const tools = `<div class="section-tools">
-        <p class="hint section-guide">${state.looper ? "Each take loops for the whole song, like a loop pedal." : "A kept recording becomes 1:00 on that layer."} Select a section of the layer and delete it if you don't want that part.</p>
+        ${current ? "" : `<p class="hint section-guide">Tap a section above the song to work on just that part.</p>`}
         ${current ? `<input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Section name" />` : ""}
         ${outlinedButton("Add a section", `data-action="add-section"`)}
         ${current ? outlinedButton("Delete section", `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
@@ -1724,7 +1726,9 @@ function renderRuler() {
   const ticks = []
   for (let t = 0; t <= total + 0.01; t += beat * 4) ticks.push(`<i style="left:${(t / total) * 100}%"></i>`)
   const zoom = [1, 1.5, 2].map((level) => filterChip(level === 1 ? "Fit" : `${level}×`, `data-action="zoom" data-zoom="${level}" title="Timeline zoom"`, (state.zoom || 1) === level)).join("")
-  $("ruler").innerHTML = `<div class="ruler-layout"><div class="ruler-gutter">Sections</div><div class="ruler-main">${bands}${tools}<div class="ruler-tools"><div class="beats" aria-hidden="true">${ticks.join("")}</div><div class="zoom">${zoom}</div></div><div class="ruler-marks">${marks.join("")}</div></div></div>`
+  $("ruler").innerHTML = `<div class="ruler-layout"><div class="ruler-gutter">Sections</div><div class="ruler-main">${bands}<div class="ruler-tools"><div class="beats" aria-hidden="true">${ticks.join("")}</div></div><div class="ruler-marks">${marks.join("")}</div></div></div>`
+  const bar = $("section-bar")
+  if (bar) bar.innerHTML = `${tools.replace('<div class="section-tools">', '<div class="section-tools">').replace(/<\/div>$/, "")}<div class="zoom" role="group" aria-label="Timeline zoom">${zoom}</div></div>`
   placePlayhead(state.playAt || 0)
 }
 
@@ -1848,7 +1852,7 @@ function renderTracks() {
           </div>
           <button class="track-meta" data-action="select-layer" data-id="${layer.id}">
             <small class="role">${edited ? "Edited" : "Original"}</small>
-            <small>${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
+            <small class="track-from">${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
             ${hear.label ? `<small class="hear-state">${hear.label}</small>` : ""}
           </button>
         </div>
@@ -2976,10 +2980,22 @@ async function keepLoopTake() {
   const pass = new Float32Array(passLength)
   const from = Math.round(lead * rate)
   pass.set(data.subarray(from, Math.min(data.length, from + passLength)))
-  const fade = Math.min(Math.floor(rate * 0.006), Math.floor(passLength / 6))
-  for (let i = 0; i < fade; i++) {
-    pass[i] *= i / fade
-    pass[passLength - 1 - i] *= i / fade
+  // The seam: what you sang just past the end of the loop is blended into
+  // its start, so a note ringing across the loop point carries on smoothly
+  // instead of dipping to silence each time round.
+  const tail = data.subarray(Math.min(data.length, from + passLength))
+  const blend = Math.min(Math.floor(rate * 0.04), tail.length, Math.floor(passLength / 6))
+  if (blend > Math.floor(rate * 0.01)) {
+    for (let i = 0; i < blend; i++) {
+      const x = i / blend
+      pass[i] = pass[i] * Math.sin((x * Math.PI) / 2) + tail[i] * Math.cos((x * Math.PI) / 2)
+    }
+  } else {
+    const fade = Math.min(Math.floor(rate * 0.006), Math.floor(passLength / 6))
+    for (let i = 0; i < fade; i++) {
+      pass[i] *= i / fade
+      pass[passLength - 1 - i] *= i / fade
+    }
   }
   let peak = 0
   for (let i = 0; i < passLength; i += 16) peak = Math.max(peak, Math.abs(pass[i]))

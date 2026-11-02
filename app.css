@@ -1484,3 +1484,59 @@ button.layer-delete {
 .family span { font-size: 24px; line-height: 1; }
 .family.on { background: var(--mint); color: var(--ink); border-color: transparent; }
 .magic-actions .btn { min-height: 48px; }
+
+/* Section tools and zoom: a bar above the song that stays put while the
+   song scrolls sideways. One row; it scrolls on its own if it's long. */
+.section-bar { flex: 0 0 auto; margin: 0 12px 8px; min-width: 0; }
+.section-bar .section-tools {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding: 2px 0;
+}
+.section-bar .section-tools::-webkit-scrollbar { display: none; }
+.section-bar .section-tools > * { flex: none; }
+.section-bar .btn, .section-bar .chip { min-height: 40px; white-space: nowrap; }
+.section-bar .section-guide { flex: 1 1 auto; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; align-self: center; }
+.section-bar .zoom { margin-left: auto; padding-left: 4px; }
+.section-bar .section-name { width: 140px; min-height: 40px; }
+/* The top of the song is solid, so layers never show through it. */
+.ruler { background: #0a1714; padding-bottom: 4px; }
+.ruler-gutter { background: #0a1714; }
+.ruler-tools { margin: 0 0 2px; }
+.shape-row { margin-bottom: 4px; }
+@media (max-width: 759px) {
+  .ruler-layout,
+  .track { grid-template-columns: 112px 1fr; }
+  .track-label { padding: 6px 8px; }
+  .track-label .layer-name { font-size: 13px; }
+  .track-label .track-from { display: none; }
+  .ruler-gutter { font-size: 10px; letter-spacing: 0.04em; }
+  .section-bar { margin: 0 12px 6px; }
+}
+
+.dock-btn b .spark { margin-right: 4px; }
+@media (max-width: 759px) {
+  /* On a phone the layer's name gets the whole label. Delete layer is in Mix. */
+  .track-label button.layer-delete { display: none; }
+  .dock { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  button.dock-btn { padding: 6px 4px; }
+  .dock-btn b { display: flex; align-items: center; justify-content: center; white-space: nowrap; font-size: 13px; }
+  .dock-btn b .spark { font-size: 12px; margin-right: 2px; font-style: normal; }
+  /* A soft edge says the section row scrolls when there's more in it. */
+  .section-bar .section-tools {
+    -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
+    mask-image: linear-gradient(90deg, #000 85%, transparent);
+    padding-right: 32px;
+  }
+}
+@media (max-width: 359px) {
+  .transport { gap: 4px; }
+  .transport .icon-btn { min-width: 40px; height: 48px; }
+  .bpm input { width: 60px; }
+}
+.dock-btn b .spark { font-style: normal; }

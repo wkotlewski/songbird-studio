@@ -628,6 +628,39 @@ function detectNotes(samples, options = {}) {
     }
   })
   close(frames.length * hopSec)
+  // A pitch frame reads a window of sound, so a note is first heard in the
+  // frame that starts before it. Move each start to where its sound
+  // actually rises, so timing built on notes lands on the beat.
+  const rate = down.sampleRate
+  const block = Math.max(1, Math.round(rate * 0.004))
+  const level = (at) => {
+    let sum = 0
+    for (let i = at; i < at + block && i < down.samples.length; i++) sum += down.samples[i] * down.samples[i]
+    return Math.sqrt(sum / block)
+  }
+  for (const note of notes) {
+    const from = Math.max(0, Math.floor(note.time * rate))
+    const to = Math.min(down.samples.length - block, Math.floor((note.time + (win / rate) + 0.03) * rate))
+    let peak = 0
+    for (let at = from; at < to; at += block) peak = Math.max(peak, level(at))
+    if (peak < 1e-4) continue
+    // The rise: the first point that is clearly louder than just before it.
+    let start = -1
+    for (let at = from; at < to; at += block) {
+      const now = level(at)
+      if (now >= peak * 0.35 && (at - block * 3 < 0 || level(Math.max(0, at - block * 3)) < now * 0.6 || at === from)) {
+        start = at
+        break
+      }
+    }
+    if (start < 0) continue
+    const moved = start / rate
+    const end = note.time + note.dur
+    if (moved > note.time && moved < end - 0.04) {
+      note.dur = end - moved
+      note.time = moved
+    }
+  }
   return notes
 }
 
@@ -1514,51 +1547,57 @@ function tuneVoice(samples, sampleRate, strength, loopSamples) {
   const src = toEngineRate(samples, sampleRate)
   const amount = Math.max(0, Math.min(1, strength || 0))
   if (amount <= 0) return src
+  // Read the pitch every 5.8 ms (on a half-rate copy, which is plenty for
+  // a voice), then treat each held note as one piece: one steady correction
+  // per note keeps vibrato and slides, and never chops the sound up.
   const halfLen = Math.floor(src.length / 2)
   const half = new Float32Array(halfLen)
   for (let i = 0; i < halfLen; i++) half[i] = ((src[i * 2] || 0) + (src[i * 2 + 1] || 0)) * 0.5
   const halfRate = SR / 2
   const win = 1024
-  const hop = 512
-  const ratios = []
+  const hop = 128
+  const frames = []
   for (let start = 0; start + win < half.length; start += hop) {
     const frame = half.subarray(start, start + win)
     let energy = 0
     for (let i = 0; i < win; i += 4) energy += frame[i] * frame[i]
     const hz = energy / (win / 4) > 0.00012 ? pitchHz(frame, halfRate) : null
-    if (!hz) {
-      ratios.push(1)
-      continue
-    }
-    const midi = 69 + 12 * Math.log2(hz / 440)
-    const target = 440 * 2 ** ((Math.round(midi) - 69) / 12)
-    const shift = target / hz
-    ratios.push(1 + (shift - 1) * amount)
+    frames.push(hz ? 69 + 12 * Math.log2(hz / 440) : null)
   }
-  if (!ratios.length) return src
-  const out = new Float32Array(src.length)
-  const cover = new Float32Array(src.length)
-  const fullHop = hop * 2
-  const fullWin = win * 2
-  const ratioAt = (read) => ratios[Math.max(0, Math.min(ratios.length - 1, Math.floor(read / fullHop)))] || 1
-  let read = 0
-  let outPos = 0
-  while (outPos + fullWin < src.length && read + 8 < src.length) {
-    const ratio = ratioAt(read)
-    for (let i = 0; i < fullWin && outPos + i < src.length; i++) {
-      const pos = read + i * ratio
-      const index = Math.floor(pos)
-      if (index + 1 >= src.length) break
-      const frac = pos - index
-      const sample = src[index] * (1 - frac) + src[index + 1] * frac
-      const window = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (fullWin - 1))
-      out[outPos + i] += sample * window
-      cover[outPos + i] += window
+  const frameTime = (index) => (index * hop + win / 2) / halfRate
+  const pieces = []
+  let current = null
+  frames.forEach((midi, index) => {
+    const note = midi == null ? null : Math.round(midi)
+    if (current && (note === null || Math.abs(midi - current.note) > 0.75)) {
+      pieces.push(current)
+      current = null
     }
-    read += fullHop * ratio
-    outPos += fullHop
+    if (note === null) return
+    if (!current) current = { note, start: index, end: index, values: [] }
+    current.end = index
+    current.values.push(midi)
+  })
+  if (current) pieces.push(current)
+  const out = src.slice()
+  const fade = Math.floor(SR * 0.02)
+  for (const piece of pieces) {
+    if (piece.values.length < 6) continue
+    const sorted = piece.values.slice().sort((x, y) => x - y)
+    const middle = sorted[Math.floor(sorted.length / 2)]
+    const cents = (Math.round(middle) - middle) * amount
+    if (Math.abs(cents) < 0.08) continue
+    const from = Math.max(0, Math.floor(frameTime(piece.start) * SR) - fade)
+    const to = Math.min(src.length, Math.floor(frameTime(piece.end) * SR) + fade)
+    if (to - from < 4096) continue
+    const shifted = shiftPitch(src.subarray(from, to), SR, cents, 0)
+    for (let i = 0; i < to - from; i++) {
+      // A smooth handover in and out of the corrected note.
+      const edge = Math.min(i, to - from - 1 - i)
+      const mix = edge >= fade ? 1 : 0.5 - 0.5 * Math.cos((Math.PI * edge) / fade)
+      out[from + i] = src[from + i] * (1 - mix) + shifted[i] * mix
+    }
   }
-  for (let i = 0; i < out.length; i++) out[i] = cover[i] > 0.001 ? out[i] / cover[i] : src[i]
   return out
 }
 
@@ -1642,38 +1681,73 @@ function timingPocket(times, beat) {
   return null
 }
 
+// Move notes onto the beat by gently speeding up or slowing down the sound
+// between them (keeping its pitch), instead of cutting it into pieces.
+// Nothing is dropped, nothing doubles, and there are no gaps.
 function renderTimingMoves(samples, sampleRate, anchors) {
   const count = samples.length
-  const out = new Float32Array(count)
-  const covered = new Float32Array(count)
-  const fade = Math.max(1, Math.floor(sampleRate * 0.008))
-  const sorted = anchors.slice().sort((a, b) => a.from - b.from)
-  sorted.forEach((anchor, index) => {
-    const prev = index === 0 ? 0 : (sorted[index - 1].from + anchor.from) / 2
-    const next = index === sorted.length - 1 ? count / sampleRate : (anchor.from + sorted[index + 1].from) / 2
-    const shift = Math.round((anchor.to - anchor.from) * sampleRate)
-    const moved = Math.abs(shift) > 1
-    const start = Math.max(0, Math.floor(prev * sampleRate))
-    const end = Math.min(count, Math.floor(next * sampleRate))
-    for (let i = start; i < end; i++) {
-      const dst = i + shift
-      if (dst < 0 || dst >= count) continue
-      let gain = 1
-      if (moved) {
-        const edge = Math.min(i - start, end - 1 - i)
-        if (edge < fade) gain = Math.max(0, edge / fade)
+  const src = toEngineRate(samples, sampleRate)
+  const rate = SR
+  const scale = rate / sampleRate
+  const points = [{ from: 0, to: 0 }]
+  for (const anchor of anchors.slice().sort((x, y) => x.from - y.from)) {
+    const last = points[points.length - 1]
+    const from = anchor.from * rate
+    const to = anchor.to * rate
+    // Keep the map moving forward, and no stretch past 40% either way.
+    if (from - last.from < rate * 0.04) continue
+    const factor = (to - last.to) / (from - last.from)
+    if (factor < 0.6 || factor > 1.4) continue
+    points.push({ from, to })
+  }
+  const end = src.length
+  if (end - points[points.length - 1].from > 1) points.push({ from: end, to: end })
+  const out = new Float32Array(end)
+  const fade = Math.floor(rate * 0.01)
+  let written = 0
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    const from = Math.round(a.from)
+    const length = Math.round(b.from) - from
+    const target = Math.round(b.to) - Math.round(a.to)
+    if (length <= 0 || target <= 0) continue
+    // A little extra on each side lets the pieces overlap smoothly.
+    const pad = Math.min(fade, from)
+    const piece = src.subarray(from - pad, Math.min(end, from + length + fade))
+    let made
+    const factor = target / length
+    if (Math.abs(factor - 1) < 0.004 || piece.length < 4096) {
+      made = new Float32Array(Math.round(piece.length * factor))
+      for (let k = 0; k < made.length; k++) {
+        const pos = k / factor
+        const index = Math.floor(pos)
+        const frac = pos - index
+        made[k] = (piece[index] || 0) * (1 - frac) + (piece[index + 1] || 0) * frac
       }
-      if (covered[dst] > 0) {
-        const mix = gain / ((gain + covered[dst]) || 1)
-        out[dst] = out[dst] * (1 - mix) + samples[i] * mix
-        covered[dst] = Math.max(covered[dst], gain)
-      } else {
-        out[dst] = samples[i] * gain
-        covered[dst] = gain
-      }
+    } else {
+      made = wsolaStretch(piece, factor)
     }
-  })
-  return out
+    const startOut = Math.round(a.to) - Math.round(pad * factor)
+    for (let k = 0; k < made.length; k++) {
+      const at = startOut + k
+      if (at < 0 || at >= end) continue
+      const overlapIn = at < written ? Math.min(1, (at - startOut) / fade) : 1
+      if (at < written) out[at] = out[at] * (1 - overlapIn) + made[k] * overlapIn
+      else if (at < Math.round(b.to) + fade) out[at] = made[k]
+    }
+    written = Math.max(written, Math.min(end, Math.round(b.to) + fade))
+  }
+  // Back to the take's own rate and length.
+  if (scale === 1) return out
+  const back = new Float32Array(count)
+  for (let i = 0; i < count; i++) {
+    const pos = i * scale
+    const index = Math.floor(pos)
+    const frac = pos - index
+    back[i] = (out[index] || 0) * (1 - frac) + (out[index + 1] || 0) * frac
+  }
+  return back
 }
 
 function fixTiming(layers, options = {}) {
@@ -2047,12 +2121,12 @@ function fitRange(notes, low, high) {
   })
 }
 
-function snapTimes(notes, bpm, total, grid) {
-  const step = (60 / bpm) / grid
+function snapTimes(notes, bpm, total, grid, beatLen, phase = 0) {
+  const step = (beatLen || 60 / bpm) / grid
   const out = []
   for (const note of notes) {
-    const start = Math.max(0, Math.round(note.time / step) * step)
-    const end = Math.max(start + step, Math.round((note.time + note.dur) / step) * step)
+    const start = Math.max(0, phase + Math.round((note.time - phase) / step) * step)
+    const end = Math.max(start + step, phase + Math.round((note.time + note.dur - phase) / step) * step)
     if (start >= total - 0.01) continue
     const prev = out[out.length - 1]
     if (prev && Math.abs(prev.time - start) < 1e-6) {
@@ -2083,11 +2157,127 @@ function chordTones(midi, key, low) {
   return [root, scaleStep(root, 2, key), scaleStep(root, 4, key)]
 }
 
+// Pick a chord for each half bar that fits the notes sung over it, the way
+// a player would: chord tones count for it, clashing notes against it, home
+// is a good place to start and end, and a chord holds when the tune rests.
+function harmonize(melody, key, beat, phase, pass) {
+  const span = beat * 2
+  const degrees = key.minor ? [0, 2, 3, 4, 5] : [0, 1, 3, 4, 5]
+  const chords = degrees.map((degree) => {
+    const root = scaleStep(key.root + 48, degree, key)
+    const tones = [root, scaleStep(root, 2, key), scaleStep(root, 4, key)].map((m) => ((m % 12) + 12) % 12)
+    return { degree, root: ((root % 12) + 12) % 12, tones }
+  })
+  const spans = []
+  let start = phase
+  while (start - span > -span * 0.5) start -= span
+  for (let t = start; t < pass - 0.01; t += span) spans.push(t)
+  const out = []
+  let previous = null
+  spans.forEach((t, index) => {
+    const inside = melody.filter((note) => note.time < t + span - 0.01 && note.time + note.dur > t + 0.01)
+    if (!inside.length && previous) {
+      out.push({ ...previous, time: t, dur: span })
+      return
+    }
+    let best = chords[0]
+    let bestScore = -Infinity
+    for (const chord of chords) {
+      let score = 0
+      for (const note of inside) {
+        const overlap = Math.min(note.time + note.dur, t + span) - Math.max(note.time, t)
+        const lead = Math.abs(note.time - t) < beat * 0.3 ? 1.5 : 1
+        const pc = ((Math.round(note.midi) % 12) + 12) % 12
+        if (chord.tones.includes(pc)) score += overlap * lead * (pc === chord.root ? 1.4 : 1)
+        else score -= overlap * lead * 0.7
+      }
+      if (chord.degree === 0 && (index === 0 || index === spans.length - 1)) score += beat * 0.4
+      if (previous && previous.degree === chord.degree) score += beat * 0.15
+      if (score > bestScore) {
+        bestScore = score
+        best = chord
+      }
+    }
+    previous = { degree: best.degree, root: best.root, tones: best.tones }
+    out.push({ ...previous, time: t, dur: span })
+  })
+  return out
+}
+
+function voiceChord(chord, style, low, high) {
+  let root = low + ((chord.root - low) % 12 + 12) % 12
+  if (root < Math.max(low, 40)) root += 12
+  const third = root + ((chord.tones[1] - chord.root + 12) % 12)
+  const fifth = root + ((chord.tones[2] - chord.root + 12) % 12)
+  let notes
+  if (style === "strum") notes = [root, fifth, root + 12, third + 12, fifth + 12]
+  else if (style === "block") notes = [root, third + 12, fifth + 12, root + 24].filter((m) => m <= high + 12)
+  else notes = [root + 12, third + 12, fifth + 12]
+  return notes.map((m) => {
+    while (m > high) m -= 12
+    while (m < low) m += 12
+    return m
+  })
+}
+
+function accompany(harmony, options) {
+  const beat = options.beat
+  const style = options.style || "block"
+  const events = []
+  const pass = options.total
+  const put = (midi, time, dur, vel) => {
+    let t = time
+    if (t < 0) {
+      if (!options.loop) return
+      t += pass
+    }
+    if (t >= pass || dur <= 0.02) return
+    events.push({ midi, time: t, dur, vel })
+  }
+  if (style === "held") {
+    // Hold each chord until it changes.
+    for (let i = 0; i < harmony.length; i++) {
+      const chord = harmony[i]
+      let dur = chord.dur
+      while (i + 1 < harmony.length && harmony[i + 1].degree === chord.degree) {
+        dur += harmony[i + 1].dur
+        i++
+      }
+      voiceChord(chord, "held", options.low, options.high).forEach((midi, n) => put(midi, chord.time, dur * 0.98, n === 0 ? 0.75 : 0.65))
+    }
+    return events
+  }
+  for (const chord of harmony) {
+    const tones = voiceChord(chord, style, options.low, options.high)
+    if (style === "strum") {
+      // Down, down-up, up-down-up: the pattern most players reach for.
+      const pattern = [[0, "D"], [2, "D"], [3, "U"], [5, "U"], [6, "D"], [7, "U"]]
+      const halfBar = Math.round(((chord.time - options.phase) / (beat * 2))) % 2 === 0 ? 0 : 4
+      const eighth = beat / 2
+      for (const [slot, way] of pattern) {
+        if (slot < halfBar || slot >= halfBar + 4) continue
+        const at = chord.time + (slot - halfBar) * eighth
+        const next = pattern.find(([s]) => s > slot)
+        const until = next && next[0] < halfBar + 4 ? (next[0] - slot) * eighth : (halfBar + 4 - slot) * eighth
+        const order = way === "D" ? tones : tones.slice(-3).reverse()
+        order.forEach((midi, n) => put(midi, at + n * 0.012, Math.max(0.1, until - n * 0.012), (way === "D" ? 0.8 : 0.55) * (slot === 0 ? 1.1 : 1)))
+      }
+    } else if (style === "beat") {
+      for (let b = 0; b < 2; b++) tones.forEach((midi, n) => put(midi, chord.time + b * beat, beat * 0.9, b === 0 ? 0.8 : 0.68))
+    } else {
+      // Block chords: on the half-bar, held, with a lighter one on the off-beat.
+      tones.forEach((midi, n) => put(midi, chord.time, beat * 1.9, n === 0 ? 0.8 : 0.7))
+      tones.slice(1).forEach((midi) => put(midi, chord.time + beat * 1.5, beat * 0.45, 0.45))
+    }
+  }
+  return events
+}
+
 function voicePlan(melody, options, key) {
   const figure = options.figure || "solo"
   const touch = options.touch || "played"
   const bpm = options.bpm || 92
-  const beat = 60 / bpm
+  const beat = options.beat || 60 / bpm
   const low = options.low ?? 48
   const high = options.high ?? 84
   const events = []
@@ -2106,6 +2296,22 @@ function voicePlan(melody, options, key) {
     for (; time < note.time + note.dur - 0.03; time += beat) out.push({ time, dur: Math.min(beat * 0.9, note.time + note.dur - time) })
     return out.length ? out : [{ time: note.time, dur: note.dur }]
   }
+  if (figure === "bass" && options.harmony) {
+    const total = options.total
+    for (const chord of options.harmony) {
+      let root = low + ((chord.root - low) % 12 + 12) % 12
+      if (root > low + 9) root -= 12
+      if (root < low) root += 12
+      const times = touch === "held" ? [0] : touch === "beat" ? [0, 1] : [0, 1.5]
+      for (const b of times) {
+        let t = chord.time + b * beat
+        if (t < 0 && options.loop) t += total
+        if (t >= 0 && t < total - 0.03) add(root, t, Math.min(touch === "held" ? chord.dur * 0.95 : beat * (b ? 0.45 : 1.4), total - t), b ? 0.75 : 0.95)
+      }
+    }
+    return events
+  }
+  if (figure === "chords" && options.harmony) return accompany(options.harmony, { ...options, low: Math.max(low, 40), high })
   if (figure === "bass") {
     // A bass line: the root under each bar, on beats 1 and 3, with the
     // melody's lowest pull deciding the root.
@@ -2195,6 +2401,71 @@ function drumHits(samples, bpm, snap) {
   return found
 }
 
+// Where the beats of a performance really are. Singing without an audible
+// click drifts a little ahead of or behind the grid, and sometimes a touch
+// faster or slower. This finds the beat length (a whole number of beats per
+// pass, so a loop still loops) and the offset that best fits the notes.
+function performanceGrid(audio, pass, bpm) {
+  const notes = joinShortGaps(detectNotesOnce(audio))
+  const onsets = mergeTimes([detectOnsets(audio), notes.map((note) => note.time)]).filter((t) => t < pass)
+  const weight = new Map()
+  for (const note of notes) weight.set(Math.round(note.time * 100), Math.min(1.5, 0.5 + note.dur))
+  const nominal = Math.max(1, Math.round(pass / (60 / bpm)))
+  let best = { beats: nominal, phase: 0, score: -Infinity }
+  for (let beats = Math.max(1, nominal - 2); beats <= nominal + 2; beats++) {
+    const beat = pass / beats
+    for (let phase = -beat / 2; phase < beat / 2; phase += 0.005) {
+      let score = 0
+      for (const t of onsets) {
+        const half = beat / 2
+        const d = Math.abs(((t - phase) / half) - Math.round((t - phase) / half)) * half
+        const onBeat = Math.round((t - phase) / half) % 2 === 0
+        score += Math.exp(-((d / 0.035) ** 2)) * (onBeat ? 1 : 0.5) * (weight.get(Math.round(t * 100)) || 0.7)
+      }
+      // Stay with the set tempo and no offset unless the singing clearly says otherwise.
+      score -= Math.abs(beats - nominal) * 0.9 + Math.abs(phase) * 6
+      if (score > best.score) best = { beats, phase, score }
+    }
+  }
+  return { beat: pass / best.beats, beats: best.beats, phase: best.phase, onsets, notes }
+}
+
+// A groove that fits your song: snare on 2 and 4, a kick on 1, and more kicks
+// under the notes you lean on, with hi-hats on the eighths. All of it on
+// your performance's own beat, wrapped so the loop stays seamless.
+function grooveFor(audio, pass, bpm) {
+  const grid = performanceGrid(audio, pass, bpm)
+  const { beat, beats, phase } = grid
+  const at = (t) => ((t % pass) + pass) % pass
+  const hits = []
+  for (let i = 0; i < beats; i++) {
+    const t = phase + i * beat
+    const place = i % 4
+    if (place === 0) hits.push({ time: at(t), kind: "kick", vel: 0.95 })
+    if (place === 1 || place === 3) hits.push({ time: at(t), kind: "snare", vel: 0.85 })
+    hits.push({ time: at(t), kind: "hat", vel: 0.58 })
+    hits.push({ time: at(t + beat / 2), kind: "hat", vel: 0.4 })
+  }
+  // Kicks under strong notes that start on a beat or an off-beat eighth.
+  const strong = grid.notes.filter((note) => note.dur >= beat * 0.45)
+  const perBar = new Map()
+  for (const note of strong) {
+    const pos = (note.time - phase) / (beat / 2)
+    const slot = Math.round(pos)
+    if (Math.abs(pos - slot) > 0.3) continue
+    const beatIndex = Math.floor(slot / 2)
+    const place = ((beatIndex % 4) + 4) % 4
+    if (slot % 2 === 0 && (place === 1 || place === 3)) continue
+    if (slot % 2 === 0 && place === 0) continue
+    const bar = Math.floor(beatIndex / 4)
+    if ((perBar.get(bar) || 0) >= 2) continue
+    perBar.set(bar, (perBar.get(bar) || 0) + 1)
+    hits.push({ time: at(phase + slot * (beat / 2)), kind: "kick", vel: 0.8 })
+  }
+  hits.sort((a, b) => a.time - b.time)
+  return { hits, beat, beats, phase }
+}
+
 function planPerformance(samples, sampleRate, options = {}) {
   const rate = sampleRate || SR
   let source = samples
@@ -2209,6 +2480,18 @@ function planPerformance(samples, sampleRate, options = {}) {
   const total = samples.length / rate
   const bpm = options.bpm || 92
   const snap = options.snap !== false
+  if (options.mode === "groove") {
+    const groove = grooveFor(audio, pass, bpm)
+    let hits = groove.hits
+    if (options.single) hits = hits.filter((hit) => hit.kind !== "hat").map((hit) => ({ ...hit, kind: options.single }))
+    if (!loop) {
+      // A take that isn't a loop: repeat its groove for the whole take.
+      const all = []
+      for (let start = 0; start < total - 0.01; start += pass) for (const hit of hits) if (start + hit.time < total) all.push({ ...hit, time: start + hit.time })
+      hits = all
+    }
+    return { hits, pass, total, loop, grid: { beat: groove.beat, beats: groove.beats, phase: groove.phase } }
+  }
   if (options.mode === "drums") {
     let hits = drumHits(audio, bpm, snap)
     if (options.single) hits = hits.map((hit) => ({ ...hit, kind: options.single }))
@@ -2231,10 +2514,14 @@ function planPerformance(samples, sampleRate, options = {}) {
   if (options.inKey !== false) melody = melody.map((note) => ({ ...note, midi: inKey(note.midi, key) }))
   if (options.transpose) melody = melody.map((note) => ({ ...note, midi: note.midi + options.transpose }))
   const shifted = options.transpose ? { ...key, root: (key.root + options.transpose + 120) % 12 } : key
-  if (snap) melody = snapTimes(melody, bpm, pass, options.grid || 2)
+  // Parts follow the singer's own beat, so they sit with the take.
+  const grid = performanceGrid(audio, pass, bpm)
+  if (options.transpose) melody = melody.map((note) => note)
+  if (snap) melody = snapTimes(melody, bpm, pass, options.grid || 2, grid.beat, grid.phase)
   if (options.figure !== "bass") melody = fitRange(melody, options.low, options.high)
-  const events = voicePlan(melody, { ...options, total: pass }, shifted)
-  return { events, key: shifted, pass, total, loop, melody }
+  const harmony = options.figure === "chords" || options.figure === "bass" ? harmonize(melody, shifted, grid.beat, grid.phase, pass) : null
+  const events = voicePlan(melody, { ...options, total: pass, beat: grid.beat, phase: grid.phase, harmony, loop }, shifted)
+  return { events, key: shifted, pass, total, loop, melody, harmony, grid: { beat: grid.beat, phase: grid.phase } }
 }
 
 // Pitch shift a recording by a steady number of semitones, keeping its
