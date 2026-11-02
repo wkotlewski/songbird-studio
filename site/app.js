@@ -1921,6 +1921,7 @@ function isVocalLayer(layer) {
 }
 
 function mixFamily(layer) {
+  if (layer.family) return { voices: "choir", drums: "drums", bass: "bass" }[layer.family] || "instrument"
   const text = `${layer.sound || ""} ${layer.name || ""}`.toLowerCase()
   if (/choir/.test(text)) return "choir"
   if (/drum|clap|kit/.test(text)) return "drums"
@@ -1962,7 +1963,7 @@ function magicLog() {
     <h3>Magic Log</h3>
     <p class="hint">Original recordings stay on their own layers. An added part is marked Edited. Undo puts the last edit back.</p>
     ${rows ? `<ul>${rows}</ul>` : `<p class="hint">No layers yet.</p>`}
-    <p class="hint">Magic clear softens hiss on the selected layer. Magic Tune, Magic Eraser, and Magic Marker are listed and do not process audio. Strings, synth, and MIDI are not connected.</p>
+    <p class="hint">Instruments are recorded samples from the FluidR3 soundfont by Frank Wen (MIT license). Revert on a layer brings back what you played.</p>
   </section>`
 }
 
@@ -2271,99 +2272,7 @@ function renderInspector() {
       </div>
       ${filledButton(`Add ${vibeNames[state.vibe] || "this starter"}`, `data-action="add-starter"`)}`}`
   } else if (state.panel === "transform") {
-    const sources = state.layers.filter((item) => buffers.get(item.id + ":audio"))
-    const current = sources.find((item) => item.id === state.selected) || sources[0]
-    const locked = state.transforming ? "disabled" : ""
-    const note = state.transformNote
-      ? `<p class="${state.transformTone === "warn" ? "warn" : "hint"}">${esc(state.transformNote)}</p>`
-      : ""
-    if (current) suggestIntoState(current)
-    const period = PERIODS.find((item) => item.id === state.era) || PERIODS[PERIODS.length - 1]
-    const instruments = PACKAGES.filter((pack) => pack.id !== "Vocals" && pack.id !== "Choir")
-    const vocalPath = state.role !== "instrument"
-    body = `${head("Magic")}
-      <p class="hint">${current ? `${esc(current.name)} is selected.` : "Record a layer first."} Hit Magic again for another idea. A description can steer it. Mix, after this, is for every layer.</p>
-      ${sources.length ? `<p class="ask">This layer</p>
-        <div class="choices">${sources.map((item) => filterChip(esc(item.name), `data-action="pick-transform-layer" data-id="${item.id}" ${locked}`, item.id === current.id)).join("")}</div>` : `<p class="hint">Record a layer, or add a starter from Record.</p>`}
-      <p class="ask">Enhance this sound</p>
-      <p class="hint">Magic clear tidies the selected layer the way a photo editor tidies a picture: less hiss, and the sound a little more present. Brighten, warm, or smooth it. Revert puts the original back.</p>
-      <label class="field">How much
-        <input id="enhance-amount" class="slider" type="range" min="0.25" max="1" step="0.05" value="${state.enhanceAmount || 0.65}" aria-label="How much to enhance" />
-        <span data-enhance-readout>${enhanceLabel(state.enhanceAmount || 0.65)}</span>
-      </label>
-      <div class="magic-actions">
-        ${filledButton(state.transforming ? "Working…" : "Magic clear", `data-action="enhance" data-mode="clear" ${locked}`)}
-      </div>
-      <div class="choices">
-        ${filterChip("Clear hiss", `data-action="enhance" data-mode="hiss" ${locked}`)}
-        ${filterChip("Brighten", `data-action="enhance" data-mode="bright" ${locked}`)}
-        ${filterChip("Warm", `data-action="enhance" data-mode="warm" ${locked}`)}
-        ${filterChip("Smooth", `data-action="enhance" data-mode="smooth" ${locked}`)}
-      </div>
-      <label class="field">Describe it, if you want
-        <textarea id="magic-wish" rows="2" placeholder="Warm piano chords, a little room">${esc(state.magicWish || "")}</textarea>
-      </label>
-      <div class="magic-actions">
-        ${filledButton(state.transforming ? "Working…" : "Magic", `data-action="magic-again" ${locked}`)}
-        ${outlinedButton("Revert to original", `data-action="revert-original" ${locked}`)}
-        ${outlinedButton("Next: Mix all layers", `data-action="next-mix"`)}
-      </div>
-      ${note}
-      <details class="package-more">
-        <summary>Choose it yourself</summary>
-        ${genrePanel()}
-        <p class="hint">${current ? suggestionLine(current) : ""}</p>
-      <p class="ask">Vocals or instrument</p>
-      <div class="choices">
-        ${filterChip("Vocals", `data-action="pick-role" data-role="vocals" ${locked}`, vocalPath)}
-        ${filterChip("Instrument", `data-action="pick-role" data-role="instrument" ${locked}`, !vocalPath)}
-      </div>
-      ${vocalPath ? `<p class="ask">Vocal type</p>
-        <p class="hint">Solo keeps the lead. Background sits behind it. Choir is a synthesized choir from the notes it heard.</p>
-        <div class="choices">
-          ${filterChip("Solo", `data-action="pick-vocal" data-vocal="solo" ${locked}`, state.vocalType === "solo")}
-          ${filterChip("Background", `data-action="pick-vocal" data-vocal="background" ${locked}`, state.vocalType === "background")}
-          ${filterChip("Choir", `data-action="pick-vocal" data-vocal="choir" ${locked}`, state.vocalType === "choir")}
-        </div>` : `<p class="ask">Notes</p>
-        <div class="choices">
-          ${filterChip("Solo notes", `data-action="pick-figure" data-figure="solo" ${locked}`, state.figure !== "chords")}
-          ${filterChip("Chords", `data-action="pick-figure" data-figure="chords" ${locked}`, state.figure === "chords")}
-        </div>
-        <p class="ask">Instrument</p>
-        <div class="mix-boxes parts">${instruments.map((pack) => planButton(pack.name, pack.line, `data-action="apply-sound" data-sound="${esc(pack.id)}" ${locked}`, state.instrument === pack.id)).join("")}</div>
-        ${state.instrument === "Drums" ? `<p class="ask">Drum pocket</p>
-          <div class="choices">${POCKETS.map((item) => filterChip(item.name, `data-action="pick-pocket" data-pocket="${item.id}" ${locked}`, state.pocket === item.id)).join("")}</div>` : `<p class="ask">How it plays</p>
-          <div class="choices">${TOUCHES.filter((item) => state.figure === "chords" || item.id !== "strum").map((item) => filterChip(item.name, `data-action="pick-touch" data-touch="${item.id}" ${locked}`, state.touch === item.id)).join("")}</div>`}`}
-      <p class="ask">${vocalPath ? "Pitch and mic" : "Pitch correction and mic"}</p>
-      <p class="hint">${vocalPath && state.vocalType !== "choir" ? "Pitch correction eases the voice toward the note it heard. Autotune pulls harder. Mic types are close, room, or bright tone, not a model of a real microphone." : "Pitch correction plays the tuned notes it heard. As recorded leaves the take and only changes mic and room. Mic types are tone, not a model of a real microphone."}</p>
-      <div class="choices">
-        ${filterChip("As recorded", `data-action="pick-pitch" data-pitch="none" ${locked}`, state.pitch === "none")}
-        ${filterChip("Pitch correction", `data-action="pick-pitch" data-pitch="correct" ${locked}`, state.pitch === "correct")}
-        ${filterChip("Autotune", `data-action="pick-pitch" data-pitch="autotune" ${locked}`, state.pitch === "autotune")}
-      </div>
-      <div class="choices">
-        ${filterChip("Close mic", `data-action="pick-mic" data-mic="close" ${locked}`, state.mic === "close")}
-        ${filterChip("Room mic", `data-action="pick-mic" data-mic="room" ${locked}`, state.mic === "room")}
-        ${filterChip("Bright mic", `data-action="pick-mic" data-mic="bright" ${locked}`, state.mic === "bright")}
-      </div>
-      <p class="ask">Effects</p>
-      <div class="choices">
-        ${filterChip("Reverb", `data-action="pick-reverb" ${locked}`, !!state.reverb)}
-        ${filterChip("Echo", `data-action="pick-echo" ${locked}`, !!state.echo)}
-      </div>
-      <p class="ask">Time period</p>
-      <p class="hint">${esc(period.line)} This updates the layer you already chose. It does not stop the next settings.</p>
-      <div class="choices">${PERIODS.map((era) => filterChip(era.name, `data-action="pick-era" data-era="${era.id}" ${locked}`, state.era === era.id)).join("")}</div>
-      <p class="ask">Room size</p>
-      <p class="hint">Small, medium, or large space around the reverb and echo.</p>
-      <div class="choices">
-        ${filterChip("Small", `data-action="pick-room" data-room="small" ${locked}`, state.room === "small")}
-        ${filterChip("Medium", `data-action="pick-room" data-room="medium" ${locked}`, state.room === "medium")}
-        ${filterChip("Large", `data-action="pick-room" data-room="large" ${locked}`, state.room === "large")}
-      </div>
-      ${filledButton("Use these settings", `data-action="use-transform" ${locked}`)}
-      </details>
-      ${magicLog()}`
+    body = magicPanel(head)
   } else if (state.panel === "build") {
     const shaping = selectedLayer()
     const shapingLength = shaping?.lengthSec || state.lengthSec
@@ -2464,7 +2373,7 @@ function dropLayerAudio() {
   const songId = state.song?.id
   for (const layer of state.layers) {
     buffers.delete(layer.id)
-    for (const kind of ["audio", "original", "timing"]) {
+    for (const kind of ["audio", "original", "timing", "key"]) {
       buffers.delete(layer.id + ":" + kind)
       if (songId) audioSaved.delete(`${songId}:${layer.id}:${kind}`)
     }
@@ -2476,7 +2385,7 @@ function persistSongAudio() {
   const songId = state.song.id
   const jobs = []
   for (const layer of state.layers) {
-    for (const kind of ["audio", "original", "timing"]) {
+    for (const kind of ["audio", "original", "timing", "key"]) {
       const buf = buffers.get(layer.id + ":" + kind)
       if (!buf) continue
       const key = `${songId}:${layer.id}:${kind}`
@@ -2486,7 +2395,7 @@ function persistSongAudio() {
       jobs.push({ key, buf, record: { sampleRate: buf.sampleRate, samples, loopSamples: buf.loopSamples || 0 } })
     }
   }
-  const keep = new Set(state.layers.flatMap((layer) => ["audio", "original", "timing"].map((kind) => `${songId}:${layer.id}:${kind}`)))
+  const keep = new Set(state.layers.flatMap((layer) => ["audio", "original", "timing", "key"].map((kind) => `${songId}:${layer.id}:${kind}`)))
   const run = () => audioDb().then((db) => new Promise((resolve, reject) => {
     const tx = db.transaction("audio", "readwrite")
     const store = tx.objectStore("audio")
@@ -2509,7 +2418,7 @@ function persistSongAudio() {
 
 function restoreSongAudio(songId, layers) {
   if (typeof indexedDB === "undefined") return Promise.resolve(0)
-  return audioDb().then((db) => Promise.all(layers.flatMap((layer) => ["audio", "original", "timing"].map((kind) => new Promise((resolve) => {
+  return audioDb().then((db) => Promise.all(layers.flatMap((layer) => ["audio", "original", "timing", "key"].map((kind) => new Promise((resolve) => {
     if (buffers.get(layer.id + ":" + kind)) {
       resolve(kind === "audio" ? 1 : 0)
       return
@@ -2640,6 +2549,12 @@ function openSong(id) {
     state.tempoSource = song.tempoSource || ""
     state.tempoLocked = !!song.tempoLocked
     state.loopSec = song.loopSec || null
+    state.transpose = song.transpose || 0
+    state.fadeIn = song.fadeIn || 0
+    state.fadeOut = song.fadeOut || 0
+    state.era = song.era || "today"
+    state.songKey = song.songKey ?? null
+    state.magicChat = []
     $("bpm").value = state.bpm
   }
   state.playAt = 0
@@ -2728,8 +2643,13 @@ function rememberSong() {
   state.song.tempoLocked = state.tempoLocked
   state.song.sections = state.sections
   state.song.loopSec = state.loopSec
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop,
+  state.song.transpose = state.transpose || 0
+  state.song.fadeIn = state.fadeIn || 0
+  state.song.fadeOut = state.fadeOut || 0
+  state.song.era = state.era
+  state.song.songKey = state.songKey ?? null
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight,
   }))
   state.song.audioKept = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
   const stored = saveSongs()
@@ -3643,7 +3563,10 @@ function addStarter() {
   state.transforming = true
   $("save-status").textContent = "Making the starter…"
   const songId = state.song?.id
-  void engine.call("starterAudio", { kind: state.vibe, bpm, key: state.keyPc || 0, bars })
+  const makeStarter = typeof sampledStarter === "function"
+    ? sampledStarter(state.vibe, bpm, state.keyPc || 0, bars).catch(() => engine.call("starterAudio", { kind: state.vibe, bpm, key: state.keyPc || 0, bars }))
+    : engine.call("starterAudio", { kind: state.vibe, bpm, key: state.keyPc || 0, bars })
+  void makeStarter
     .then((made) => {
       state.transforming = false
       if (state.song?.id === songId) keepStarter(made, bpm)
@@ -4235,17 +4158,13 @@ async function renderGenreTakes() {
       ...(step.pattern ? { pattern: SongbirdPackages.pattern(step.pattern) } : {}),
     },
   }))
-  const outs = await engine.call("transformSteps", samplesOf(audio), plan, {
-    bpm: state.bpm,
-    sampleRate: audio.sampleRate,
-    loopSamples: audio.loopSamples || 0,
-  })
-  if (state.song?.id !== songId) return { stale: true }
   const made = []
-  steps.forEach((step, index) => {
-    const out = outs && outs[index]
-    if (out) made.push({ step, out, pattern: plan[index].options.pattern || null })
-  })
+  for (const step of steps) {
+    let out = null
+    try { out = await sampledStep(step, origin) } catch { out = null }
+    if (out) made.push({ step, out })
+  }
+  if (state.song?.id !== songId) return { stale: true }
   if (!made.length) return { error: `Couldn't find a melody in ${origin.name}. Nothing was added.`, profile, origin }
   return { profile, origin, steps, made }
 }
@@ -4265,7 +4184,7 @@ function playGenrePreview(made) {
   const ctx = ac()
   const when = ctx.currentTime + 0.02
   for (const item of made) {
-    const buffer = audioBuffer(item.out.samples, SongbirdMusic.sampleRate)
+    const buffer = audioBuffer(item.out.samples, item.out.rate || SongbirdMusic.sampleRate)
     const source = ctx.createBufferSource()
     const gain = ctx.createGain()
     source.buffer = buffer
@@ -4370,7 +4289,11 @@ function applyGenrePackage() {
             sourceId: origin.id,
             packageId,
           })
-          buffers.set(id + ":audio", audioBuffer(item.out.samples, SongbirdMusic.sampleRate))
+          buffers.set(id + ":audio", loopedBuffer(item.out.samples, item.out.rate || SongbirdMusic.sampleRate, item.out.loopSamples || 0))
+          const added = state.layers[state.layers.length - 1]
+          added.family = item.out.family
+          added.make = item.out.make
+          added.loop = !!item.out.loopSamples
         })
         if (profile.recipe.shape && SHAPES[profile.recipe.shape]) state.shape = profile.recipe.shape
         state.selected = state.layers[state.layers.length - 1].id
@@ -4440,10 +4363,14 @@ function syncListen(on) {
   button.innerHTML = `<span aria-hidden="true">${on ? "■" : "▶"}</span>${on ? "Stop" : "Listen to what you have"}`
 }
 
+let fadeNode = null
+
 function songBus(ctx) {
   if (!busNode || busNode.context !== ctx) {
     busNode = ctx.createGain()
-    busNode.connect(ctx.destination)
+    fadeNode = ctx.createGain()
+    busNode.connect(fadeNode)
+    fadeNode.connect(ctx.destination)
   }
   setGuideLevel()
   return busNode
@@ -4622,7 +4549,9 @@ function play(fromSec, options = {}) {
   let ended = 0
   for (const layer of candidates) {
     const buffer = buffers.get(layer.id + ":audio")
-    const nodes = scheduleLayer(ctx, layer, buffer, from, span, songBus(ctx), ctx.currentTime)
+    const bus = songBus(ctx)
+    if (!started && typeof scheduleFades === "function") scheduleFades(fadeNode.gain, from, span, ctx.currentTime)
+    const nodes = scheduleLayer(ctx, layer, buffer, from, span, bus, ctx.currentTime)
     if (!nodes) continue
     const watch = ctx.createAnalyser()
     watch.fftSize = 64
@@ -4722,7 +4651,10 @@ async function downloadMix() {
   $("save-status").textContent = "Making the song file…"
   if (note) note.textContent = "Making the song file…"
   const offline = new OfflineAudioContext(2, Math.max(1, Math.ceil(span * rate)), rate)
-  for (const layer of live) scheduleLayer(offline, layer, buffers.get(layer.id + ":audio"), 0, span, offline.destination, 0)
+  const master = offline.createGain()
+  master.connect(offline.destination)
+  if (typeof scheduleFades === "function") scheduleFades(master.gain, 0, span, 0)
+  for (const layer of live) scheduleLayer(offline, layer, buffers.get(layer.id + ":audio"), 0, span, master, 0)
   const rendered = await offline.startRendering()
   const wav = encodeWav(rendered)
   const name = (state.song?.title || "Songbird").replace(/[^\w\s-]+/g, "").trim() || "Songbird"
@@ -5109,6 +5041,8 @@ document.body.addEventListener("click", (event) => {
     commitTransform()
   }
   if (action === "pick-pitch") {
+    state.role = "vocals"
+    if (state.vocalType === "choir") state.vocalType = "solo"
     state.pitch = node.dataset.pitch === "autotune" ? "autotune" : node.dataset.pitch === "correct" ? "correct" : "none"
     commitTransform()
   }
@@ -5275,7 +5209,16 @@ document.body.addEventListener("input", (event) => {
     if (mark) mark.textContent = enhanceLabel(state.enhanceAmount)
   }
   if (node.id === "bpm") {
-    state.bpm = Math.min(200, Math.max(40, Number(node.value) || 92))
+    const next = Math.min(200, Math.max(40, Number(node.value) || 92))
+    if (state.layers.some((layer) => buffers.get(layer.id + ":audio")) && next !== state.bpm && typeof changeTempo === "function") {
+      node.value = String(state.bpm)
+      void changeTempo(next).then((reply) => {
+        $("save-status").textContent = reply.text
+        renderInspector()
+      })
+      return
+    }
+    state.bpm = next
     state.tempoLocked = true
     state.tempoSource = "you"
     rememberSong()
