@@ -76,9 +76,17 @@ const tuneHum = new Float32Array(Math.round(sr * (60 / 92) * 8))
 const tuneNotes = [[60, 0, 1], [62, 1, 1], [64, 2, 1], [67, 3, 1], [64, 4, 2], [62, 6, 1], [60, 7, 1]]
 for (const [m, b, d] of tuneNotes) { const t0 = Math.floor((b * (60 / 92) + 0.05) * sr); let ph = 0; for (let i = 0; i < d * (60 / 92) * 0.85 * sr; i++) { ph += 2 * Math.PI * 440 * 2 ** ((m - 69 + 0.25) / 12) / sr; tuneHum[t0 + i] = 0.3 * Math.sin(ph) } }
 const planned = M.planPerformance(tuneHum, sr, { bpm: 92, figure: "solo", low: 48, high: 84 })
-check("a hum becomes its notes, on the beat, in tune", planned.events.map((e) => e.midi).join(",") === "60,62,64,67,64,62,60" && planned.events.every((e) => Math.abs(e.time / (60 / 92) - Math.round(e.time / (60 / 92))) < 1e-6))
+const beatLen = planned.grid.beat
+check("a hum becomes its notes, on its own beat, in tune", planned.events.map((e) => e.midi).join(",") === "60,62,64,67,64,62,60" && planned.events.every((e) => { const k = (e.time - planned.grid.phase) / (beatLen / 2); return Math.abs(k - Math.round(k)) < 1e-6 }))
+check("the beat follows the singer, who is 50 ms late", Math.abs(planned.grid.phase - 0.05) < 0.02)
 check("the key of a C major tune is C major", planned.key.root === 0 && !planned.key.minor)
-check("chords sit under the tune", M.planPerformance(tuneHum, sr, { bpm: 92, figure: "chords", low: 48, high: 84 }).events.length === 21)
+const chorded = M.planPerformance(tuneHum, sr, { bpm: 92, figure: "chords", style: "strum", low: 45, high: 79 })
+check("chords change by the half bar and start on C", chorded.harmony.length === 4 && chorded.harmony[0].root === 0)
+check("a guitar strums a pattern, down and up", chorded.events.length > 30)
+const gappy = new Float32Array(sr * 4)
+for (let i = 0; i < gappy.length; i++) gappy[i] = 0.3 * Math.sin(2 * Math.PI * 220 * i / sr)
+const warped = M.fixTiming([{ id: "v", samples: gappy, sampleRate: sr, start: 0 }], { bpm: 92 })[0]
+check("snapping never leaves silent gaps", !warped.samples || (() => { for (let i = sr; i < gappy.length - sr; i += 441) { let q = 0; for (let j = 0; j < 441; j++) q += warped.samples[i + j] ** 2; if (Math.sqrt(q / 441) < 0.05) return false } return true })())
 const up = M.shiftPitch(tuneHum, sr, 2)
 check("transpose keeps the length", Math.abs(up.length / 44100 - tuneHum.length / sr) < 0.01)
 const slower = M.timeStretch(looped, sr, 1.25, phrase.length)
