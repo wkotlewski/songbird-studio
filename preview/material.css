@@ -501,3 +501,16 @@ button.dock-btn .nav-pill .ms { font-size: 24px; color: inherit; }
   .transport button.icon-btn .ms { font-size: 22px; }
   .transport button#play-btn .ms, .transport button#rec-btn .ms { font-size: 26px; }
 }
+
+/* Playing and recording rings are drawn inside the button, so nothing is
+   cropped at the edge of the row. */
+button#play-btn.is-on { box-shadow: inset 0 0 0 3px var(--md-primary); }
+body[data-sound="record"] #rec-btn,
+body[data-sound="record"] .transport #rec-btn { box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85); }
+body[data-sound="play"] #play-btn::after { display: none; }
+@media (max-width: 759px) {
+  /* The buttons fit, so the row doesn't need to scroll (which cropped them). */
+  .transport { overflow: visible; padding: 2px 0; }
+  /* A hint that can't fit on a phone is left out instead of cut to "T…". */
+  .section-bar .section-guide { display: none; }
+}
