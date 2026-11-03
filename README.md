@@ -87,7 +87,7 @@ Genre packages are Songbird's own. They are informed by open music references, w
 - [Ableton Learning Music](https://learningmusic.ableton.com/)
 - [Berklee: Writing and Analyzing Hit Songs](https://online.berklee.edu/courses/writing-and-analyzing-hit-songs)
 
-Type on the page is [Plus Jakarta Sans](https://fonts.google.com/specimen/Plus+Jakarta+Sans).
+Type on the page is [Plus Jakarta Sans](https://fonts.google.com/specimen/Plus+Jakarta+Sans). Icons are Google's [Material Symbols](https://fonts.google.com/icons) (Apache License 2.0), and buttons follow [Material Design 3](https://m3.material.io/).
 
 How those packages become sound, and the rest of the product design, stay with the Songbird team.
 
