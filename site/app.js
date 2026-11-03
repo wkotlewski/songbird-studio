@@ -247,9 +247,13 @@ function tileButton(label, attrs, on) {
   return `<button class="tile ${on ? "on" : ""}" ${attrs}>${label}</button>`
 }
 
+// A Material Symbols icon. The name is the icon (Google's ligature font).
+function ms(name, extra = "") {
+  return `<span class="ms ${extra}" aria-hidden="true">${name}</span>`
+}
+
 function iconButton(icon, attrs, filled) {
-  const glyph = { add: "+", home: "⌂", play_arrow: "▶", stop: "■", fiber_manual_record: "●", undo: "↶", redo: "↷", close: "×", volume_off: "M", hearing: "S", mic: "●" }[icon] || "•"
-  return `<button class="icon-btn ${filled ? "on" : ""}" ${attrs}><span class="glyph" aria-hidden="true">${glyph}</span></button>`
+  return `<button class="icon-btn ${filled ? "on" : ""}" ${attrs}>${ms(icon, "glyph")}</button>`
 }
 
 function curve(shapeId) {
@@ -1715,8 +1719,8 @@ function renderRuler() {
   const tools = `<div class="section-tools">
         ${current ? "" : `<p class="hint section-guide">Tap a section above the song to work on just that part.</p>`}
         ${current ? `<input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Section name" />` : ""}
-        ${outlinedButton("Add a section", `data-action="add-section"`)}
-        ${current ? outlinedButton("Delete section", `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
+        ${outlinedButton(`${ms("add")}Add a section`, `data-action="add-section"`)}
+        ${current ? outlinedButton(`${ms("delete")}Delete section`, `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
         ${current ? `${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
         ${filterChip("Change this part", `data-action="section-mode" data-mode="replace"`, state.sectionMode === "replace")}
         ${outlinedButton("Fill layer with this section", `data-action="fill-section"`)}
@@ -1848,7 +1852,7 @@ function renderTracks() {
         <div class="track-label">
           <div class="label-top">
             <input class="layer-name" data-rename="${layer.id}" value="${esc(layer.name)}" maxlength="40" aria-label="Name this layer" />
-            <button type="button" class="layer-delete" data-action="delete-layer" data-id="${layer.id}" aria-label="Delete ${esc(layer.name)}">×</button>
+            <button type="button" class="layer-delete" data-action="delete-layer" data-id="${layer.id}" aria-label="Delete ${esc(layer.name)}">${ms("close_small")}</button>
           </div>
           <button class="track-meta" data-action="select-layer" data-id="${layer.id}">
             <small class="role">${edited ? "Edited" : "Original"}</small>
@@ -1989,8 +1993,8 @@ function renderMix(head, layer) {
     return `<div class="mix-channel ${item.id === current.id ? "on" : ""} ${hear.className}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
       <div class="mix-channel-top">
         <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
-        <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}">M</button>
-        <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}">S</button>
+        <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms("volume_off")}</button>
+        <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}" title="Solo">${ms("hearing")}</button>
       </div>
       ${hear.label ? `<span class="hear-state">${hear.label}</span>` : ""}
       <label class="field">Volume
@@ -2012,7 +2016,7 @@ function renderMix(head, layer) {
   const canRevertTiming = state.layers.some((item) => buffers.get(item.id + ":timing"))
   return `${head("Mix all layers")}
     <p class="ask">Every layer</p>
-    <p class="hint">${soloing ? "Solo is on. Bright layers are playing. Dim layers are quiet. M mutes. S solos." : "Mix is for every layer at once. Volume and left-right are on each one. M mutes. S solos."}</p>
+    <p class="hint">${soloing ? "Solo is on. Bright layers are playing. Dim layers are quiet. The speaker mutes a layer; the ear solos it." : "Mix is for every layer at once. Volume and left-right are on each one. The speaker mutes a layer; the ear solos it."}</p>
     <p class="ask">Magic timing</p>
     <p class="hint">Looks across the layers. It pulls a note that is barely off, sitting on no beat, or leaving a beat silent. A steady off-beat stays put.</p>
     <label class="field">How far off still counts
@@ -2027,7 +2031,7 @@ function renderMix(head, layer) {
     <label class="field">Layer name
       <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
     </label>
-    ${dangerButton("Delete layer", `data-action="delete-layer" data-id="${current.id}"`)}
+    ${dangerButton(`${ms("delete")}Delete layer`, `data-action="delete-layer" data-id="${current.id}"`)}
     ${outlinedButton(state.fine ? "Hide tone" : "Bass, treble, and space", `data-action="toggle-fine"`)}
     ${fine}
     <p class="ask">For the whole song</p>
@@ -2241,16 +2245,16 @@ function renderInspector() {
       </div>
       ${micMode ? `${state.looper ? "" : `<p class="hint">Tempo is ${state.bpm}. You'll see it, then it counts 1, 2, 3, 4, then the song plays while the mic records. Only the mic is kept.</p>`}
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
-      <button class="mic ${state.recording || state.counting ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording || state.counting ? "recording" : "idle"}" aria-label="${state.recording || state.counting ? "Stop recording" : "Record"}"><span class="glyph" aria-hidden="true">${state.recording || state.counting ? "■" : "●"}</span></button>
+      <button class="mic ${state.recording || state.counting ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording || state.counting ? "recording" : "idle"}" aria-label="${state.recording || state.counting ? "Stop recording" : "Record"}">${ms(state.recording || state.counting ? "stop" : "mic", "glyph")}</button>
       ${beatLightsMarkup()}
       ${state.looper ? loopClockMarkup() : ""}
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to stack a layer" : "Tap to start a loop") : "00:00"}</p>
-      ${!state.recording && !state.counting && songHasSound() ? `<button class="listen-btn ${playing ? "on" : ""}" data-action="play" id="listen-btn" aria-label="${playing ? "Stop" : "Play what you have"}"><span aria-hidden="true">${playing ? "■" : "▶"}</span>${playing ? "Stop" : "Listen to what you have"}</button>` : ""}
+      ${!state.recording && !state.counting && songHasSound() ? `<button class="listen-btn ${playing ? "on" : ""}" data-action="play" id="listen-btn" aria-label="${playing ? "Stop" : "Play what you have"}">${ms(playing ? "stop" : "play_arrow")}${playing ? "Stop" : "Listen to what you have"}</button>` : ""}
       ${looperBox()}
       ${headphonesBox()}
       ${state.looper ? `<p class="hint">Tempo ${state.bpm}. It counts 1, 2, 3, 4, then the loop plays from the top while the mic records. Only the mic is kept.</p>` : ""}
       <p class="hint">Songbird records like Voice Memos: your mic as it is, full quality, with nothing added while you sing. It only evens out the level after. Headphones keep the click and the loop out of your take. Magic clear, in Transform, can tidy it later.</p>
-      ${outlinedButton(state.recMore ? "Hide monitoring" : "Headphones and monitoring", `data-action="toggle-rec-more"`)}
+      ${outlinedButton(`${ms("headphones")}${state.recMore ? "Hide monitoring" : "Headphones and monitoring"}`, `data-action="toggle-rec-more"`)}
       ${state.recMore ? `<div class="seg">
         ${filterChip("Record First", `data-action="rec-mode" data-mode="first"`, state.mode === "first")}
         ${filterChip("Play Live", `data-action="rec-mode" data-mode="live"`, state.mode === "live")}
@@ -2260,8 +2264,8 @@ function renderInspector() {
         ${["original", "both", "transformed"].map((id) => filterChip(id === "both" ? "Original + transformed" : id[0].toUpperCase() + id.slice(1), `data-action="monitor" data-monitor="${id}"`, state.monitor === id)).join("")}
       </div>` : ""}
       ${state.looper ? "" : `<div class="row">
-        ${filledButton("Keep", `data-action="keep-take" ${pendingBlob ? "" : "disabled"}`)}
-        ${outlinedButton("Try again", `data-action="discard-take"`)}
+        ${filledButton(`${ms("check")}Keep`, `data-action="keep-take" ${pendingBlob ? "" : "disabled"}`)}
+        ${outlinedButton(`${ms("refresh")}Try again`, `data-action="discard-take"`)}
       </div>`}` : `<p class="hint">Songbird adds a starter and uses this tempo. Record from the mic when you want your own voice on top.</p>
       <p class="ask">Starter</p>
       <div class="choices">
@@ -2310,7 +2314,7 @@ function renderInspector() {
     body = `${head("Finish your song")}
       <div class="seg">${filterChip("Audio", "", true)}${outlinedButton("Video", `data-action="video-note"`)}</div>
       <p class="hint">Master downloads a song file of what you hear right now, including mute, solo, and the mix. Nothing is uploaded.</p>
-      ${filledButton("Master my song", `data-action="download-mix"`)}
+      ${filledButton(`${ms("download")}Master my song`, `data-action="download-mix"`)}
       <p id="finish-note" class="hint"></p>`
   } else {
     body = renderMix(head, layer)
@@ -2980,15 +2984,49 @@ async function keepLoopTake() {
   const pass = new Float32Array(passLength)
   const from = Math.round(lead * rate)
   pass.set(data.subarray(from, Math.min(data.length, from + passLength)))
+  const got = Math.max(0, Math.min(data.length, from + passLength) - from)
+  if (got < passLength && from > 0) {
+    // The take ended a moment early: finish the pass with the sound from just
+    // before the loop began, which leads into its first beat.
+    const need = Math.min(passLength - got, from)
+    pass.set(data.subarray(from - need, from), passLength - need)
+  }
   // The seam: what you sang just past the end of the loop is blended into
   // its start, so a note ringing across the loop point carries on smoothly
   // instead of dipping to silence each time round.
   const tail = data.subarray(Math.min(data.length, from + passLength))
-  const blend = Math.min(Math.floor(rate * 0.04), tail.length, Math.floor(passLength / 6))
-  if (blend > Math.floor(rate * 0.01)) {
+  // Before blending, line the two waves up: find the small shift (under one
+  // cycle of a low voice) where what comes after the loop best matches its
+  // start, and slide into it gradually so the blend never cancels itself out.
+  const maxShift = Math.round(rate * 0.012)
+  const blend = Math.min(Math.round(rate * 0.1), tail.length - maxShift - 2, Math.floor(passLength / 6))
+  const look = Math.min(Math.floor(blend / 2), Math.round(rate * 0.03))
+  if (blend > Math.floor(rate * 0.012)) {
+    let shift = 0
+    let best = -Infinity
+    for (let d = 0; d <= maxShift; d++) {
+      let corr = 0
+      let energy = 1e-9
+      for (let i = Math.floor(blend / 2); i < Math.floor(blend / 2) + look; i++) {
+        corr += tail[i + d] * pass[i]
+        energy += tail[i + d] * tail[i + d]
+      }
+      const score = corr / Math.sqrt(energy)
+      if (score > best) {
+        best = score
+        shift = d
+      }
+    }
     for (let i = 0; i < blend; i++) {
       const x = i / blend
-      pass[i] = pass[i] * Math.sin((x * Math.PI) / 2) + tail[i] * Math.cos((x * Math.PI) / 2)
+      const mix = 0.5 - 0.5 * Math.cos(Math.PI * x)
+      // The shift finishes in the first half, while the ringing note leads.
+      const slide = Math.min(1, x / 0.5)
+      const at = i + shift * (slide * slide * (3 - 2 * slide))
+      const k = Math.floor(at)
+      const frac = at - k
+      const partner = tail[k] * (1 - frac) + tail[k + 1] * frac
+      pass[i] = pass[i] * mix + partner * (1 - mix)
     }
   } else {
     const fade = Math.min(Math.floor(rate * 0.006), Math.floor(passLength / 6))
@@ -3063,7 +3101,7 @@ async function keepLoopTake() {
   const ctx = ac()
   window.setTimeout(() => {
     if (ctx.state !== "running" && state.panel === "record") {
-      $("save-status").textContent = "Your loop is ready. Tap ▶ Play to hear it."
+      $("save-status").textContent = "Your loop is ready. Tap Play to hear it."
     }
   }, 400)
 }
@@ -3323,7 +3361,7 @@ async function toggleRecord() {
           if (!state.recording && !state.counting && state.panel === "record") renderInspector()
         }, 1600)
       }
-    }, (closeAt + recLead + 0.12) * 1000)
+    }, (closeAt + recLead + 0.35) * 1000)
   }
   recStarted = performance.now()
   recTimer = window.setInterval(() => {
@@ -4376,7 +4414,7 @@ function syncListen(on) {
   if (!button) return
   button.classList.toggle("on", on)
   button.setAttribute("aria-label", on ? "Stop" : "Play what you have")
-  button.innerHTML = `<span aria-hidden="true">${on ? "■" : "▶"}</span>${on ? "Stop" : "Listen to what you have"}`
+  button.innerHTML = `${ms(on ? "stop" : "play_arrow")}${on ? "Stop" : "Listen to what you have"}`
 }
 
 let fadeNode = null
@@ -4557,7 +4595,7 @@ function play(fromSec, options = {}) {
     playButton.classList.add("is-on")
     playButton.setAttribute("aria-label", "Stop")
     const playIcon = playButton.querySelector(".glyph")
-    if (playIcon) playIcon.textContent = "■"
+    if (playIcon) playIcon.textContent = "stop"
   }
   beginSky(state.recording ? "record" : "play")
   const span = spanSeconds()
@@ -4710,7 +4748,7 @@ function stopPlayback(keepClick) {
     playButton.classList.remove("is-on")
     playButton.setAttribute("aria-label", "Play")
     const playIcon = playButton.querySelector(".glyph")
-    if (playIcon) playIcon.textContent = "▶"
+    if (playIcon) playIcon.textContent = "play_arrow"
   }
 }
 

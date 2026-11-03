@@ -5,17 +5,17 @@
 // turning a layer into an instrument. When it doesn't understand, it says so.
 
 const FAMILIES = [
-  { id: "drums", name: "Drums", icon: "🥁" },
-  { id: "keys", name: "Piano & keys", icon: "🎹" },
-  { id: "guitar", name: "Guitar", icon: "🎸" },
-  { id: "bass", name: "Bass", icon: "🎚️" },
-  { id: "strings", name: "Strings", icon: "🎻" },
-  { id: "horns", name: "Horns & sax", icon: "🎺" },
-  { id: "voices", name: "Voices", icon: "🎤" },
-  { id: "woodwinds", name: "Woodwinds", icon: "🎶" },
-  { id: "mallets", name: "Bells & mallets", icon: "🔔" },
-  { id: "world", name: "World", icon: "🌍" },
-  { id: "synths", name: "Synths", icon: "🎛️" },
+  { id: "drums", name: "Drums", icon: "graphic_eq" },
+  { id: "keys", name: "Piano & keys", icon: "piano" },
+  { id: "guitar", name: "Guitar", icon: "music_note" },
+  { id: "bass", name: "Bass", icon: "speaker" },
+  { id: "strings", name: "Strings", icon: "airwave" },
+  { id: "horns", name: "Horns & sax", icon: "campaign" },
+  { id: "voices", name: "Voices", icon: "record_voice_over" },
+  { id: "woodwinds", name: "Woodwinds", icon: "air" },
+  { id: "mallets", name: "Bells & mallets", icon: "notifications" },
+  { id: "world", name: "World", icon: "public" },
+  { id: "synths", name: "Synths", icon: "tune" },
 ]
 
 // sample: the folder in sounds/. plays: the ways it can follow your layer.
@@ -847,7 +847,7 @@ async function runRequest(raw) {
     hearLayers()
     rememberSong()
     renderTracks()
-    return { text: `Muted ${layers.map((layer) => layer.name).join(", ")}. Tap M in Mix to bring it back, or Undo.` }
+    return { text: `Muted ${layers.map((layer) => layer.name).join(", ")}. Tap the speaker in Mix to bring it back, or Undo.` }
   }
 
   const into = text.match(/(?:turn|make|change|convert|transform|switch)\s+(.*?)\s*(?:into|to|sound like|be)\s+(?:a |an |some )?(.*)$/)
@@ -931,7 +931,7 @@ function magicPanel(head) {
     <form class="magic-ask" data-magic-form>
       <label class="sr" for="magic-say">Tell Songbird what you want</label>
       <textarea id="magic-say" rows="2" placeholder="Add a horn section and make it tight" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
-      <button class="btn btn-primary magic-go" type="submit" ${busy}>${state.transforming ? "Working…" : "✨ Do it"}</button>
+      <button class="btn btn-primary magic-go" type="submit" ${busy}>${state.transforming ? "Working…" : `${ms("wand_stars")}Do it`}</button>
     </form>
     ${chatMarkup()}
     <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your phone's keyboard to say it out loud. Or try one:"}</p>
@@ -941,7 +941,7 @@ function magicPanel(head) {
     ${sources.length ? `<p class="ask">Layer</p>
       <div class="choices">${sources.map((layer) => filterChip(esc(layer.name), `data-action="pick-transform-layer" data-id="${layer.id}" ${busy}`, target && layer.id === target.id)).join("")}</div>` : `<p class="hint">Record a layer first.</p>`}
     <p class="ask">Instrument</p>
-    <div class="family-grid">${FAMILIES.map((item) => `<button class="family ${item.id === pick.family ? "on" : ""}" data-pick-family="${item.id}" ${busy}><span aria-hidden="true">${item.icon}</span>${esc(item.name)}</button>`).join("")}</div>
+    <div class="family-grid">${FAMILIES.map((item) => `<button class="family ${item.id === pick.family ? "on" : ""}" data-pick-family="${item.id}" ${busy}>${ms(item.icon)}${esc(item.name)}</button>`).join("")}</div>
     ${pick.family === "drums" ? `
       <div class="choices">
         ${filterChip("Full kit", `data-pick-drums="kit" ${busy}`, pick.drums === "kit")}
@@ -958,8 +958,8 @@ function magicPanel(head) {
     <p class="ask">Sound of the era</p>
     <div class="choices">${ERAS.map(([id, name]) => filterChip(name, `data-pick-era="${id}" ${busy}`, (state.era || "today") === id)).join("")}</div>
     <div class="magic-actions">
-      ${filledButton(state.transforming ? "Working…" : `Add ${esc(partName(pick))}`, `data-make="add" ${busy} ${sources.length ? "" : "disabled"}`)}
-      ${outlinedButton(target ? `Turn ${esc(target.name)} into it` : "Turn it into this", `data-make="replace" ${busy} ${target ? "" : "disabled"}`)}
+      ${filledButton(state.transforming ? "Working…" : `${ms("add")}Add ${esc(partName(pick))}`, `data-make="add" ${busy} ${sources.length ? "" : "disabled"}`)}
+      ${outlinedButton(`${ms("wand_stars")}${target ? `Turn ${esc(target.name)} into it` : "Turn it into this"}`, `data-make="replace" ${busy} ${target ? "" : "disabled"}`)}
     </div>
     <p class="hint">Notes snap to the beat and stay in key. Add keeps your recording; Turn replaces it, and Revert brings it back. Instruments are real recorded sounds (FluidR3, MIT license).</p>
 
@@ -984,7 +984,7 @@ function magicPanel(head) {
         ${filterChip("Autotune", `data-action="pick-pitch" data-pitch="autotune" ${busy}`, state.pitch === "autotune")}
         ${filterChip("Background vocal", `data-action="pick-vocal" data-vocal="background" ${busy}`, state.vocalType === "background")}
       </div>
-      ${outlinedButton("Revert to original", `data-action="revert-original" ${busy}`)}
+      ${outlinedButton(`${ms("undo")}Revert to original`, `data-action="revert-original" ${busy}`)}
       ${genrePanel()}
     </details>
     ${magicLog()}`
