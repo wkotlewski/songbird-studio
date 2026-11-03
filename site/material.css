@@ -477,3 +477,27 @@ button.mini .ms { font-size: 20px; }
 
 /* Navigation bar icons at Material's 24px (an older rule shrank every span). */
 button.dock-btn .nav-pill .ms { font-size: 24px; color: inherit; }
+
+/* Phones: the transport keeps the same circles as desktop. They share the
+   row evenly, and each stays a true circle. */
+@media (max-width: 759px) {
+  .transport { justify-content: space-between; gap: 6px; }
+  .transport button.icon-btn,
+  .transport button#play-btn,
+  .transport button#rec-btn {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    min-width: 0;
+    max-width: none;
+    aspect-ratio: 1;
+    border-radius: 50%;
+  }
+}
+@media (max-width: 359px) {
+  .transport button.icon-btn,
+  .transport button#play-btn,
+  .transport button#rec-btn { width: 44px; height: 44px; }
+  .transport button.icon-btn .ms { font-size: 22px; }
+  .transport button#play-btn .ms, .transport button#rec-btn .ms { font-size: 26px; }
+}
