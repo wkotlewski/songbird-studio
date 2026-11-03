@@ -1154,7 +1154,18 @@ function renderSongs() {
   const list = $("song-list")
   const songs = state.songs.filter((song) => `${song.title} ${song.line || ""} ${song.author || ""} ${song.credit || ""}`.toLowerCase().includes(q))
   if (!songs.length) {
-    list.innerHTML = `<p class="empty">Make your first sound.</p>`
+    // First time: how it works, in four pictures and one big button.
+    list.innerHTML = q ? `<p class="empty">No songs match that.</p>` : `<section class="welcome">
+      <p class="welcome-title">Make a song in four steps</p>
+      <ol class="welcome-steps">
+        <li><span class="ms" aria-hidden="true">mic</span><b>Record</b><span>Hum, sing, or clap. It plays over and over.</span></li>
+        <li><span class="ms" aria-hidden="true">wand_stars</span><b>Magic</b><span>Turn it into piano, drums, a choir, and more.</span></li>
+        <li><span class="ms" aria-hidden="true">library_add</span><b>Add more</b><span>Stack sounds like a band.</span></li>
+        <li><span class="ms" aria-hidden="true">download</span><b>Save</b><span>Keep it, play it, share it.</span></li>
+      </ol>
+      <button class="btn btn-primary welcome-go" data-action="new-song"><span class="ms" aria-hidden="true">arrow_forward</span>Make my first song</button>
+      <p class="hint">Songbird shows you what to do next at every step.</p>
+    </section>`
     return
   }
   const yours = songs.filter((song) => !song.demo)
@@ -1717,20 +1728,22 @@ function renderRuler() {
   // The section tools and zoom live in a bar above the song that doesn't
   // scroll sideways with it, so no button ever slides off the screen.
   const tools = `<div class="section-tools">
-        ${current ? "" : `<p class="hint section-guide">Tap a section above the song to work on just that part.</p>`}
+        ${current ? "" : `<p class="hint section-guide">Tap a part above the song to change just that part.</p>`}
         ${current ? `<input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Section name" />` : ""}
-        ${outlinedButton(`${ms("add")}Add a section`, `data-action="add-section"`)}
-        ${current ? outlinedButton(`${ms("delete")}Delete section`, `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
+        ${outlinedButton(`${ms("add")}Add a part`, `data-action="add-section"`)}
+        ${current ? outlinedButton(`${ms("delete")}Delete part`, `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
         ${current ? `${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
         ${filterChip("Change this part", `data-action="section-mode" data-mode="replace"`, state.sectionMode === "replace")}
-        ${outlinedButton("Fill layer with this section", `data-action="fill-section"`)}
+        ${outlinedButton("Repeat this part", `data-action="fill-section"`)}
         ${outlinedButton("Whole song", `data-action="whole-song"`)}` : ""}
       </div>`
   const beat = 60 / (state.bpm || 92)
   const ticks = []
   for (let t = 0; t <= total + 0.01; t += beat * 4) ticks.push(`<i style="left:${(t / total) * 100}%"></i>`)
-  const zoom = [1, 1.5, 2].map((level) => filterChip(level === 1 ? "Fit" : `${level}×`, `data-action="zoom" data-zoom="${level}" title="Timeline zoom"`, (state.zoom || 1) === level)).join("")
-  $("ruler").innerHTML = `<div class="ruler-layout"><div class="ruler-gutter">Sections</div><div class="ruler-main">${bands}<div class="ruler-tools"><div class="beats" aria-hidden="true">${ticks.join("")}</div></div><div class="ruler-marks">${marks.join("")}</div></div></div>`
+  const zoomLevels = [1, 1.5, 2]
+  const zoomAt = Math.max(0, zoomLevels.indexOf(state.zoom || 1))
+  const zoom = `<button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.max(0, zoomAt - 1)]}" aria-label="Zoom out" title="Zoom out" ${zoomAt === 0 ? "disabled" : ""}>${ms("zoom_out")}</button><button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.min(2, zoomAt + 1)]}" aria-label="Zoom in" title="Zoom in" ${zoomAt === 2 ? "disabled" : ""}>${ms("zoom_in")}</button>`
+  $("ruler").innerHTML = `<div class="ruler-layout"><div class="ruler-gutter">Parts</div><div class="ruler-main">${bands}<div class="ruler-tools"><div class="beats" aria-hidden="true">${ticks.join("")}</div></div><div class="ruler-marks">${marks.join("")}</div></div></div>`
   const bar = $("section-bar")
   if (bar) bar.innerHTML = `${tools.replace('<div class="section-tools">', '<div class="section-tools">').replace(/<\/div>$/, "")}<div class="zoom" role="group" aria-label="Timeline zoom">${zoom}</div></div>`
   placePlayhead(state.playAt || 0)
@@ -1843,7 +1856,7 @@ function renderTracks() {
       const gaps = (layer.gaps || [])
         .map((gap) => `<i class="gap" style="left:${(gap.start / span) * 100}%;width:${((gap.end - gap.start) / span) * 100}%"></i>`)
         .join("")
-      const edited = Boolean(layer.from) && !(layer.loop && !layer.transformed && /^loop · \d+ bars?$/.test(layer.from))
+      const edited = !!(layer.generated || layer.make || layer.packageId || layer.transformed || /^starter/.test(layer.from || ""))
       const hear = hearingMark(layer)
       const waveColor = !hear.className || hear.className === "hearing"
         ? (layer.id === state.selected ? "#F9A8D4" : "#34D399")
@@ -1855,7 +1868,7 @@ function renderTracks() {
             <button type="button" class="layer-delete" data-action="delete-layer" data-id="${layer.id}" aria-label="Delete ${esc(layer.name)}">${ms("close_small")}</button>
           </div>
           <button class="track-meta" data-action="select-layer" data-id="${layer.id}">
-            <small class="role">${edited ? "Edited" : "Original"}</small>
+            <small class="role">${edited ? "Magic" : "You"}</small>
             <small class="track-from">${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
             ${hear.label ? `<small class="hear-state">${hear.label}</small>` : ""}
           </button>
@@ -1963,13 +1976,13 @@ function mixReadout(key, value) {
 function magicLog() {
   const rows = state.layers
     .map((layer) => {
-      const edited = Boolean(layer.from) && !(layer.loop && !layer.transformed && /^loop · \d+ bars?$/.test(layer.from))
+      const edited = !!(layer.generated || layer.make || layer.packageId || layer.transformed || /^starter/.test(layer.from || ""))
       return `<li><b>${esc(layer.name)}</b><span>${edited ? "Edited" : "Original"}${layer.from ? ` · ${esc(layer.from)}` : ""}</span></li>`
     })
     .join("")
   return `<section class="magic-log" aria-label="Magic Log">
-    <h3>Magic Log</h3>
-    <p class="hint">Original recordings stay on their own layers. An added part is marked Edited. Undo puts the last edit back.</p>
+    <h3>Your song’s sounds</h3>
+    <p class="hint">“You” marks the sounds you recorded. “Magic” marks the ones Songbird played. Undo puts back the last change.</p>
     ${rows ? `<ul>${rows}</ul>` : `<p class="hint">No layers yet.</p>`}
     <p class="hint">Instruments are recorded samples from the FluidR3 soundfont by Frank Wen (MIT license). Revert on a layer brings back what you played.</p>
   </section>`
@@ -2014,29 +2027,29 @@ function renderMix(head, layer) {
     </div>` : ""
   const slack = state.timingSlack || 0.18
   const canRevertTiming = state.layers.some((item) => buffers.get(item.id + ":timing"))
-  return `${head("Mix all layers")}
-    <p class="ask">Every layer</p>
-    <p class="hint">${soloing ? "Solo is on. Bright layers are playing. Dim layers are quiet. The speaker mutes a layer; the ear solos it." : "Mix is for every layer at once. Volume and left-right are on each one. The speaker mutes a layer; the ear solos it."}</p>
-    <p class="ask">Magic timing</p>
-    <p class="hint">Looks across the layers. It pulls a note that is barely off, sitting on no beat, or leaving a beat silent. A steady off-beat stays put.</p>
-    <label class="field">How far off still counts
+  return `${head("Your sounds")}
+    <p class="ask">Every sound</p>
+    <p class="hint">${soloing ? "Only the sounds with the ear on are playing. Tap the ear again to hear everything." : "Make each sound louder or softer. The speaker turns a sound off. The ear plays only that sound."}</p>
+    <p class="ask">Fix timing</p>
+    <p class="hint">Moves notes that are a little early or late onto the beat.</p>
+    <label class="field">How strict
       <input id="timing-slack" class="slider" type="range" min="0.08" max="0.4" step="0.01" value="${slack}" aria-label="How far off still counts as a slip" />
       <span data-timing-readout>${timingSlackLabel(slack)}</span>
     </label>
     <div class="magic-actions">
-      ${filledButton("Magic timing", `data-action="fix-timing"`)}
-      ${outlinedButton("Revert timing", `data-action="revert-timing" ${canRevertTiming ? "" : "disabled"}`)}
+      ${filledButton(`${ms("check")}Fix timing`, `data-action="fix-timing"`)}
+      ${outlinedButton(`${ms("undo")}Put timing back`, `data-action="revert-timing" ${canRevertTiming ? "" : "disabled"}`)}
     </div>
     <div class="mix-channels">${channels}</div>
-    <label class="field">Layer name
+    <label class="field">Name this sound
       <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
     </label>
-    ${dangerButton(`${ms("delete")}Delete layer`, `data-action="delete-layer" data-id="${current.id}"`)}
-    ${outlinedButton(state.fine ? "Hide tone" : "Bass, treble, and space", `data-action="toggle-fine"`)}
+    ${dangerButton(`${ms("delete")}Delete this sound`, `data-action="delete-layer" data-id="${current.id}"`)}
+    ${outlinedButton(state.fine ? "Hide tone" : "Tone: deeper, brighter, roomier", `data-action="toggle-fine"`)}
     ${fine}
-    <p class="ask">For the whole song</p>
+    <p class="ask">One tap for the whole song</p>
     <div class="mix-boxes">${Object.entries(SONG_MIXES).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
-    <p class="ask">For one kind of part</p>
+    <p class="ask">One tap for one kind of sound</p>
     <div class="mix-boxes parts">${Object.entries(MIX_PARTS).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
     ${magicLog()}`
 }
@@ -2240,21 +2253,21 @@ function renderInspector() {
     const vibeNames = { claps: "Claps", snaps: "Snaps", guitar: "Guitar strums", piano: "Piano chords" }
     body = `${head("Make a sound")}
       <div class="choices">
-        ${filterChip("Record from the mic", `data-action="record-mode" data-mode="mic"`, micMode)}
-        ${filterChip("Pick a vibe", `data-action="record-mode" data-mode="vibe"`, !micMode)}
+        ${filterChip("Use my voice", `data-action="record-mode" data-mode="mic"`, micMode)}
+        ${filterChip("Pick a starter", `data-action="record-mode" data-mode="vibe"`, !micMode)}
       </div>
       ${micMode ? `${state.looper ? "" : `<p class="hint">Tempo is ${state.bpm}. You'll see it, then it counts 1, 2, 3, 4, then the song plays while the mic records. Only the mic is kept.</p>`}
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording || state.counting ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording || state.counting ? "recording" : "idle"}" aria-label="${state.recording || state.counting ? "Stop recording" : "Record"}">${ms(state.recording || state.counting ? "stop" : "mic", "glyph")}</button>
       ${beatLightsMarkup()}
       ${state.looper ? loopClockMarkup() : ""}
-      <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to stack a layer" : "Tap to start a loop") : "00:00"}</p>
+      <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to add another sound" : "Tap the button, then hum, sing, or clap") : "00:00"}</p>
       ${!state.recording && !state.counting && songHasSound() ? `<button class="listen-btn ${playing ? "on" : ""}" data-action="play" id="listen-btn" aria-label="${playing ? "Stop" : "Play what you have"}">${ms(playing ? "stop" : "play_arrow")}${playing ? "Stop" : "Listen to what you have"}</button>` : ""}
       ${looperBox()}
       ${headphonesBox()}
-      ${state.looper ? `<p class="hint">Tempo ${state.bpm}. It counts 1, 2, 3, 4, then the loop plays from the top while the mic records. Only the mic is kept.</p>` : ""}
-      <p class="hint">Songbird records like Voice Memos: your mic as it is, full quality, with nothing added while you sing. It only evens out the level after. Headphones keep the click and the loop out of your take. Magic clear, in Transform, can tidy it later.</p>
-      ${outlinedButton(`${ms("headphones")}${state.recMore ? "Hide monitoring" : "Headphones and monitoring"}`, `data-action="toggle-rec-more"`)}
+      ${state.looper ? `<p class="hint">We count 1, 2, 3, 4, then you go. The lights flash on each beat to help you keep time.</p>` : ""}
+      <p class="hint">Tip: hold your phone close, like a voice memo. With headphones you can hear the beat while you record.</p>
+      ${outlinedButton(`${ms("headphones")}${state.recMore ? "Fewer options" : "More options"}`, `data-action="toggle-rec-more"`)}
       ${state.recMore ? `<div class="seg">
         ${filterChip("Record First", `data-action="rec-mode" data-mode="first"`, state.mode === "first")}
         ${filterChip("Play Live", `data-action="rec-mode" data-mode="live"`, state.mode === "live")}
@@ -2287,34 +2300,34 @@ function renderInspector() {
     const mins = shapingLength ? Math.floor(shapingLength / 60) : ""
     const secs = shapingLength ? String(shapingLength % 60).padStart(2, "0") : ""
     const suggestions = INTENTS.find((item) => item.id === state.intent)
-    body = `${head("Shape this layer")}
-      <p class="hint">${shaping ? `${esc(shaping.name)} is selected.` : "Keep a recording first."} It starts at 1:00. Shape this layer, then Transform. Mix is for every layer together.</p>
-      <label class="field">What do you want this layer to do?
+    body = `${head("How long, and how it builds")}
+      <p class="hint">${shaping ? `Working on ${esc(shaping.name)}.` : "Record a sound first."} Pick how long the song is, and whether it starts soft and builds up.</p>
+      <label class="field">Say what you want
         <textarea id="wish" rows="3" placeholder="3 minutes, soft intro, build up, then soften at the end">${esc(state.wish)}</textarea>
       </label>
       ${filledButton("Use what I said", `data-action="read-wish"`)}
       ${state.heard ? `<p class="hint">${esc(state.heard)}</p>` : ""}
-      <p class="ask">How long do you want it?</p>
+      <p class="ask">How long?</p>
       <div class="choices">${LENGTHS.map(([seconds, label, tag]) => filterChip(`${label}${tag ? ` ${tag}` : ""}`, `data-action="apply-length" data-seconds="${seconds}"`, shapingLength === seconds)).join("")}</div>
       <div class="length-entry">
         <label class="field">Minutes<input id="len-min" type="number" min="0" max="8" value="${mins}" aria-label="Minutes" /></label>
         <label class="field">Seconds<input id="len-sec" type="number" min="0" max="59" value="${secs}" aria-label="Seconds" /></label>
         ${outlinedButton("Use this length", `data-action="apply-length-custom"`)}
       </div>
-      <p class="ask">What should it do?</p>
+      <p class="ask">How should it feel?</p>
       <div class="choices">${INTENTS.map((item) => filterChip(item.title, `data-action="pick-intent" data-intent="${item.id}"`, state.intent === item.id)).join("")}</div>
       ${suggestions ? `<p class="hint">${esc(suggestions.detail)}</p>${suggestions.shapes.map((id) => {
         const shape = SHAPES[id]
         return planButton(shape.name, shape.line, `data-action="apply-shape" data-shape="${id}"`, (shaping?.shape || state.shape) === id, curve(id))
       }).join("")}` : ""}
-      ${filledButton("Next: Transform", `data-action="next-transform"`)}
-      <p class="hint">Transform changes this layer. After that, Mix sets every layer together.</p>
-      ${outlinedButton("Record another layer", `data-action="add-and-record" data-input="hum"`)}`
+      ${filledButton(`${ms("wand_stars")}Next: Magic`, `data-action="next-transform"`)}
+      
+      ${outlinedButton(`${ms("mic")}Record another sound`, `data-action="add-and-record" data-input="hum"`)}`
   } else if (state.panel === "finish") {
-    body = `${head("Finish your song")}
+    body = `${head("Save your song")}
       <div class="seg">${filterChip("Audio", "", true)}${outlinedButton("Video", `data-action="video-note"`)}</div>
-      <p class="hint">Master downloads a song file of what you hear right now, including mute, solo, and the mix. Nothing is uploaded.</p>
-      ${filledButton(`${ms("download")}Master my song`, `data-action="download-mix"`)}
+      <p class="hint">Saves the song to your phone, exactly as you hear it now. It stays private: nothing is uploaded.</p>
+      ${filledButton(`${ms("download")}Save my song`, `data-action="download-mix"`)}
       <p id="finish-note" class="hint"></p>`
   } else {
     body = renderMix(head, layer)
@@ -2614,7 +2627,7 @@ function newSong() {
   setPanel("record")
   state.tempoSource = ""
   state.tempoLocked = false
-  $("save-status").textContent = "Clap, snap, or beatbox the tempo. Or just start humming."
+  $("save-status").textContent = "Tap Record, then hum, sing, or clap."
 }
 
 function ensureSong() {
@@ -2801,7 +2814,7 @@ function headphonesBox() {
   const busy = state.recording || state.counting ? "disabled" : ""
   return `<div class="phones-row">
     <div>
-      <p class="ask">Headphones</p>
+      <p class="ask">I'm wearing headphones</p>
       <p class="hint">${on ? "You'll hear the click and your loop at full volume while you record." : "While you record, the click is silent and your loop plays very softly, so the mic doesn't pick them up. Hold the phone close to hear it, and follow the beat lights."}</p>
     </div>
     <button class="switch ${on ? "on" : ""}" data-action="toggle-phones" role="switch" aria-checked="${on ? "true" : "false"}" aria-label="I'm wearing headphones" ${busy}><span></span></button>
@@ -2870,33 +2883,33 @@ function runLoopClock() {
 }
 
 function looperBox() {
-  const lengths = [[2, "2 bars"], [4, "4 bars"], [8, "8 bars"], [0, "Free"]]
+  const lengths = [[2, "Short"], [4, "Medium"], [8, "Long"], [0, "I'll stop"]]
   const busy = state.recording || state.counting || state.arming ? "disabled" : ""
   const set = state.loopSec && songHasSound()
   return `<div class="looper ${state.looper ? "on" : ""}">
     <div class="looper-head">
       <div>
-        <p class="ask">Loop pedal</p>
+        <p class="ask">Repeat my sound</p>
         <p class="hint">${state.looper
           ? set
-            ? `Your loop is ${loopWords(state.loopSec)}. Each take stacks on top, in time.`
+            ? `Each new sound plays along with the others, in time.`
             : state.loopBars
-              ? `Records ${state.loopBars} bars, then loops right away.`
-              : "Records until you tap stop, rounded to whole bars."
-          : "Off. Takes wait for Keep or Try again."}</p>
+              ? `Records a ${state.loopBars === 2 ? "short" : state.loopBars === 4 ? "medium" : "long"} bit, then plays it over and over.`
+              : "Records until you tap stop, then plays it over and over."
+          : "Off. You choose Keep or Try again after each take."}</p>
       </div>
-      <button class="switch ${state.looper ? "on" : ""}" data-action="toggle-looper" role="switch" aria-checked="${state.looper ? "true" : "false"}" aria-label="Loop pedal" ${busy}><span></span></button>
+      <button class="switch ${state.looper ? "on" : ""}" data-action="toggle-looper" role="switch" aria-checked="${state.looper ? "true" : "false"}" aria-label="Repeat my sound" ${busy}><span></span></button>
     </div>
-    ${state.looper ? `<div class="choices" role="group" aria-label="Loop length">
+    ${state.looper ? `<div class="choices" role="group" aria-label="How long">
       ${lengths.map(([bars, label]) => filterChip(label, `data-action="loop-bars" data-bars="${bars}" ${busy}`, state.loopBars === bars)).join("")}
     </div>
-    <p class="ask polish-ask">Make it tight</p>
+    <p class="ask polish-ask">Fix it as I go</p>
     <div class="choices" role="group" aria-label="Polish each loop">
-      ${filterChip("Snap to beat", `data-action="toggle-snap" aria-pressed="${state.snap}" ${busy}`, state.snap)}
-      ${filterChip("Tune pitch", `data-action="toggle-tune" aria-pressed="${state.tune}" ${busy}`, state.tune)}
+      ${filterChip("Fix my timing", `data-action="toggle-snap" aria-pressed="${state.snap}" ${busy}`, state.snap)}
+      ${filterChip("Fix my notes", `data-action="toggle-tune" aria-pressed="${state.tune}" ${busy}`, state.tune)}
     </div>
-    <p class="hint">${state.snap || state.tune ? "Each loop is tightened as it closes. Your raw take is kept: Revert, in Transform, brings it back." : "Off: loops keep your timing and pitch exactly as you sang them."}</p>
-    ${set ? `<button class="looper-new" data-action="new-loop" ${busy}>New loop length</button>` : ""}` : ""}
+    <p class="hint">${state.snap || state.tune ? "Each take is tidied up when it stops. Your real take is kept, and Undo brings it back." : "Off: your takes stay exactly as you sang them."}</p>
+    ${set ? `<button class="looper-new" data-action="new-loop" ${busy}>Change how long</button>` : ""}` : ""}
   </div>`
 }
 
@@ -3094,8 +3107,8 @@ async function keepLoopTake() {
   const stack = state.layers.filter((item) => item.loop).length
   const polishNote = polished?.note ? ` ${polished.note}` : ""
   $("save-status").textContent = first
-    ? `Loop closed: ${loopWords(passSec)}.${polishNote} It's playing. Tap record to stack the next layer, or Transform to turn it into an instrument.`
-    : `Layer ${stack} is on the loop.${polishNote} Tap record for another, or Mix when it feels right.`
+    ? `Got it! Your sound is playing over and over.${polishNote ? " It's been tidied up." : ""} Next: add some magic.`
+    : `Sound ${stack} added.${polishNote ? " Tidied up." : ""} Add another, or make it sound great.`
   keepSpeakerOn()
   try { play(0) } catch { /* the loop is still on the timeline */ }
   const ctx = ac()
@@ -4929,7 +4942,7 @@ document.body.addEventListener("click", (event) => {
     if (clickButton) {
       clickButton.classList.toggle("on", state.click)
       clickButton.setAttribute("aria-pressed", state.click ? "true" : "false")
-      clickButton.textContent = state.click ? "Click" : "Muted"
+      clickButton.textContent = state.click ? "Beat" : "Beat off"
     }
   }
   if (action === "pick-section") {
