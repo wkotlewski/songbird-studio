@@ -2260,9 +2260,11 @@ function renderInspector() {
         ${filterChip("Pick a starter", `data-action="record-mode" data-mode="vibe"`, !micMode)}
       </div>
       ${micMode ? `${state.looper ? "" : `<p class="hint">Tempo is ${state.bpm}. You'll see it, then it counts 1, 2, 3, 4, then the song plays while the mic records. Only the mic is kept.</p>`}
+      ${state.recording || state.counting ? "" : tempoBox()}
+      ${beatLightsMarkup()}
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
       <button class="mic ${state.recording || state.counting ? "hot" : ""}" data-action="toggle-record" data-state="${state.recording || state.counting ? "recording" : "idle"}" aria-label="${state.recording || state.counting ? "Stop recording" : "Record"}">${ms(state.recording || state.counting ? "stop" : "mic", "glyph")}</button>
-      ${beatLightsMarkup()}
+
       ${state.looper ? loopClockMarkup() : ""}
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to add another sound" : "Tap the button, then hum, sing, or clap") : "00:00"}</p>
       ${!state.recording && !state.counting && songHasSound() ? `<button class="listen-btn ${playing ? "on" : ""}" data-action="play" id="listen-btn" aria-label="${playing ? "Stop" : "Play what you have"}">${ms(playing ? "stop" : "play_arrow")}${playing ? "Stop" : "Listen to what you have"}</button>` : ""}
@@ -2771,9 +2773,75 @@ async function keepTake(name, stayOpen) {
 
 // A block that drains as the loop runs out, so you know when it ends without
 // counting: "Keep going…", then 3, 2, 1, then "Stop" as it closes the loop.
+// Before recording: sing in time with the dots. Change the speed, and hear
+// the beat (with the dots flashing) before you're ready.
+function tempoBox() {
+  const bpm = state.bpm || 92
+  const feel = bpm < 86 ? "slow" : bpm < 112 ? "medium" : "fast"
+  const hasSound = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
+  return `<div class="tempo-box">
+    <p class="tempo-tip">${ms("lightbulb")}<span>Sing in time with the dots. They flash on every beat of your song, and the pink one is beat 1.</span></p>
+    <div class="tempo-row">
+      <button class="icon-btn" data-tempo="-4" aria-label="Slower" title="Slower">${ms("remove")}</button>
+      <div class="tempo-read"><b>${bpm}</b><span>${feel}</span></div>
+      <button class="icon-btn" data-tempo="4" aria-label="Faster" title="Faster">${ms("add")}</button>
+      ${outlinedButton(state.beatPreview ? `${ms("stop")}Stop` : `${ms("play_arrow")}Hear the beat`, `data-tempo="preview"`)}
+    </div>
+    <div class="choices tempo-presets">
+      ${filterChip("Slow", `data-tempo-set="76"`, feel === "slow")}
+      ${filterChip("Medium", `data-tempo-set="96"`, feel === "medium")}
+      ${filterChip("Fast", `data-tempo-set="120"`, feel === "fast")}
+    </div>
+    ${hasSound ? `<p class="hint">Changing the speed also speeds up or slows down the sounds you already have.</p>` : ""}
+  </div>`
+}
+
+function stopBeatPreview() {
+  if (!state.beatPreview) return
+  state.beatPreview = false
+  window.clearTimeout(stopBeatPreview.timer)
+  stopClick()
+  if (!playing) endSky()
+}
+
+// Two bars of the beat, out loud, with the dots flashing along.
+function startBeatPreview() {
+  if (state.recording || state.counting) return
+  stopBeatPreview()
+  const ctx = ac()
+  const beat = 60 / Math.max(40, state.bpm || 92)
+  const start = ctx.currentTime + 0.08
+  state.beatPreview = true
+  const keep = state.click
+  state.click = true
+  startClick(start, 0)
+  state.click = keep
+  beatLights.origin = start + (ctx.outputLatency || 0) + (ctx.baseLatency || 0)
+  beatLights.firstBeat = 0
+  runBeatLights()
+  stopBeatPreview.timer = window.setTimeout(() => {
+    stopBeatPreview()
+    if (state.panel === "record") renderInspector()
+  }, (beat * 8 + 0.1) * 1000)
+}
+
+async function setSpeed(bpm) {
+  const next = Math.round(Math.min(200, Math.max(40, bpm)))
+  const was = state.beatPreview
+  stopBeatPreview()
+  if (state.layers.some((layer) => buffers.get(layer.id + ":audio")) && typeof changeTempo === "function") {
+    const reply = await changeTempo(next)
+    $("save-status").textContent = reply.text
+  } else {
+    useTempo(next, "you", true)
+    $("save-status").textContent = `Speed is ${next}.`
+  }
+  renderInspector()
+  if (was) startBeatPreview()
+}
+
 function beatLightsMarkup() {
-  const live = state.recording || state.counting
-  return `<div class="beat-lights" id="beat-lights" aria-hidden="true" ${live ? "" : "hidden"}>${[0, 1, 2, 3].map((i) => `<i class="${i === 0 ? "one" : ""}"></i>`).join("")}</div>`
+  return `<div class="beat-lights ${state.recording || state.counting || state.beatPreview ? "" : "idle"}" id="beat-lights" aria-hidden="true">${[0, 1, 2, 3].map((i) => `<i class="${i === 0 ? "one" : ""}"></i>`).join("")}</div>`
 }
 
 function runBeatLights() {
@@ -2781,13 +2849,16 @@ function runBeatLights() {
   let lit = -2
   const frame = () => {
     const box = $("beat-lights")
-    if (!state.recording && !state.counting) {
+    if (!state.recording && !state.counting && !state.beatPreview) {
       beatLights.raf = 0
-      if (box) box.hidden = true
+      if (box) {
+        box.classList.add("idle")
+        box.querySelectorAll("i").forEach((dot) => dot.classList.remove("on"))
+      }
       return
     }
     if (box && audioCtx) {
-      box.hidden = false
+      box.classList.remove("idle")
       const beat = 60 / Math.max(40, state.bpm || 92)
       let index = -1
       if (state.counting) index = state.countBeat ? state.countBeat - 1 : -1
@@ -3271,6 +3342,7 @@ async function countIn() {
 }
 
 async function toggleRecord() {
+  stopBeatPreview()
   if (state.recording || state.arming || state.counting) {
     cancelRecord()
     return
@@ -4778,6 +4850,19 @@ function fromControl(event) {
   return path.find((item) => item?.dataset?.action || item?.id === "search" || item?.id === "song-title" || item?.id === "song-author" || item?.id === "wish" || item?.id === "magic-wish" || item?.id === "bpm" || item?.classList?.contains?.("layer-name") || item?.classList?.contains?.("share-email")) || event.target
 }
 
+document.body.addEventListener("click", (event) => {
+  const node = event.target.closest?.("[data-tempo],[data-tempo-set]")
+  if (!node || node.disabled) return
+  if (node.dataset.tempo === "preview") {
+    if (state.beatPreview) stopBeatPreview()
+    else startBeatPreview()
+    renderInspector()
+    return
+  }
+  if (node.dataset.tempoSet) void setSpeed(Number(node.dataset.tempoSet))
+  else if (node.dataset.tempo) void setSpeed((state.bpm || 92) + Number(node.dataset.tempo))
+})
+
 document.body.addEventListener("change", (event) => {
   const node = event.target
   if (node?.id === "genre-pack") {
@@ -4867,6 +4952,7 @@ document.body.addEventListener("click", (event) => {
     renderInspector()
   }
   if (action === "toggle-phones") {
+    stopBeatPreview()
     if (state.recording || state.counting) return
     state.headphones = !state.headphones
     state.headphonesSet = true

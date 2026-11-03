@@ -696,3 +696,19 @@ button.sound-tile.on span { color: var(--md-on-secondary-container); }
   body[data-panel="sounds"] #inspector { max-height: 82dvh; }
 }
 .browse-bar { background: #0b1f19; }
+
+/* Before recording: the beat, the speed, and a preview. */
+.tempo-box { margin: 6px 0 4px; padding: 12px 14px; border-radius: var(--md-shape-large); background: rgba(16, 53, 44, 0.7); border: 1px solid var(--md-outline-variant); }
+.tempo-tip { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px; font-size: 14px; line-height: 1.4; color: var(--md-on-surface); }
+.tempo-tip .ms { color: var(--md-primary); font-size: 20px; }
+.tempo-row { display: flex; align-items: center; gap: 8px; }
+.tempo-row .icon-btn { width: 44px; height: 44px; flex: none; }
+.tempo-read { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+.tempo-read b { font-size: 22px; line-height: 1; }
+.tempo-read span { font-size: 11px; color: var(--md-on-surface-variant); }
+.tempo-row .btn { margin-left: auto; padding: 0 14px; min-height: 44px; }
+.tempo-presets { margin-top: 10px; }
+.beat-lights.idle i { opacity: 0.55; }
+.tempo-row .btn, .tempo-read span { white-space: nowrap; }
+.tempo-row { gap: 6px; }
+.tempo-read { min-width: 58px; }
