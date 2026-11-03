@@ -283,6 +283,8 @@ async function makePart(choice, options = {}) {
     const buffer = loopedBuffer(made.samples, made.rate, made.loopSamples)
     const make = { ...choice, sourceId: source?.id || null }
     const family = choice.family
+    const wasPart = !!(target && target.make)
+    const wasName = target ? target.name : ""
     if (target) {
       snapshot([target.id])
       if (!buffers.get(target.id + ":original")) buffers.set(target.id + ":original", buffers.get(target.id + ":audio"))
@@ -333,7 +335,15 @@ async function makePart(choice, options = {}) {
     rememberSong()
     renderTracks()
     play(0)
-    return { text: `${target ? `${target.baseName} is now ${label}` : `Added ${label}`}${source && !target ? `, to go with ${source.name}` : ""}. Undo takes it back.` }
+    const eraName = ERAS.find(([id]) => id === (choice.era || "today"))?.[1]
+    const said = !target
+      ? `Added ${label}${source ? `, to go with ${source.name}` : ""}.`
+      : wasPart && wasName === label
+        ? `${label} now sounds like ${eraName === "Today" ? "today" : `the ${eraName}`}.`
+        : wasPart
+          ? `${wasName} is now ${label}.`
+          : `${target.baseName} is now ${label}.`
+    return { text: `${said} Undo takes it back.` }
   } catch (error) {
     return { text: /sounds missing|missing sounds|Failed to fetch/i.test(String(error)) ? "The instrument sounds didn't load. Check the connection and try again." : "That didn't work. Nothing changed.", warn: true }
   } finally {
@@ -936,31 +946,13 @@ function magicPanel(head) {
     <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your keyboard to say it out loud. Or try one:"}</p>
     <div class="choices magic-suggest">${SUGGESTIONS.map((line) => `<button class="chip" data-magic-say="${esc(line)}" ${busy}>${esc(line)}</button>`).join("")}</div>
 
-    <h3 class="magic-h">Turn a sound into an instrument</h3>
-    ${sources.length ? `<p class="ask">Which sound</p>
-      <div class="choices">${sources.map((layer) => filterChip(esc(layer.name), `data-action="pick-transform-layer" data-id="${layer.id}" ${busy}`, target && layer.id === target.id)).join("")}</div>` : `<p class="hint">Record a layer first.</p>`}
-    <p class="ask">Instrument</p>
-    <div class="family-grid">${FAMILIES.map((item) => `<button class="family ${item.id === pick.family ? "on" : ""}" data-pick-family="${item.id}" ${busy}>${ms(item.icon)}${esc(item.name)}</button>`).join("")}</div>
-    ${pick.family === "drums" ? `
-      <div class="choices">
-        ${filterChip("Full kit", `data-pick-drums="kit" ${busy}`, pick.drums === "kit")}
-        ${filterChip("One sound", `data-pick-drums="single" ${busy}`, pick.drums === "single")}
-      </div>
-      <p class="hint">${pick.drums === "kit" ? "Follows your claps, taps, or beatbox: low sounds become kick, sharp ones snare, with hi-hats in time. With no beat to follow, it plays a steady groove." : "Every hit you made becomes this one sound."}</p>
-      <div class="choices">${(pick.drums === "kit" ? KITS : SINGLES).map((item) => filterChip(item.name, `data-pick-${pick.drums === "kit" ? "kit" : "single"}="${item.id}" ${busy}`, (pick.drums === "kit" ? pick.kit : pick.single) === item.id)).join("")}</div>` : `
-      <div class="choices">${familyInstruments.map((item) => filterChip(item.name, `data-pick-instrument="${item.id}" ${busy}`, item.id === pick.instrument)).join("")}</div>
-      ${plays.length > 1 ? `<p class="ask">How it plays</p>
-      <div class="choices">${plays.map((id) => filterChip(PLAYS[id][0], `data-pick-play="${id}" title="${PLAYS[id][1]}" ${busy}`, pick.play === id)).join("")}</div>
-      <p class="hint">${PLAYS[pick.play]?.[1] || ""}.</p>` : ""}
-      ${pick.play !== "bass" ? `<p class="ask">Rhythm</p>
-      <div class="choices">${RHYTHMS.filter(([id]) => id !== "strum" || (info?.strum && pick.play === "chords")).map(([id, name]) => filterChip(name, `data-pick-rhythm="${id}" ${busy}`, pick.rhythm === id)).join("")}</div>` : ""}`}
-    <p class="ask">Old or new sound</p>
-    <div class="choices">${ERAS.map(([id, name]) => filterChip(name, `data-pick-era="${id}" ${busy}`, (state.era || "today") === id)).join("")}</div>
-    <div class="magic-actions">
-      ${filledButton(state.transforming ? "Working…" : `${ms("add")}Add ${esc(partName(pick))}`, `data-make="add" ${busy} ${sources.length ? "" : "disabled"}`)}
-      ${outlinedButton(`${ms("wand_stars")}${target ? `Turn ${esc(target.name)} into it` : "Turn it into this"}`, `data-make="replace" ${busy} ${target ? "" : "disabled"}`)}
-    </div>
-    <p class="hint">Add keeps your sound and plays the new one with it. Turn swaps it, and Undo brings it back. Every note lands on the beat and in tune.</p>
+    <section class="browse-card">
+      <h3 class="magic-h">Pick from every sound</h3>
+      <p class="hint">40 instruments, drum kits, and voices. Pick how they play and what time they're from.</p>
+      ${filledButton(`${ms("library_music")}Browse all sounds`, `data-browse-open="" ${busy}`)}
+      ${sources.length ? `<p class="ask">Or change a sound in your song</p>
+      <div class="choices">${sources.map((layer) => `<button class="chip" data-browse-open="${layer.id}" ${busy}>${ms("swap_horiz")}${esc(layer.name)}</button>`).join("")}</div>` : ""}
+    </section>
 
     <details class="package-more">
       <summary>More: clean up, your voice, music styles</summary>

@@ -1074,7 +1074,7 @@ function syncLoopChip() {
 function syncDock() {
   const open = document.body.classList.contains("sheet-open")
   document.querySelectorAll(".dock-btn").forEach((button) => {
-    const on = open && button.dataset.panel === state.panel
+    const on = open && button.dataset.panel === (state.panel === "sounds" ? "transform" : state.panel)
     button.classList.toggle("on", on)
     button.setAttribute("aria-pressed", on ? "true" : "false")
   })
@@ -1087,7 +1087,9 @@ function showInspector() {
 }
 
 function setPanel(panel) {
+  if (state.panel !== panel && $("inspector")) $("inspector").scrollTop = 0
   state.panel = panel
+  document.body.dataset.panel = panel
   showInspector()
   renderInspector()
 }
@@ -2006,6 +2008,7 @@ function renderMix(head, layer) {
     return `<div class="mix-channel ${item.id === current.id ? "on" : ""} ${hear.className}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
       <div class="mix-channel-top">
         <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
+        <button class="mini" data-browse-open="${item.id}" aria-label="Change ${esc(item.name)} to another sound" title="Change sound">${ms("swap_horiz")}</button>
         <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms("volume_off")}</button>
         <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}" title="Solo">${ms("hearing")}</button>
       </div>
@@ -2294,6 +2297,8 @@ function renderInspector() {
       ${filledButton(`Add ${vibeNames[state.vibe] || "this starter"}`, `data-action="add-starter"`)}`}`
   } else if (state.panel === "transform") {
     body = magicPanel(head)
+  } else if (state.panel === "sounds") {
+    body = soundsPanel(head)
   } else if (state.panel === "build") {
     const shaping = selectedLayer()
     const shapingLength = shaping?.lengthSec || state.lengthSec
@@ -4598,6 +4603,8 @@ function play(fromSec, options = {}) {
     return
   }
   stopPlayback(keepClick)
+  // Each playback has its own number; a finished earlier one can't stop this one.
+  const run = (play.run = (play.run || 0) + 1)
   playing = true
   playFrom = from
   state.playAt = from
@@ -4630,6 +4637,7 @@ function play(fromSec, options = {}) {
     activeSources.push(nodes.source)
     started += 1
     nodes.source.onended = () => {
+      if (play.run !== run) return
       ended += 1
       if (playing && ended >= started) stopPlayback(state.recording)
     }

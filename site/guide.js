@@ -84,6 +84,7 @@ function ideasFor(step, facts) {
       say("Add piano chords", "piano", "add piano chords")
     }
     say("Fix my timing & notes", "check", "make it tight")
+    go("More sounds", "library_music", "browse")
     return ideas
   }
   if (step === "add") {
@@ -94,8 +95,10 @@ function ideasFor(step, facts) {
     if (facts.hasMelody && !facts.hasHorns) say("Add horns", "campaign", "add a horn section")
     if (facts.hasMelody) say("Add strings", "airwave", "add strings")
     if (!facts.hasMelody) go("Hum a tune on top", "mic", "record")
-    go("Record another sound", "mic", "record")
-    return ideas.slice(0, 4)
+    const picks = ideas.slice(0, 3)
+    picks.push({ label: "More sounds", icon: "library_music", action: "browse" })
+    picks.push({ label: "Record another sound", icon: "mic", action: "record" })
+    return picks
   }
   if (step === "polish") {
     go("Balance it for me", "tune", "balance")
@@ -213,6 +216,10 @@ async function guideDo(action) {
     const title = $("song-title")
     title?.focus()
     title?.select?.()
+    return
+  }
+  if (action === "browse") {
+    openBrowser()
     return
   }
   if (action === "add") {
