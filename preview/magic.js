@@ -333,8 +333,7 @@ async function makePart(choice, options = {}) {
     rememberSong()
     renderTracks()
     play(0)
-    const keyLine = made.key ? ` In ${KEY_LABEL[made.key.root]} ${made.key.minor ? "minor" : "major"}.` : ""
-    return { text: `${target ? `${target.baseName} is now ${label}` : `Added ${label}`}${source && !target ? `, following ${source.name}` : ""}.${keyLine} Undo takes it back.` }
+    return { text: `${target ? `${target.baseName} is now ${label}` : `Added ${label}`}${source && !target ? `, to go with ${source.name}` : ""}. Undo takes it back.` }
   } catch (error) {
     return { text: /sounds missing|missing sounds|Failed to fetch/i.test(String(error)) ? "The instrument sounds didn't load. Check the connection and try again." : "That didn't work. Nothing changed.", warn: true }
   } finally {
@@ -891,7 +890,7 @@ async function useGenre(id) {
 // The panel
 
 const SUGGESTIONS = [
-  "Make it tight",
+  "Fix my timing & notes",
   "Remove background noise",
   "Add a horn section",
   "Add harmony vocals",
@@ -927,18 +926,18 @@ function magicPanel(head) {
   const plays = info ? info.plays : []
   const target = sources.find((layer) => layer.id === state.selected) || sources[0]
   return `${head("Magic")}
-    <p class="hint">Say what you want. Songbird does it to your song, and Undo takes it back.</p>
+    <p class="hint">Say what you want, like “add drums” or “make it higher”. Undo takes it back.</p>
     <form class="magic-ask" data-magic-form>
       <label class="sr" for="magic-say">Tell Songbird what you want</label>
       <textarea id="magic-say" rows="2" placeholder="Add a horn section and make it tight" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
       <button class="btn btn-primary magic-go" type="submit" ${busy}>${state.transforming ? "Working…" : `${ms("wand_stars")}Do it`}</button>
     </form>
     ${chatMarkup()}
-    <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your phone's keyboard to say it out loud. Or try one:"}</p>
+    <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your keyboard to say it out loud. Or try one:"}</p>
     <div class="choices magic-suggest">${SUGGESTIONS.map((line) => `<button class="chip" data-magic-say="${esc(line)}" ${busy}>${esc(line)}</button>`).join("")}</div>
 
-    <h3 class="magic-h">Turn a layer into an instrument</h3>
-    ${sources.length ? `<p class="ask">Layer</p>
+    <h3 class="magic-h">Turn a sound into an instrument</h3>
+    ${sources.length ? `<p class="ask">Which sound</p>
       <div class="choices">${sources.map((layer) => filterChip(esc(layer.name), `data-action="pick-transform-layer" data-id="${layer.id}" ${busy}`, target && layer.id === target.id)).join("")}</div>` : `<p class="hint">Record a layer first.</p>`}
     <p class="ask">Instrument</p>
     <div class="family-grid">${FAMILIES.map((item) => `<button class="family ${item.id === pick.family ? "on" : ""}" data-pick-family="${item.id}" ${busy}>${ms(item.icon)}${esc(item.name)}</button>`).join("")}</div>
@@ -955,17 +954,17 @@ function magicPanel(head) {
       <p class="hint">${PLAYS[pick.play]?.[1] || ""}.</p>` : ""}
       ${pick.play !== "bass" ? `<p class="ask">Rhythm</p>
       <div class="choices">${RHYTHMS.filter(([id]) => id !== "strum" || (info?.strum && pick.play === "chords")).map(([id, name]) => filterChip(name, `data-pick-rhythm="${id}" ${busy}`, pick.rhythm === id)).join("")}</div>` : ""}`}
-    <p class="ask">Sound of the era</p>
+    <p class="ask">Old or new sound</p>
     <div class="choices">${ERAS.map(([id, name]) => filterChip(name, `data-pick-era="${id}" ${busy}`, (state.era || "today") === id)).join("")}</div>
     <div class="magic-actions">
       ${filledButton(state.transforming ? "Working…" : `${ms("add")}Add ${esc(partName(pick))}`, `data-make="add" ${busy} ${sources.length ? "" : "disabled"}`)}
       ${outlinedButton(`${ms("wand_stars")}${target ? `Turn ${esc(target.name)} into it` : "Turn it into this"}`, `data-make="replace" ${busy} ${target ? "" : "disabled"}`)}
     </div>
-    <p class="hint">Notes snap to the beat and stay in key. Add keeps your recording; Turn replaces it, and Revert brings it back. Instruments are real recorded sounds (FluidR3, MIT license).</p>
+    <p class="hint">Add keeps your sound and plays the new one with it. Turn swaps it, and Undo brings it back. Every note lands on the beat and in tune.</p>
 
     <details class="package-more">
-      <summary>More: tidy a recording, your own voice, genre packages</summary>
-      <p class="ask">Tidy this recording</p>
+      <summary>More: clean up, your voice, music styles</summary>
+      <p class="ask">Clean up a recording</p>
       <label class="field">How much
         <input id="enhance-amount" class="slider" type="range" min="0.25" max="1" step="0.05" value="${state.enhanceAmount || 0.65}" aria-label="How much to enhance" />
         <span data-enhance-readout>${enhanceLabel(state.enhanceAmount || 0.65)}</span>
