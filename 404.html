@@ -5,10 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#071C17" />
   <title>Songbird</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+  <link rel="icon" href="icons/favicon-16.png" sizes="16x16" type="image/png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="Songbird" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&icon_names=add,air,airwave,arrow_forward,campaign,check,close,close_small,delete,download,edit,expand_less,expand_more,fiber_manual_record,fit_screen,graphic_eq,headphones,hearing,home,instant_mix,layers,library_add,library_music,lightbulb,mic,music_note,notifications,piano,play_arrow,public,record_voice_over,redo,refresh,remove,repeat,search,share,skip_next,skip_previous,sound_sampler,spatial_audio,speaker,stop,swap_horiz,timeline,timer,tune,undo,volume_down,volume_off,wand_stars,zoom_in,zoom_out&display=block" rel="stylesheet" />
   <link rel="stylesheet" href="app.css" />
+  <link rel="stylesheet" href="material.css" />
 </head>
 <body data-screen="library">
   <div class="app">
@@ -17,11 +25,12 @@
         <div>
           <p class="brand">Songbird</p>
           <h1>My Music</h1>
-          <p class="hint library-lead">A hum, a clap, or a beatbox can become a song. Loop it, stack it, make it yours.</p>
+          <p class="hint library-lead">Hum, sing, or clap. Songbird turns it into a song.</p>
         </div>
-        <button class="icon-btn" data-action="new-song" aria-label="Create new song" title="Create new song"><span aria-hidden="true">+</span></button>
+        <button class="icon-btn" data-action="new-song" aria-label="Create new song" title="Create new song"><span class="ms" aria-hidden="true">add</span></button>
       </header>
       <label class="search">
+        <span class="ms" aria-hidden="true">search</span>
         <span class="sr">Search songs</span>
         <input id="search" type="search" placeholder="Search songs" aria-label="Search songs" />
       </label>
@@ -35,7 +44,7 @@
 
     <main id="studio" class="pane">
       <header class="studio-bar">
-        <button class="icon-btn mobile-only" data-action="show-library" aria-label="My Music" title="My Music"><span aria-hidden="true">⌂</span></button>
+        <button class="icon-btn mobile-only" data-action="show-library" aria-label="My Music" title="My Music"><span class="ms" aria-hidden="true">library_music</span></button>
         <div class="title-block">
           <div class="title-row">
             <input id="song-title" aria-label="Song title" value="Untitled song" />
@@ -48,19 +57,19 @@
           <div id="project-actions" class="project-actions"></div>
         </div>
         <div class="transport">
-          <button class="icon-btn" data-action="jump" data-jump="-1" aria-label="Back" title="Back"><span class="glyph" aria-hidden="true">⏮</span></button>
-          <button class="icon-btn" data-action="play" id="play-btn" aria-label="Play" title="Play"><span class="glyph">▶</span></button>
-          <button class="icon-btn" data-action="jump" data-jump="1" aria-label="Next" title="Next"><span class="glyph" aria-hidden="true">⏭</span></button>
-          <button class="icon-btn rec" data-action="record" id="rec-btn" aria-label="Record" title="Record"><span class="glyph">●</span></button>
-          <button class="icon-btn" data-action="undo" aria-label="Undo" title="Undo"><span aria-hidden="true">↶</span></button>
-          <button class="icon-btn" data-action="redo" aria-label="Redo" title="Redo"><span aria-hidden="true">↷</span></button>
+          <button class="icon-btn" data-action="jump" data-jump="-1" aria-label="Back" title="Back"><span class="ms glyph" aria-hidden="true">skip_previous</span></button>
+          <button class="icon-btn" data-action="play" id="play-btn" aria-label="Play" title="Play"><span class="ms glyph" aria-hidden="true">play_arrow</span></button>
+          <button class="icon-btn" data-action="jump" data-jump="1" aria-label="Next" title="Next"><span class="ms glyph" aria-hidden="true">skip_next</span></button>
+          <button class="icon-btn rec" data-action="record" id="rec-btn" aria-label="Record" title="Record"><span class="ms glyph" aria-hidden="true">fiber_manual_record</span></button>
+          <button class="icon-btn" data-action="undo" aria-label="Undo" title="Undo"><span class="ms" aria-hidden="true">undo</span></button>
+          <button class="icon-btn" data-action="redo" aria-label="Redo" title="Redo"><span class="ms" aria-hidden="true">redo</span></button>
         </div>
-        <label class="bpm">
-          BPM
-          <input id="bpm" type="number" min="40" max="200" value="92" aria-label="BPM" />
+        <label class="bpm" title="Speed, in beats per minute">
+          Speed
+          <input id="bpm" type="number" min="40" max="200" value="92" aria-label="Speed in beats per minute" />
         </label>
-        <button class="chip on" id="click-btn" data-action="toggle-click" aria-pressed="true" title="Metronome click">Click</button>
-        <button class="chip on" id="loop-btn" data-action="toggle-looper" aria-pressed="true" title="Loop pedal: takes loop right away and the song repeats">Loop</button>
+        <button class="chip on" id="click-btn" data-action="toggle-click" aria-pressed="true" title="The beat sound that helps you keep time">Beat</button>
+        <button class="chip on" id="loop-btn" data-action="toggle-looper" aria-pressed="true" title="Repeat: your sound plays over and over">Repeat</button>
       </header>
 
       <div id="section-bar" class="section-bar"></div>
@@ -76,12 +85,13 @@
       </div>
 
       <p class="legal">© 2026 Whitney Kotlewski. All rights reserved.</p>
+      <section id="guide" class="guide" hidden aria-label="What to do next"></section>
       <div class="dock">
-        <button class="dock-btn" data-action="panel" data-panel="record"><span class="plan-copy"><b>Record</b><span>Mic or a starter</span></span></button>
-        <button class="dock-btn" data-action="panel" data-panel="build"><span class="plan-copy"><b>Build</b><span>Shape this layer</span></span></button>
-        <button class="dock-btn" data-action="panel" data-panel="transform"><span class="plan-copy"><b><i class="spark" aria-hidden="true">✨</i>Magic</b><span>Say it, or pick a sound</span></span></button>
-        <button class="dock-btn" data-action="panel" data-panel="mix"><span class="plan-copy"><b>Mix</b><span>All the layers</span></span></button>
-        <button class="dock-btn" data-action="panel" data-panel="finish"><span class="plan-copy"><b>Finish</b><span>Download the song</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="record"><span class="nav-pill"><span class="ms" aria-hidden="true">mic</span></span><span class="plan-copy"><b>Record</b><span>Sing, hum, or clap</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="transform"><span class="nav-pill"><span class="ms" aria-hidden="true">wand_stars</span></span><span class="plan-copy"><b>Magic</b><span>Add instruments</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="mix"><span class="nav-pill"><span class="ms" aria-hidden="true">instant_mix</span></span><span class="plan-copy"><b>Sounds</b><span>Louder, softer, off</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="build"><span class="nav-pill"><span class="ms" aria-hidden="true">timeline</span></span><span class="plan-copy"><b>Length</b><span>How long, how it builds</span></span></button>
+        <button class="dock-btn" data-action="panel" data-panel="finish"><span class="nav-pill"><span class="ms" aria-hidden="true">download</span></span><span class="plan-copy"><b>Save</b><span>Keep your song</span></span></button>
       </div>
     </main>
 
@@ -95,5 +105,8 @@
   <script src="sampler.js"></script>
   <script src="app.js"></script>
   <script src="magic.js"></script>
+  <script src="sounds.js"></script>
+  <script src="guide.js"></script>
+  <script src="material.js"></script>
 </body>
 </html>
