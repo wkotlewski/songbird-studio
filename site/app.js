@@ -561,7 +561,10 @@ function silentWavUrl() {
 // element switches the page to media playback, which does the same job.
 function keepSpeakerOn() {
   if (state.recording || state.arming || state.counting) {
-    audioSession("play-and-record")
+    // "auto" lets the iPhone keep the loudspeaker while the mic is open.
+    // "play-and-record" moves sound to the quiet earpiece, so the
+    // count-in can't be heard without headphones.
+    audioSession("auto")
     return
   }
   audioSession("playback")
@@ -2808,6 +2811,7 @@ function stopBeatPreview() {
 function startBeatPreview() {
   if (state.recording || state.counting) return
   stopBeatPreview()
+  keepSpeakerOn()
   const ctx = ac()
   const beat = 60 / Math.max(40, state.bpm || 92)
   const start = ctx.currentTime + 0.08
@@ -3245,17 +3249,29 @@ function clickAt(time, accent) {
     return
   }
   const ctx = ac()
-  const osc = ctx.createOscillator()
+  // A woodblock tick: a bright knock that drops in pitch, plus a body
+  // tone. It carries on a phone's small speaker far better than a beep.
+  const loud = state.recording ? 0.45 : 1
+  const knock = ctx.createOscillator()
+  const body = ctx.createOscillator()
   const gain = ctx.createGain()
-  osc.frequency.value = accent ? 1680 : 1120
-  const peak = (accent ? 0.24 : 0.11) * (state.recording ? 0.6 : 1)
+  const top = accent ? 1900 : 1400
+  knock.type = "triangle"
+  knock.frequency.setValueAtTime(top, time)
+  knock.frequency.exponentialRampToValueAtTime(top * 0.55, time + 0.05)
+  body.frequency.value = accent ? 880 : 660
+  const peak = (accent ? 0.7 : 0.45) * loud
   gain.gain.setValueAtTime(0.0001, time)
-  gain.gain.exponentialRampToValueAtTime(peak, time + 0.004)
-  gain.gain.exponentialRampToValueAtTime(0.0001, time + (accent ? 0.06 : 0.04))
-  osc.connect(gain)
+  gain.gain.exponentialRampToValueAtTime(peak, time + 0.002)
+  gain.gain.exponentialRampToValueAtTime(peak * 0.25, time + 0.03)
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + (accent ? 0.11 : 0.08))
+  knock.connect(gain)
+  body.connect(gain)
   gain.connect(ctx.destination)
-  osc.start(time)
-  osc.stop(time + 0.07)
+  knock.start(time)
+  body.start(time)
+  knock.stop(time + 0.12)
+  body.stop(time + 0.12)
   sky.flashes.push({ when: time, strength: accent ? 1 : 0.42 })
 }
 
@@ -3325,7 +3341,9 @@ async function countIn() {
   if (state.looper && !state.tempoPass) runLoopClock()
   runBeatLights()
   $("save-status").textContent = `Tempo ${state.bpm}. Then a count of four.`
-  const countStart = ctx.currentTime + beat + 0.12
+  // Opening the mic switches the phone's audio over, which can swallow
+  // the first tick, so the count waits a moment for it to settle.
+  const countStart = ctx.currentTime + beat + 0.45
   for (let i = 1; i <= 4; i++) {
     await waitUntil(ctx, countStart + (i - 1) * beat)
     if (!state.counting) return false
@@ -3351,7 +3369,7 @@ async function toggleRecord() {
   state.arming = true
   renderInspector()
   try {
-    audioSession("play-and-record")
+    audioSession("auto")
     // Phone-call processing (echo cancelling, noise gating, auto volume)
     // makes singing and instruments thin and wobbly, so it stays off.
     recStream = await navigator.mediaDevices.getUserMedia({
