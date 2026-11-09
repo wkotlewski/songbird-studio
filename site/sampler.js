@@ -196,5 +196,57 @@
     return body
   }
 
-  globalThis.SongbirdSampler = { RATE, getIndex, render }
+  // Live playing, for the keys and pads: load an instrument or kit once,
+  // then each tap starts its sample right away.
+  const ready = new Map()
+
+  async function warm(ctx, what) {
+    const id = what.kit ? `kit:${what.kit}` : `inst:${what.instrument}`
+    if (!ready.has(id)) {
+      const job = (what.kit ? kit(what.kit, ctx) : instrument(what.instrument, ctx).then((made) => made.notes)).then((sounds) => ({ sounds, family: what.kit ? "drums" : null }))
+      ready.set(id, job)
+      job.catch(() => ready.delete(id))
+    }
+    return ready.get(id)
+  }
+
+  function startSample(ctx, dest, sample, rate, level, when, held) {
+    const source = ctx.createBufferSource()
+    source.buffer = sample.buffer
+    source.playbackRate.value = rate
+    const gain = ctx.createGain()
+    gain.gain.setValueAtTime(level, when)
+    source.connect(gain)
+    gain.connect(dest)
+    source.start(when, sample.offset)
+    return {
+      // Lift the key: the note fades the way a damper stops a string.
+      stop(at) {
+        const t = Math.max(at || ctx.currentTime, when + 0.05)
+        gain.gain.cancelScheduledValues(t)
+        gain.gain.setValueAtTime(level, t)
+        gain.gain.linearRampToValueAtTime(0.0001, t + (held ? 0.2 : 0.35))
+        try { source.stop(t + 0.4) } catch { /* already stopped */ }
+      },
+    }
+  }
+
+  async function playNote(ctx, dest, instrumentId, midi, vel = 0.85, when = 0) {
+    const { sounds } = await warm(ctx, { instrument: instrumentId })
+    const list = [...sounds.keys()]
+    const near = nearest(list, midi)
+    const sample = sounds.get(near)
+    if (!sample) return null
+    return startSample(ctx, dest, sample, 2 ** ((midi - near) / 12), vel * 0.8, Math.max(when, ctx.currentTime), false)
+  }
+
+  async function playHit(ctx, dest, kitId, kind, vel = 0.9, when = 0) {
+    const { sounds } = await warm(ctx, { kit: kitId })
+    const sample = sounds.get(kind) || sounds.get(kind === "hat" ? "pedal-hat" : "snare")
+    if (!sample) return null
+    const level = vel * (kind === "hat" || kind === "pedal-hat" ? 0.55 : 0.9)
+    return startSample(ctx, dest, sample, 1, level, Math.max(when, ctx.currentTime), false)
+  }
+
+  globalThis.SongbirdSampler = { RATE, getIndex, render, warm, playNote, playHit }
 })()

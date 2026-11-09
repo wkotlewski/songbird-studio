@@ -181,6 +181,44 @@ function groovePlan(seconds) {
   return hits
 }
 
+// How chords are played: guitars strum a pattern, pianos play block
+// chords, and strings, voices, organs, and pads hold them.
+function styleFor(choice) {
+  if (choice.rhythm === "beat") return "beat"
+  if (choice.family === "guitar") return "strum"
+  if (/organ|pad|strings|choir|brass|oohs|harp/.test(choice.instrument || "") || ["strings", "voices", "horns", "synths", "woodwinds"].includes(choice.family)) return "held"
+  return "block"
+}
+
+// A part you played on the keys or pads keeps what you played, so it can
+// change instrument, key, or era and still play your part.
+function playedPart(layer) {
+  const make = layer && layer.make
+  return make && (make.melody || make.hits) ? make : null
+}
+
+function withPlayed(choice, layer) {
+  const played = playedPart(layer)
+  if (!played || choice.pattern || choice.melody || choice.hits) return choice
+  const carry = { pass: played.pass, total: played.total, loop: played.loop, beat: played.beat, phase: played.phase, key: played.key }
+  if (choice.family === "drums" && played.hits) return { ...choice, ...carry, hits: played.hits }
+  if (choice.family !== "drums" && played.melody) return { ...choice, ...carry, melody: played.melody }
+  return choice
+}
+
+// Times in notes move with the tempo, so a part rebuilt later still fits.
+function scaleNoteTimes(holder, factor) {
+  if (!holder) return
+  for (const list of [holder.melody, holder.hits]) {
+    if (!list) continue
+    for (const item of list) {
+      item.time *= factor
+      if (item.dur != null) item.dur *= factor
+    }
+  }
+  for (const key of ["pass", "total", "beat", "phase"]) if (typeof holder[key] === "number") holder[key] *= factor
+}
+
 async function buildPart(choice, source) {
   const drums = choice.family === "drums"
   const info = drums ? null : instrumentInfo(choice.instrument)
@@ -193,6 +231,28 @@ async function buildPart(choice, source) {
     const hits = SongbirdMusic.patternHits(state.bpm || 92, seconds, choice.pattern).map((hit) => ({ ...hit, vel: hit.kind === "kick" ? 0.95 : 0.85 }))
     for (let t = 0; t < seconds - 0.01; t += beat / 2) hits.push({ time: t, kind: "hat", vel: Math.round(t / (beat / 2)) % 2 ? 0.42 : 0.58 })
     plan = { hits, pass: seconds, total: Math.max(state.lengthSec || seconds, seconds), loop: !!state.loopSec }
+  } else if (drums && choice.hits) {
+    // Drums you played on the pads.
+    const single = choice.drums === "single" ? choice.single : null
+    plan = { hits: choice.hits.map((hit) => (single ? { ...hit, kind: single } : hit)), pass: choice.pass, total: choice.total, loop: !!choice.loop }
+  } else if (!drums && (choice.melody || source?.notes)) {
+    // Notes you checked, or played on the keys: the part plays exactly those.
+    const notes = choice.melody ? choice : source.notes
+    plan = await engine.call("planFromNotes", notes.melody, {
+      key: notes.key,
+      pass: notes.pass,
+      total: notes.total,
+      loop: !!notes.loop,
+      beat: notes.beat,
+      phase: notes.phase,
+      bpm: state.bpm || 92,
+      figure: choice.play,
+      touch: choice.rhythm,
+      style: styleFor(choice),
+      low: info?.low,
+      high: info?.high,
+      transpose: state.transpose || 0,
+    })
   } else if (audio) {
     plan = await engine.call("planPerformance", samplesOf(audio), audio.sampleRate, {
       bpm: state.bpm || 92,
@@ -201,9 +261,7 @@ async function buildPart(choice, source) {
       single: drums && choice.drums === "single" ? choice.single : null,
       figure: drums ? null : choice.play,
       touch: choice.rhythm,
-      // How chords are played: guitars strum a pattern, pianos play block
-      // chords, and strings, voices, organs, and pads hold them.
-      style: choice.rhythm === "beat" ? "beat" : choice.family === "guitar" ? "strum" : /organ|pad|strings|choir|brass|oohs|harp/.test(choice.instrument || "") || ["strings", "voices", "horns", "synths", "woodwinds"].includes(choice.family) ? "held" : "block",
+      style: styleFor(choice),
       low: info?.low,
       high: info?.high,
       snap: true,
@@ -264,10 +322,20 @@ async function makePart(choice, options = {}) {
     if (!layer || isRecording(layer)) return layer
     return state.layers.find((item) => item.id === layer.make?.sourceId) || null
   }
-  let source = origin(options.source)
-  if (choice.family === "drums") source = source && kindOf(source) === "drums" ? source : rhythmLayer()
+  choice = withPlayed(choice, options.source)
+  choice = withPlayed(choice, target)
+  const fromPlay = !!(choice.melody || choice.hits)
+  let source = fromPlay ? null : origin(options.source)
+  if (fromPlay) source = null
+  else if (choice.family === "drums") source = source && kindOf(source) === "drums" ? source : rhythmLayer()
   else if (!source || kindOf(source) === "drums") source = melodyLayer()
-  if (choice.family !== "drums" && !source) return { text: "Record a hum, a song, or an instrument first. Then I can turn it into anything.", warn: true }
+  if (choice.family !== "drums" && !source && !fromPlay) return { text: "Record a hum, a song, or an instrument first. Then I can turn it into anything.", warn: true }
+  // The first time a recording becomes an instrument, you see the notes
+  // Songbird heard and can fix them before anything is built.
+  if (choice.family !== "drums" && !fromPlay && source && isRecording(source) && !source.notes && !options.checked && typeof openNoteCheck === "function") {
+    const opened = await openNoteCheck(source, { choice, layerId: target?.id || null })
+    if (opened) return { text: "First, check the notes I heard. Fix any that sound wrong, then tap Looks good.", check: true }
+  }
   making = true
   state.transforming = true
   const label = partName(choice)
@@ -282,6 +350,7 @@ async function makePart(choice, options = {}) {
     if (made.error) return { text: `I couldn't hear a beat in ${source?.name || "the song"} to follow.`, warn: true }
     const buffer = loopedBuffer(made.samples, made.rate, made.loopSamples)
     const make = { ...choice, sourceId: source?.id || null }
+    if (!fromPlay) for (const key of ["melody", "hits", "pass", "total", "loop", "beat", "phase", "key"]) delete make[key]
     const family = choice.family
     const wasPart = !!(target && target.make)
     const wasName = target ? target.name : ""
@@ -325,7 +394,7 @@ async function makePart(choice, options = {}) {
         loop: !!made.loopSamples,
         lengthSec: Math.round((made.samples.length / made.rate) * 100) / 100,
         range: source?.range ? { ...source.range } : { start: 0, end: made.samples.length / made.rate },
-        from: source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : melodyLayer() ? `a groove that fits ${melodyLayer().name}` : "a groove on the beat",
+        from: fromPlay ? "you played it" : source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : melodyLayer() ? `a groove that fits ${melodyLayer().name}` : "a groove on the beat",
       }
       state.layers.push(layer)
       buffers.set(id + ":audio", buffer)
@@ -452,11 +521,11 @@ async function transposeSong(steps) {
   const changed = []
   try {
     for (const layer of layers) {
-      if (layer.make && layer.make.sourceId && state.layers.some((item) => item.id === layer.make.sourceId)) {
+      if (layer.make && ((layer.make.sourceId && state.layers.some((item) => item.id === layer.make.sourceId)) || playedPart(layer))) {
         const keepTranspose = state.transpose
         state.transpose = total
         try {
-          const made = await buildPart(layer.make, state.layers.find((item) => item.id === layer.make.sourceId))
+          const made = await buildPart(layer.make, state.layers.find((item) => item.id === layer.make.sourceId) || null)
           if (!made.error) changed.push({ layer, buffer: loopedBuffer(made.samples, made.rate, made.loopSamples) })
         } finally {
           state.transpose = keepTranspose
@@ -517,6 +586,8 @@ async function changeTempo(bpm) {
     buffers.set(layer.id + ":audio", buffer)
     layer.peaks = peaksFromSamples(buffer.getChannelData(0))
     if (layer.lengthSec) layer.lengthSec = Math.round(layer.lengthSec * factor * 100) / 100
+    scaleNoteTimes(layer.notes, factor)
+    if (playedPart(layer)) scaleNoteTimes(layer.make, factor)
     if (layer.range) layer.range = { start: layer.range.start * factor, end: layer.range.end * factor }
   }
   if (state.lengthSec) state.lengthSec = Math.round(state.lengthSec * factor * 100) / 100

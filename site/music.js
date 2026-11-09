@@ -2340,7 +2340,8 @@ function voicePlan(melody, options, key) {
   }
   for (const note of melody) {
     let tones = [note.midi]
-    if (figure === "chords") tones = chordTones(note.midi, key, Math.max(low, 48))
+    if (note.tones) tones = note.tones.map((step) => note.midi + step)
+    else if (figure === "chords" || note.chord) tones = chordTones(note.midi, key, Math.max(low, 48))
     if (figure === "section") tones = [note.midi, scaleStep(note.midi, -2, key), scaleStep(note.midi, -4, key)]
     for (const hit of hits(note)) {
       tones.forEach((midi, i) => {
@@ -2508,20 +2509,90 @@ function planPerformance(samples, sampleRate, options = {}) {
     hits.sort((a, b) => a.time - b.time)
     return { hits, pass, total, loop }
   }
-  let melody = joinShortGaps(detectNotesOnce(audio))
-  if (!melody.length) return { error: "no-notes", pass, total, loop }
+  const heard = notesHeard(audio, pass, bpm, { ...options, snap })
+  if (!heard.melody.length) return { error: "no-notes", pass, total, loop }
+  return planFromNotes(heard.melody, { ...options, key: heard.key, pass, total, loop, beat: heard.beat, phase: heard.phase })
+}
+
+// The notes in a take, on its own beat and in its key, before any
+// instrument plays them. Each note keeps the pitch that was really heard,
+// so changing the key later can fit the notes again from what was sung.
+function notesHeard(audio, pass, bpm, options = {}) {
+  let melody = joinShortGaps(detectNotesOnce(audio)).map((note) => ({ ...note, heard: Math.round(note.midi) }))
+  if (!melody.length) return { melody, key: { root: 0, minor: false }, beat: 60 / bpm, phase: 0 }
   const key = keyOf(melody)
-  if (options.inKey !== false) melody = melody.map((note) => ({ ...note, midi: inKey(note.midi, key) }))
-  if (options.transpose) melody = melody.map((note) => ({ ...note, midi: note.midi + options.transpose }))
-  const shifted = options.transpose ? { ...key, root: (key.root + options.transpose + 120) % 12 } : key
+  if (options.inKey !== false) melody = melody.map((note) => ({ ...note, midi: inKey(Math.round(note.midi), key) }))
   // Parts follow the singer's own beat, so they sit with the take.
   const grid = performanceGrid(audio, pass, bpm)
-  if (options.transpose) melody = melody.map((note) => note)
-  if (snap) melody = snapTimes(melody, bpm, pass, options.grid || 2, grid.beat, grid.phase)
+  if (options.snap !== false) melody = snapTimes(melody, bpm, pass, options.grid || 2, grid.beat, grid.phase)
+  return { melody, key: { root: key.root, minor: key.minor }, beat: grid.beat, phase: grid.phase }
+}
+
+// For the note check: what Songbird heard in a take, to show and fix.
+function readNotes(samples, sampleRate, options = {}) {
+  const rate = sampleRate || SR
+  let source = samples
+  let loop = false
+  const loopSamples = Math.round(options.loopSamples || 0)
+  if (loopSamples && isLooped(samples, loopSamples)) {
+    source = samples.subarray(0, loopSamples)
+    loop = true
+  }
+  const audio = toEngineRate(source, rate)
+  const pass = audio.length / SR
+  const total = samples.length / rate
+  const heard = notesHeard(audio, pass, options.bpm || 92, options)
+  return { ...heard, pass, total, loop }
+}
+
+function keyFrom(key) {
+  const root = (((key && key.root) || 0) % 12 + 12) % 12
+  const minor = !!(key && key.minor)
+  return { root, minor, scale: minor ? MINOR : MAJOR }
+}
+
+// A part from notes you checked, or played on the keys: no listening
+// needed. options: key, pass, total, loop, beat, phase, plus how it plays.
+function planFromNotes(notes, options = {}) {
+  const pass = options.pass || 1
+  const total = options.total || pass
+  const loop = !!options.loop
+  const beat = options.beat || 60 / (options.bpm || 92)
+  const phase = options.phase || 0
+  const key = keyFrom(options.key)
+  let melody = (notes || []).filter((note) => note.time < pass - 0.01 && note.dur > 0).map((note) => ({ ...note }))
+  if (!melody.length) return { error: "no-notes", pass, total, loop }
+  melody.sort((a, b) => a.time - b.time)
+  if (options.transpose) melody = melody.map((note) => ({ ...note, midi: note.midi + options.transpose }))
+  const shifted = options.transpose ? { ...key, root: (key.root + options.transpose + 120) % 12 } : key
   if (options.figure !== "bass") melody = fitRange(melody, options.low, options.high)
-  const harmony = options.figure === "chords" || options.figure === "bass" ? harmonize(melody, shifted, grid.beat, grid.phase, pass) : null
-  const events = voicePlan(melody, { ...options, total: pass, beat: grid.beat, phase: grid.phase, harmony, loop }, shifted)
-  return { events, key: shifted, pass, total, loop, melody, harmony, grid: { beat: grid.beat, phase: grid.phase } }
+  const harmony = options.figure === "chords" || options.figure === "bass" ? harmonize(melody, shifted, beat, phase, pass) : null
+  const events = voicePlan(melody, { ...options, total: pass, beat, phase, harmony, loop }, shifted)
+  return { events, key: shifted, pass, total, loop, melody, harmony, grid: { beat, phase } }
+}
+
+// Snap played taps to the beat: notes and chords to eighths, drum hits to
+// sixteenths. A loop wraps what spills past its end back to the top.
+function snapPlayed(items, options = {}) {
+  const beat = options.beat || 60 / (options.bpm || 92)
+  const step = beat / (options.grid || 2)
+  const pass = options.pass || Infinity
+  const out = []
+  const seen = new Set()
+  for (const item of items) {
+    let time = Math.max(0, Math.round(item.time / step) * step)
+    if (time >= pass - 1e-6) {
+      if (!options.loop) continue
+      time -= pass
+    }
+    const id = `${item.kind || item.midi}@${time.toFixed(4)}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    const next = { ...item, time }
+    if (item.dur != null) next.dur = Math.max(step * 0.9, Math.round(item.dur / step) * step)
+    out.push(next)
+  }
+  return out.sort((a, b) => a.time - b.time)
 }
 
 // Pitch shift a recording by a steady number of semitones, keeping its
@@ -2628,6 +2699,13 @@ globalThis.SongbirdMusic = {
   inputMakeup,
   enhanceAudio,
   planPerformance,
+  planFromNotes,
+  readNotes,
+  snapPlayed,
+  keyFrom,
+  inKey: (midi, key) => inKey(midi, keyFrom(key)),
+  chordTones: (midi, key, low) => chordTones(midi, keyFrom(key), low),
+  scaleStep: (midi, steps, key) => scaleStep(midi, steps, keyFrom(key)),
   shiftPitch,
   timeStretch,
   keyOf,
