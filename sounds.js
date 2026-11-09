@@ -110,7 +110,7 @@ function soundsPanel(head) {
   const follow = pick.family !== "drums" && recs.length > 1
     ? step(++n, "Play along with", `<div class="choices">${recs.map((layer) => filterChip(esc(layer.name), `data-browse-follow="${layer.id}" ${busy}`, browse.follow === layer.id)).join("")}</div>`)
     : ""
-  const noTune = pick.family !== "drums" && !recs.length
+  const noTune = pick.family !== "drums" && !recs.length && !state.layers.some((layer) => playedPart(layer)?.melody)
   return `${head(changing ? `Change ${esc(target.name)}` : "Add a sound")}
     <p class="hint">${changing ? "Pick a new instrument, a new way to play, or a different time. Your other sounds stay the same." : "Pick any sound, try it with your song, then add it. Every note lands on the beat and in tune."}</p>
     ${kinds}${which}${how}${when}${follow}
@@ -127,7 +127,7 @@ function soundsPanel(head) {
 
 // Listen first: the song plays with the new sound on top, nothing is added.
 async function listenFirst() {
-  const choice = browseChoice()
+  const choice = withPlayed(browseChoice(), state.layers.find((layer) => layer.id === browse.target))
   const source = browseSource(choice)
   browse.listening = true
   browse.note = ""
