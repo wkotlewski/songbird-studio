@@ -71,6 +71,7 @@ function ideasFor(step, facts) {
   const go = (label, icon, action) => ideas.push({ label, icon, action })
   if (step === "record") {
     go("Record", "mic", "record")
+    go("Play the keys or drums", "piano", "play")
     go("Pick a starter sound", "music_note", "starter")
     return ideas
   }
@@ -119,7 +120,7 @@ function guideText(step, facts) {
     case "record":
       return {
         title: "Make your first sound",
-        hint: "Hum, sing, clap, or tap the table. We count 1, 2, 3, 4, then you go. It plays back over and over, like a loop pedal.",
+        hint: "Hum, sing, or clap, or play the piano, guitar, or drums right on the screen. We count 1, 2, 3, 4, then you go. It plays back over and over, like a loop pedal.",
       }
     case "magic":
       return {
@@ -187,6 +188,12 @@ async function guideDo(action) {
   if (action === "record") {
     state.recordMode = "mic"
     setPanel("record")
+    return
+  }
+  if (action === "play") {
+    state.recordMode = "play"
+    setPanel("record")
+    warmPad()
     return
   }
   if (action === "starter") {

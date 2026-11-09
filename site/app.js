@@ -327,6 +327,8 @@ const state = {
   panel: "mix",
   input: "hum",
   recordMode: "mic",
+  padRec: false,
+  micTest: false,
   vibe: "claps",
   keyPc: 0,
   magicWish: "",
@@ -942,19 +944,58 @@ function cleanTake(samples, rate) {
     if (level > peak) peak = level
   }
   if (peak < 1e-4) return samples
+  if (!micLevel.auto) {
+    // Your level, as set: only the very top is rounded off so it can't crack.
+    if (peak > 0.89) for (let i = 0; i < samples.length; i++) {
+      const x = samples[i]
+      const a = Math.abs(x)
+      if (a > 0.8) samples[i] = Math.sign(x) * (0.8 + 0.19 * Math.tanh((a - 0.8) / 0.19))
+    }
+    return samples
+  }
   const gain = Math.min(6, 0.89 / peak)
   for (let i = 0; i < samples.length; i++) samples[i] *= gain
   return samples
 }
 
+// Mic level: how loud your voice comes into the take. Auto lifts every
+// take to a clear, even level (like a voice memo). Set it yourself and the
+// take keeps exactly the level you chose, and the meter shows what you'll get.
+const micLevel = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("songbird-mic-level") || "null")
+    if (saved && typeof saved.db === "number") return { auto: saved.auto !== false, db: Math.max(-12, Math.min(18, saved.db)) }
+  } catch { /* first visit */ }
+  return { auto: true, db: 0 }
+})()
+
+function micGainValue() {
+  return micLevel.auto ? 1 : 10 ** (micLevel.db / 20)
+}
+
+function saveMicLevel() {
+  try { localStorage.setItem("songbird-mic-level", JSON.stringify(micLevel)) } catch { /* not kept */ }
+  if (sky.inGain) sky.inGain.gain.setTargetAtTime(micGainValue(), sky.inGain.context.currentTime, 0.02)
+}
+
 function armHotMic(stream) {
   releaseMic()
   const ctx = ac()
-  const source = ctx.createMediaStreamSource(stream)
+  const raw = ctx.createMediaStreamSource(stream)
+  // Raw level, before the gain: shows when the mic itself is overloaded.
+  const rawAnalyser = ctx.createAnalyser()
+  rawAnalyser.fftSize = 1024
+  raw.connect(rawAnalyser)
+  const source = ctx.createGain()
+  source.gain.value = micGainValue()
+  raw.connect(source)
   const analyser = ctx.createAnalyser()
   analyser.fftSize = 256
   analyser.smoothingTimeConstant = 0.45
   source.connect(analyser)
+  const levelAnalyser = ctx.createAnalyser()
+  levelAnalyser.fftSize = 1024
+  source.connect(levelAnalyser)
   if (state.mode === "live") {
     const monitor = ctx.createGain()
     monitor.gain.value = 0.4
@@ -962,6 +1003,12 @@ function armHotMic(stream) {
     monitor.connect(ctx.destination)
     sky.monitor = monitor
   }
+  sky.micRaw = raw
+  sky.inGain = source
+  sky.rawAnalyser = rawAnalyser
+  sky.levelAnalyser = levelAnalyser
+  sky.levelTime = new Float32Array(levelAnalyser.fftSize)
+  sky.rawTime = new Float32Array(rawAnalyser.fftSize)
   sky.micSource = source
   sky.micAnalyser = analyser
   sky.micBins = new Uint8Array(analyser.frequencyBinCount)
@@ -972,7 +1019,7 @@ function rideInput() {
   const raw = sky.rawAnalyser
   const makeup = sky.makeup
   const time = sky.rawTime
-  if (!raw || !makeup || !time || !state.recording) return
+  if (!raw || !makeup || !time || !state.recording || !(time instanceof Uint8Array)) return
   raw.getByteTimeDomainData(time)
   let peak = 0
   for (let i = 0; i < time.length; i++) {
@@ -991,6 +1038,10 @@ function releaseMic() {
   window.setTimeout(keepSpeakerOn, 0)
   window.setTimeout(setGuideLevel, 0)
   try { sky.micSource?.disconnect() } catch { /* already released */ }
+  try { sky.micRaw?.disconnect() } catch { /* already released */ }
+  sky.micRaw = null
+  sky.inGain = null
+  sky.levelAnalyser = null
   try { sky.rumble?.disconnect() } catch { /* already released */ }
   try { sky.makeup?.disconnect() } catch { /* already released */ }
   try { sky.limiter?.disconnect() } catch { /* already released */ }
@@ -1077,7 +1128,7 @@ function syncLoopChip() {
 function syncDock() {
   const open = document.body.classList.contains("sheet-open")
   document.querySelectorAll(".dock-btn").forEach((button) => {
-    const on = open && button.dataset.panel === (state.panel === "sounds" ? "transform" : state.panel)
+    const on = open && button.dataset.panel === (state.panel === "sounds" || state.panel === "notes" ? "transform" : state.panel)
     button.classList.toggle("on", on)
     button.setAttribute("aria-pressed", on ? "true" : "false")
   })
@@ -2012,6 +2063,7 @@ function renderMix(head, layer) {
       <div class="mix-channel-top">
         <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
         <button class="mini" data-browse-open="${item.id}" aria-label="Change ${esc(item.name)} to another sound" title="Change sound">${ms("swap_horiz")}</button>
+        ${hasNotes(item) ? `<button class="mini" data-notes-open="${item.id}" aria-label="Check the notes in ${esc(item.name)}" title="Notes">${ms("music_note")}</button>` : ""}
         <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms("volume_off")}</button>
         <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}" title="Solo">${ms("hearing")}</button>
       </div>
@@ -2254,15 +2306,17 @@ function renderInspector() {
   const head = (title) => `<div class="sheet-head"><h2>${title}</h2>${iconButton("close", `data-action="close-panel" aria-label="Close" title="Close"`)}</div>`
   let body = ""
   if (state.panel === "record") {
-    const micMode = state.recordMode !== "vibe"
+    const micMode = state.recordMode === "mic"
+    const playMode = state.recordMode === "play"
     const listening = state.recording && state.tempoPass
     const vibeNames = { claps: "Claps", snaps: "Snaps", guitar: "Guitar strums", piano: "Piano chords" }
     body = `${head("Make a sound")}
       <div class="choices">
-        ${filterChip("Use my voice", `data-action="record-mode" data-mode="mic"`, micMode)}
-        ${filterChip("Pick a starter", `data-action="record-mode" data-mode="vibe"`, !micMode)}
+        ${filterChip(`${ms("mic")}Sing or hum`, `data-action="record-mode" data-mode="mic"`, micMode)}
+        ${filterChip(`${ms("piano")}Play an instrument`, `data-action="record-mode" data-mode="play"`, playMode)}
+        ${filterChip("Pick a starter", `data-action="record-mode" data-mode="vibe"`, state.recordMode === "vibe")}
       </div>
-      ${micMode ? `${state.looper ? "" : `<p class="hint">Tempo is ${state.bpm}. You'll see it, then it counts 1, 2, 3, 4, then the song plays while the mic records. Only the mic is kept.</p>`}
+      ${playMode ? padPanel() : micMode ? `${state.looper ? "" : `<p class="hint">Tempo is ${state.bpm}. You'll see it, then it counts 1, 2, 3, 4, then the song plays while the mic records. Only the mic is kept.</p>`}
       ${state.recording || state.counting ? "" : tempoBox()}
       ${beatLightsMarkup()}
       <div class="meter ${state.recording ? "go" : ""}" aria-hidden="true">${Array.from({ length: 18 }, () => "<i></i>").join("")}</div>
@@ -2272,6 +2326,7 @@ function renderInspector() {
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to add another sound" : "Tap the button, then hum, sing, or clap") : "00:00"}</p>
       ${!state.recording && !state.counting && songHasSound() ? `<button class="listen-btn ${playing ? "on" : ""}" data-action="play" id="listen-btn" aria-label="${playing ? "Stop" : "Play what you have"}">${ms(playing ? "stop" : "play_arrow")}${playing ? "Stop" : "Listen to what you have"}</button>` : ""}
       ${looperBox()}
+      ${micLevelBox()}
       ${headphonesBox()}
       ${state.looper ? `<p class="hint">We count 1, 2, 3, 4, then you go. The lights flash on each beat to help you keep time.</p>` : ""}
       <p class="hint">Tip: hold your phone close, like a voice memo. With headphones you can hear the beat while you record.</p>
@@ -2304,6 +2359,8 @@ function renderInspector() {
     body = magicPanel(head)
   } else if (state.panel === "sounds") {
     body = soundsPanel(head)
+  } else if (state.panel === "notes") {
+    body = noteCheckPanel(head)
   } else if (state.panel === "build") {
     const shaping = selectedLayer()
     const shapingLength = shaping?.lengthSec || state.lengthSec
@@ -2679,8 +2736,8 @@ function rememberSong() {
   state.song.fadeOut = state.fadeOut || 0
   state.song.era = state.era
   state.song.songKey = state.songKey ?? null
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes,
   }))
   state.song.audioKept = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
   const stored = saveSongs()
@@ -2783,7 +2840,7 @@ function tempoBox() {
   const feel = bpm < 86 ? "slow" : bpm < 112 ? "medium" : "fast"
   const hasSound = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
   return `<div class="tempo-box">
-    <p class="tempo-tip">${ms("lightbulb")}<span>Sing in time with the dots. They flash on every beat of your song, and the pink one is beat 1.</span></p>
+    <p class="tempo-tip">${ms("lightbulb")}<span>${state.recordMode === "play" ? "Play" : "Sing"} in time with the dots. They flash on every beat of your song, and the pink one is beat 1.</span></p>
     <div class="tempo-row">
       <button class="icon-btn" data-tempo="-4" aria-label="Slower" title="Slower">${ms("remove")}</button>
       <div class="tempo-read"><b>${bpm}</b><span>${feel}</span></div>
@@ -2845,7 +2902,7 @@ async function setSpeed(bpm) {
 }
 
 function beatLightsMarkup() {
-  return `<div class="beat-lights ${state.recording || state.counting || state.beatPreview ? "" : "idle"}" id="beat-lights" aria-hidden="true">${[0, 1, 2, 3].map((i) => `<i class="${i === 0 ? "one" : ""}"></i>`).join("")}</div>`
+  return `<div class="beat-lights ${state.recording || state.counting || state.beatPreview || state.padRec ? "" : "idle"}" id="beat-lights" aria-hidden="true">${[0, 1, 2, 3].map((i) => `<i class="${i === 0 ? "one" : ""}"></i>`).join("")}</div>`
 }
 
 function runBeatLights() {
@@ -2853,7 +2910,7 @@ function runBeatLights() {
   let lit = -2
   const frame = () => {
     const box = $("beat-lights")
-    if (!state.recording && !state.counting && !state.beatPreview) {
+    if (!state.recording && !state.counting && !state.beatPreview && !state.padRec) {
       beatLights.raf = 0
       if (box) {
         box.classList.add("idle")
@@ -2889,6 +2946,120 @@ function guessHeadphones(stream) {
   state.headphones = /airpods|headphone|headset|earpods|earbuds|buds|beats|bluetooth|hands-?free/i.test(label)
 }
 
+// ---------------------------------------------------------------------------
+// Mic level: a gain on what comes in, with a meter that shows the result.
+
+const levelWatch = { raf: 0, peak: 0, raw: 0, held: 0, word: "" }
+
+function micLevelBox() {
+  const busy = state.recording || state.counting || state.arming
+  const db = micLevel.db
+  return `<div class="mic-level ${state.micTest || state.recording ? "live" : ""}">
+    <div class="looper-head">
+      <div>
+        <p class="ask">Mic level</p>
+        <p class="hint" id="mic-level-word">${esc(levelWatch.word || (micLevel.auto ? "Auto: every take comes out clear and even." : "Your setting: the take keeps this level."))}</p>
+      </div>
+      ${filterChip("Auto", `data-action="mic-auto" aria-pressed="${micLevel.auto}" ${busy ? "disabled" : ""}`, micLevel.auto)}
+    </div>
+    <div class="level-bar" aria-hidden="true"><span class="level-good"></span><span class="level-fill" id="mic-level-fill"></span><span class="level-peak" id="mic-level-peak"></span></div>
+    <div class="level-scale" aria-hidden="true"><span>Too quiet</span><span>Good</span><span>Too loud</span></div>
+    <label class="level-gain ${micLevel.auto ? "off" : ""}">
+      <span>${ms("volume_down")}</span>
+      <input class="slider" type="range" min="-12" max="18" step="1" value="${db}" id="mic-gain" aria-label="Mic level" ${micLevel.auto ? "disabled" : ""} />
+      <span>${ms("volume_up")}</span>
+      <b id="mic-gain-value">${db > 0 ? "+" : ""}${db} dB</b>
+    </label>
+    ${state.recording ? "" : outlinedButton(state.micTest ? `${ms("stop")}Stop checking` : `${ms("mic")}Check my mic`, `data-action="mic-test" ${busy ? "disabled" : ""}`)}
+  </div>`
+}
+
+async function startMicTest() {
+  if (state.micTest || state.recording || state.counting) return
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+    })
+  } catch {
+    $("save-status").textContent = "Microphone permission is needed to check the level."
+    return
+  }
+  audioSession("auto")
+  armHotMic(recStream)
+  state.micTest = true
+  levelWatch.peak = 0
+  levelWatch.held = 0
+  renderInspector()
+  watchLevel()
+}
+
+function stopMicTest(keepStream) {
+  if (!state.micTest) return
+  state.micTest = false
+  levelWatch.word = ""
+  if (!keepStream) {
+    recStream?.getTracks().forEach((track) => track.stop())
+    recStream = null
+  }
+  releaseMic()
+  if (state.panel === "record") renderInspector()
+}
+
+function peakOf(analyser, data) {
+  analyser.getFloatTimeDomainData(data)
+  let peak = 0
+  for (let i = 0; i < data.length; i++) {
+    const a = Math.abs(data[i])
+    if (a > peak) peak = a
+  }
+  return peak
+}
+
+// The meter reads what is going into the take, after the gain. It holds the
+// loudest moment for a second, the way a studio meter does.
+function watchLevel() {
+  cancelAnimationFrame(levelWatch.raf)
+  const frame = () => {
+    if (!state.micTest && !state.recording && !state.counting) {
+      levelWatch.raf = 0
+      return
+    }
+    if (sky.levelAnalyser && sky.levelTime) {
+      const now = performance.now()
+      const peak = peakOf(sky.levelAnalyser, sky.levelTime)
+      const raw = sky.rawAnalyser && sky.rawTime instanceof Float32Array ? peakOf(sky.rawAnalyser, sky.rawTime) : peak
+      levelWatch.peak = Math.max(peak, levelWatch.peak * 0.93)
+      if (peak >= levelWatch.held || now - levelWatch.heldAt > 1200) {
+        levelWatch.held = peak
+        levelWatch.heldAt = now
+      }
+      if (raw > 0.97) levelWatch.rawAt = now
+      // Meter in dB: -48 dB at the left, 0 dB at the right.
+      const pos = (level) => Math.max(0, Math.min(1, (20 * Math.log10(Math.max(level, 1e-5)) + 48) / 48))
+      const fill = $("mic-level-fill")
+      const mark = $("mic-level-peak")
+      if (fill) fill.style.transform = `scaleX(${pos(levelWatch.peak).toFixed(3)})`
+      if (mark) {
+        mark.style.left = `${(pos(levelWatch.held) * 100).toFixed(1)}%`
+        mark.classList.toggle("hot", levelWatch.held > 0.9)
+      }
+      let word
+      if (now - (levelWatch.rawAt || 0) < 1500) word = "Too loud for the mic. Move back a little."
+      else if (levelWatch.held > 0.9) word = micLevel.auto ? "Very loud. Move back a little." : "Too loud. Turn it down or move back."
+      else if (levelWatch.held < 0.02) word = "I can't hear much. Sing or play something."
+      else if (levelWatch.held < 0.08) word = micLevel.auto ? "A bit quiet. Songbird will lift it, but closer sounds clearer." : "Too quiet. Turn it up or move closer."
+      else word = "Good level."
+      if (word !== levelWatch.word) {
+        levelWatch.word = word
+        const node = $("mic-level-word")
+        if (node) node.textContent = word
+      }
+    }
+    levelWatch.raf = requestAnimationFrame(frame)
+  }
+  levelWatch.raf = requestAnimationFrame(frame)
+}
+
 function headphonesBox() {
   const on = !!state.headphones
   const busy = state.recording || state.counting ? "disabled" : ""
@@ -2903,7 +3074,7 @@ function headphonesBox() {
 
 function loopClockMarkup() {
   const justClosed = loopClock.closedAt && performance.now() - loopClock.closedAt < 1500
-  const live = state.recording || state.counting || justClosed
+  const live = state.recording || state.counting || state.padRec || justClosed
   const bars = loopClock.length ? Math.max(1, Math.round(loopClock.length / barSeconds())) : Math.max(1, state.loopBars || 4)
   const ticks = Array.from({ length: Math.max(0, bars - 1) }, (_, i) => `<i style="left:${(((i + 1) / bars) * 100).toFixed(2)}%"></i>`).join("")
   return `<div class="loop-clock ${justClosed ? "closed" : ""}" id="loop-clock" ${live ? "" : "hidden"}>
@@ -2917,7 +3088,7 @@ function runLoopClock() {
   cancelAnimationFrame(loopClock.raf)
   const frame = () => {
     const box = $("loop-clock")
-    if (!state.recording && !state.counting) {
+    if (!state.recording && !state.counting && !state.padRec) {
       loopClock.raf = 0
       return
     }
@@ -3361,6 +3532,7 @@ async function countIn() {
 
 async function toggleRecord() {
   stopBeatPreview()
+  stopMicTest()
   if (state.recording || state.arming || state.counting) {
     cancelRecord()
     return
@@ -3413,6 +3585,7 @@ async function toggleRecord() {
   state.recording = true
   setGuideLevel()
   try { armHotMic(recStream) } catch { /* the take still records */ }
+  watchLevel()
   beginSky("record")
   recChunks = []
   const media = startCapture(recStream) || new MediaRecorder(recStream, { audioBitsPerSecond: 256000 })
@@ -4941,9 +5114,21 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "play") playing ? stopPlayback() : play()
   if (action === "jump") jumpSection(Number(node.dataset.jump) < 0 ? -1 : 1)
+  if (action === "mic-auto") {
+    micLevel.auto = !micLevel.auto
+    levelWatch.word = ""
+    saveMicLevel()
+    renderInspector()
+  }
+  if (action === "mic-test") {
+    if (state.micTest) stopMicTest()
+    else void startMicTest()
+  }
   if (action === "record-mode") {
     if (state.recording || state.counting) return
-    state.recordMode = node.dataset.mode === "vibe" ? "vibe" : "mic"
+    state.recordMode = ["vibe", "play"].includes(node.dataset.mode) ? node.dataset.mode : "mic"
+    if (state.recordMode !== "mic") stopMicTest()
+    if (state.recordMode === "play") warmPad()
     renderInspector()
   }
   if (action === "pick-vibe") {
@@ -5488,3 +5673,11 @@ if (window.ResizeObserver) {
     }).observe(stage)
   }
 }
+
+document.addEventListener("input", (event) => {
+  if (event.target?.id !== "mic-gain") return
+  micLevel.db = Math.max(-12, Math.min(18, Number(event.target.value) || 0))
+  saveMicLevel()
+  const label = $("mic-gain-value")
+  if (label) label.textContent = `${micLevel.db > 0 ? "+" : ""}${micLevel.db} dB`
+})
