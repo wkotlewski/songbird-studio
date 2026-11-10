@@ -662,9 +662,15 @@ function nudgeLevel(kinds, factor) {
   return layers
 }
 
+// Echo and room sound go to the layer you picked, or the whole song.
+function magicTargets() {
+  const picked = state.layers.find((layer) => layer.id === state.selected)
+  return state.magicScope === "layer" && picked ? [picked] : state.layers
+}
+
 function nudgeSpace(amount, echo) {
   snapshot()
-  for (const layer of state.layers) {
+  for (const layer of magicTargets()) {
     if (echo) layer.echo = Math.max(0, Math.min(0.5, (layer.echo || 0) + amount))
     else layer.space = Math.max(0, Math.min(1, (layer.space || 0) + amount))
     refreshMix(layer)
@@ -953,8 +959,10 @@ async function runRequest(raw) {
   if (/(reverb|space|room|echo|wet|dry|roomy|spacious|cathedral|hall)/.test(text)) {
     const echo = /echo|delay/.test(text)
     const less = /(less|dry|drier|remove|no |reduce|tighter)/.test(text)
+    const targets = magicTargets()
     nudgeSpace(less ? -0.25 : 0.25, echo)
-    return { text: `${less ? "Less" : "More"} ${echo ? "echo" : "room sound"} on every layer. Undo puts it back.` }
+    const where = targets.length === 1 && state.layers.length > 1 ? targets[0].name : "every layer"
+    return { text: `${less ? "Less" : "More"} ${echo ? "echo" : "room sound"} on ${where}. Undo puts it back.` }
   }
 
   const louder = /(bring up|turn up|louder|boost|raise|more of the|pump up|crank)/.test(text)
@@ -1061,6 +1069,10 @@ function magicPanel(head) {
   const target = sources.find((layer) => layer.id === state.selected) || sources[0]
   return `${head("Magic")}
     <p class="hint">Say what you want, like “add drums” or “make it higher”. Undo takes it back.</p>
+    ${target ? `<div class="choices scope-row" role="group" aria-label="What echo, room sound, and volume change">
+      ${filterChip(`${ms("layers")}Whole song`, `data-magic-scope="song"`, state.magicScope !== "layer")}
+      ${filterChip(`Just ${esc(target.name)}`, `data-magic-scope="layer"`, state.magicScope === "layer")}
+    </div>` : ""}
     <form class="magic-ask" data-magic-form>
       <label class="sr" for="magic-say">Tell Songbird what you want</label>
       <textarea id="magic-say" rows="2" placeholder="Add a horn section and make it tight" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
@@ -1143,6 +1155,13 @@ document.body.addEventListener("keydown", (event) => {
 
 document.body.addEventListener("input", (event) => {
   if (event.target?.id === "magic-say") state.magicDraft = event.target.value
+})
+
+document.body.addEventListener("click", (event) => {
+  const scope = event.target.closest?.("[data-magic-scope]")
+  if (!scope) return
+  state.magicScope = scope.dataset.magicScope === "layer" ? "layer" : "song"
+  renderInspector()
 })
 
 document.body.addEventListener("click", (event) => {

@@ -1998,9 +1998,11 @@ function renderTracks() {
         <div class="track-label">
           <div class="label-top">
             <input class="layer-name" data-rename="${layer.id}" value="${esc(layer.name)}" maxlength="40" aria-label="Name this layer" />
+            <button type="button" class="layer-mute ${layer.mute ? "on" : ""}" data-action="toggle-mute" data-id="${layer.id}" data-keep-selection aria-pressed="${layer.mute ? "true" : "false"}" aria-label="${layer.mute ? "Unmute" : "Mute"} ${esc(layer.name)}" title="${layer.mute ? "Unmute" : "Mute"}">${ms(layer.mute ? "volume_off" : "volume_up")}</button>
             <button type="button" class="layer-delete" data-action="delete-layer" data-id="${layer.id}" aria-label="Delete ${esc(layer.name)}">${ms("close_small")}</button>
           </div>
           <button class="track-meta" data-action="select-layer" data-id="${layer.id}">
+            ${layer.id === state.selected ? `<small class="picked">${ms("check")}Selected</small>` : ""}
             <small class="role">${edited ? "Magic" : "You"}</small>
             <small class="track-from">${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
             ${hear.label ? `<small class="hear-state">${hear.label}</small>` : ""}
@@ -5465,6 +5467,11 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "select-layer") {
     state.selected = node.dataset.id
+    // Tapping a layer means “change this one”: Magic's echo and room sound,
+    // and the Length panel, now work on just this layer until you pick
+    // Whole song again.
+    state.magicScope = "layer"
+    state.lengthScope = "layer"
     syncPlaying(state.layers.find((item) => item.id === state.selected))
     if (state.panel !== "transform" && state.panel !== "build" && state.panel !== "record") {
       state.panel = "mix"
@@ -5665,12 +5672,13 @@ document.body.addEventListener("click", (event) => {
     renderInspector()
   }
   if (action === "toggle-mute" || action === "toggle-solo") {
-    if (node.dataset.id) state.selected = node.dataset.id
+    if (node.dataset.id && node.dataset.keepSelection == null) state.selected = node.dataset.id
     const layer = state.layers.find((item) => item.id === node.dataset.id) || selectedLayer()
     if (!layer) return
     snapshot()
     if (action === "toggle-mute") layer.mute = !layer.mute
     else layer.solo = !layer.solo
+    for (const item of state.layers) refreshMix(item)
     rememberSong()
     renderTracks()
     renderInspector()
