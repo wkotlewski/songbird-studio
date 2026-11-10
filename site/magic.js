@@ -344,6 +344,14 @@ async function makePart(choice, options = {}) {
   if (fromPlay) source = null
   else if (choice.family === "drums") source = source && kindOf(source) === "drums" ? source : rhythmLayer()
   else if (!source || kindOf(source) === "drums") source = melodyLayer()
+  // A part Songbird built from notes (one you played, or chords it chose)
+  // hands those notes on, so a new part follows them instead of listening
+  // to the audio.
+  if (!fromPlay && source && choice.family !== "drums" && !isRecording(source) && playedPart(source)?.melody) {
+    choice = withPlayed(choice, source)
+    fromPlay = true
+    source = null
+  }
   if (choice.family !== "drums" && !source && !fromPlay) {
     // No tune yet, only a beat (or nothing): the instrument plays chords in
     // the song's key, a chord a bar, in time with what's there.
@@ -449,7 +457,7 @@ const FAMILY_COLORS = { drums: "#3d7eff", bass: "#d98a00", keys: "#f0a202", guit
 
 async function tightenAll(what = { snap: true, tune: true }) {
   const layers = state.layers.filter((layer) => isRecording(layer) && buffers.get(layer.id + ":audio"))
-  if (!layers.length) return { text: "Record something first, then I can tighten it.", warn: true }
+  if (!layers.length) return state.layers.length ? { text: "Everything here was played on the beat already, so it's tight." } : { text: "Record something first, then I can tighten it.", warn: true }
   state.transforming = true
   say(what.snap && what.tune ? "Snapping everything to the beat and fixing pitch…" : what.snap ? "Snapping everything to the beat…" : "Fixing pitch…")
   renderInspector()
