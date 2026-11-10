@@ -8,7 +8,7 @@ const SOUND_BLURBS = {
   "clean-guitar": "Bright electric guitar", "jazz-guitar": "Smooth and mellow", "rock-guitar": "Loud and crunchy", banjo: "Twangy and bright",
   bass: "Deep electric bass", "upright-bass": "Tall wooden jazz bass", "synth-bass": "Big electronic bass",
   violin: "Sweet and singing", cello: "Low and warm", strings: "A whole orchestra section", pizzicato: "Plucked strings, bouncy", harp: "Sparkly and dreamy",
-  trumpet: "Bright and bold", trombone: "Low and slidey", "french-horn": "Round and noble", "alto-sax": "Smooth and soulful", "tenor-sax": "Deep and bluesy",
+  trumpet: "Bright and bold, a real trumpet", trombone: "Low and slidey", "french-horn": "Round and noble", tuba: "Big oom-pah bass, like a marching band", "alto-sax": "Smooth and soulful", "tenor-sax": "Deep and bluesy",
   "brass-section": "Trumpets and trombones together", flute: "Light and airy", clarinet: "Woody and warm", oboe: "Sweet and nasal",
   "choir-aahs": "A big choir singing aah", "voice-oohs": "One voice singing ooh", marimba: "Wooden and bouncy", vibraphone: "Shimmery jazz bells",
   "music-box": "Tiny and twinkly", bells: "Church bells and chimes", "steel-drums": "Island sunshine", kalimba: "Thumb piano, plinky",

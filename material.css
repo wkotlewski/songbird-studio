@@ -946,3 +946,23 @@ button.plan-card.on { background: var(--md-secondary-container); border-color: v
 @media (max-width: 759px) {
   body[data-panel="arrange"] #inspector { max-height: 82dvh; }
 }
+
+/* ---- What's playing now ---------------------------------------------- */
+.wave .bars i.rest { height: 2px !important; background: rgba(255, 251, 242, 0.12) !important; }
+.track .track-label { transition: opacity 0.2s ease, box-shadow 0.2s ease; }
+.track.resting .track-label { opacity: 0.5; }
+.track.resting .lane { opacity: 0.55; }
+.track.sounding .track-label { box-shadow: inset 3px 0 0 #34D399, 0 0 0 1px rgba(52, 211, 153, 0.35); }
+.track.sounding .role::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #34D399;
+  vertical-align: 1px;
+  animation: sounding-pulse 0.9s ease-in-out infinite alternate;
+}
+@keyframes sounding-pulse { from { opacity: 0.45; transform: scale(0.8); } to { opacity: 1; transform: scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .track.sounding .role::before { animation: none; } }

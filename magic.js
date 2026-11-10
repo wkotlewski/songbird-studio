@@ -39,9 +39,10 @@ const INSTRUMENTS = [
   { id: "strings", name: "String section", family: "strings", low: 48, high: 86, plays: ["section", "chords", "solo"] },
   { id: "pizzicato", name: "Pizzicato strings", family: "strings", low: 48, high: 84, plays: ["section", "solo"] },
   { id: "harp", name: "Harp", family: "strings", low: 48, high: 88, plays: ["solo", "chords"] },
-  { id: "trumpet", name: "Trumpet", family: "horns", low: 55, high: 82, plays: ["solo"] },
+  { id: "trumpet", name: "Trumpet", family: "horns", low: 55, high: 84, plays: ["solo"] },
   { id: "trombone", name: "Trombone", family: "horns", low: 40, high: 70, plays: ["solo"] },
   { id: "french-horn", name: "French horn", family: "horns", low: 41, high: 74, plays: ["solo"] },
+  { id: "tuba", name: "Tuba", family: "horns", low: 29, high: 58, plays: ["bass", "solo"] },
   { id: "alto-sax", name: "Alto sax", family: "horns", low: 52, high: 80, plays: ["solo"] },
   { id: "tenor-sax", name: "Tenor sax", family: "horns", low: 46, high: 75, plays: ["solo"] },
   { id: "brass-section", name: "Horn section", family: "horns", low: 48, high: 82, plays: ["section", "chords"] },
@@ -185,6 +186,8 @@ function groovePlan(seconds) {
 // chords, and strings, voices, organs, and pads hold them.
 function styleFor(choice) {
   if (choice.rhythm === "beat") return "beat"
+  // A horn section plays like a band: punchy chords, not a soft pad.
+  if (choice.instrument === "brass-section" || choice.rhythm === "stab") return "stab"
   if (choice.family === "guitar") return "strum"
   if (/organ|pad|strings|choir|brass|oohs|harp/.test(choice.instrument || "") || ["strings", "voices", "horns", "synths", "woodwinds"].includes(choice.family)) return "held"
   return "block"
@@ -264,6 +267,8 @@ async function buildPart(choice, source) {
       figure: choice.play,
       touch: choice.rhythm,
       style: styleFor(choice),
+      organ: /organ/.test(choice.instrument || ""),
+      voices: choice.family === "voices",
       low: info?.low,
       high: info?.high,
       transpose: state.transpose || 0,
@@ -277,6 +282,8 @@ async function buildPart(choice, source) {
       figure: drums ? null : choice.play,
       touch: choice.rhythm,
       style: styleFor(choice),
+      organ: /organ/.test(choice.instrument || ""),
+      voices: choice.family === "voices",
       low: info?.low,
       high: info?.high,
       snap: true,

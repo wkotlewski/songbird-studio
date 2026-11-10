@@ -469,7 +469,7 @@ function wave(peaks, color, id, box) {
   const mark = id ? ` data-layer="${id}"` : ""
   const place = box ? `left:${box.left}%;width:${box.width}%;` : ""
   return `<div class="wave"${mark} style="${place}background:${color}33;--wave:${color}"><span class="bars">${peaks
-    .map((peak) => `<i style="height:${Math.max(8, peak * 46)}px;background:${color}"></i>`)
+    .map((peak) => (peak ? `<i style="height:${Math.max(6, peak * 46)}px;background:${color}"></i>` : `<i class="rest"></i>`))
     .join("")}</span></div>`
 }
 
@@ -1650,6 +1650,31 @@ function jumpSection(direction) {
   if (!wasPlaying || playing) $("save-status").textContent = landed ? `${landed.name} · ${sectionClock(landed)}` : formatClock(target)
 }
 
+// While the song plays, each lane says whether its part is sounding right
+// now or resting, so a built-out song is easy to follow.
+function paintSounding(at) {
+  const rows = document.querySelectorAll("#tracks .track[data-id]")
+  if (!rows.length) return
+  const span = spanSeconds()
+  for (const row of rows) {
+    const layer = state.layers.find((item) => item.id === row.dataset.id)
+    if (!layer) continue
+    let on = playing && audible(layer)
+    if (on) {
+      const range = layer.range || { start: 0, end: span }
+      if (at < range.start || at >= range.end) on = false
+      else if ((layer.gaps || []).some((gap) => at >= gap.start && at < gap.end)) on = false
+      else {
+        const peaks = lanePeakCache.get(layer.id)?.peaks
+        if (peaks?.length) on = peaks[Math.min(peaks.length - 1, Math.floor((at / span) * peaks.length))] > 0.04
+      }
+    }
+    if (row.classList.contains("sounding") !== on) row.classList.toggle("sounding", on)
+    const resting = playing && !on
+    if (row.classList.contains("resting") !== resting) row.classList.toggle("resting", resting)
+  }
+}
+
 function placePlayhead(seconds, moving) {
   const span = spanSeconds()
   const clamped = Math.min(span, Math.max(0, Number(seconds) || 0))
@@ -1813,9 +1838,53 @@ function renderRuler() {
   placePlayhead(state.playAt || 0)
 }
 
+// What a lane shows: the layer's real sound along the song, bar by bar.
+// Where it rests (a gap, or before or after its part) the lane is empty, so
+// you can see at a glance what plays where.
+const lanePeakCache = new Map()
+
+function lanePeaks(layer, count) {
+  const buffer = buffers.get(layer.id + ":audio")
+  if (!buffer || !state.lengthSec) return null
+  const span = spanSeconds()
+  const range = layer.range || { start: 0, end: span }
+  const key = `${count}|${span.toFixed(2)}|${range.start}|${range.end}|${JSON.stringify(layer.gaps || [])}|${buffer.length}`
+  const cached = lanePeakCache.get(layer.id)
+  if (cached && cached.buffer === buffer && cached.key === key) return cached.peaks
+  const data = buffer.getChannelData(0)
+  const rate = buffer.sampleRate
+  const gaps = layer.gaps || []
+  const slot = span / count
+  const raw = []
+  for (let i = 0; i < count; i++) {
+    const t = i * slot
+    if (t < range.start - slot * 0.5 || t >= range.end || gaps.some((gap) => t + slot * 0.5 > gap.start && t + slot * 0.5 < gap.end)) {
+      raw.push(0)
+      continue
+    }
+    const into = Math.max(0, t - range.start)
+    const at = buffer.duration ? (into % buffer.duration) : 0
+    const from = Math.floor(at * rate)
+    const to = Math.min(data.length, from + Math.max(64, Math.floor(slot * rate)))
+    const step = Math.max(1, Math.floor((to - from) / 96))
+    let peak = 0
+    for (let k = from; k < to; k += step) peak = Math.max(peak, Math.abs(data[k]))
+    raw.push(peak)
+  }
+  const loudest = Math.max(0.05, ...raw)
+  const peaks = raw.map((peak) => peak / loudest)
+  lanePeakCache.set(layer.id, { buffer, key, peaks })
+  return peaks
+}
+
 function shapedPeaks(layer) {
   const src = layer.peaks?.length ? layer.peaks : [0.4]
   if (!state.lengthSec) return src
+  const real = lanePeaks(layer, Math.max(40, Math.round((state.trackWidth - 190) / 6)))
+  if (real) {
+    const shapeId = layer.shape || state.shape
+    return real.map((peak, i) => (peak ? Math.max(0.06, Math.min(1, peak * (shapeId ? levelAt(shapeId, i / Math.max(1, real.length - 1)) : 1))) : 0))
+  }
   const count = Math.max(40, Math.round((state.trackWidth - 190) / 6))
   const out = []
   for (let i = 0; i < count; i++) {
@@ -5026,6 +5095,7 @@ function play(fromSec, options = {}) {
       return
     }
     placePlayhead(elapsed, true)
+    paintSounding(elapsed)
     const timeline = $("timeline")
     const x = state.headX || 0
     if (timeline) {
@@ -5111,6 +5181,7 @@ async function downloadMix() {
 }
 
 function stopPlayback(keepClick) {
+  window.setTimeout(() => paintSounding(0), 0)
   playing = false
   stopPreview()
   cancelAnimationFrame(raf)
