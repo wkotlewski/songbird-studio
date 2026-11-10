@@ -4800,7 +4800,7 @@ function refreshMix(layer) {
   const space = Math.max(0, Math.min(1, layer.space || 0))
   nodes.dry.gain.setValueAtTime(1 - space * 0.35, now)
   nodes.wet.gain.setValueAtTime(space * 0.5, now)
-  if (nodes.echo) nodes.echo.gain.setValueAtTime(Math.min(0.5, layer.echo || 0), now)
+  if (nodes.echo) nodes.echo.gain.setValueAtTime(Math.min(0.6, (layer.echo || 0) * 1.2), now)
   const span = nodes.span || layer.lengthSec || state.lengthSec || 1
   const elapsed = songSeconds(now)
   const shapeId = layer.shape || state.shape
@@ -4881,11 +4881,13 @@ function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
   let echoGain = null
   if ((layer.echo || 0) > 0.02) {
     const delay = ctx.createDelay(1.5)
-    delay.delayTime.value = layer.room === "large" ? 0.32 : layer.room === "medium" ? 0.2 : 0.13
+    // The echo repeats on the eighth note, so it lands in time with the song.
+    const eighth = Math.min(0.6, 30 / Math.max(40, state.bpm || 92))
+    delay.delayTime.value = layer.room === "large" ? 0.32 : layer.room === "medium" ? 0.2 : eighth
     const feedback = ctx.createGain()
-    feedback.gain.value = Math.min(0.42, (layer.echo || 0) * 0.7)
+    feedback.gain.value = Math.min(0.45, (layer.echo || 0) * 0.9)
     echoGain = ctx.createGain()
-    echoGain.gain.value = Math.min(0.5, layer.echo)
+    echoGain.gain.value = Math.min(0.6, layer.echo * 1.2)
     pan.connect(delay)
     delay.connect(feedback)
     feedback.connect(delay)

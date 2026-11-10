@@ -655,6 +655,10 @@ function nudgeSpace(amount, echo) {
     refreshMix(layer)
   }
   rememberSong()
+  // An echo that wasn't there when the song started needs its own path, so
+  // the song picks up where it is with the new sound. If it wasn't playing,
+  // it plays so you hear the change.
+  play(playing ? Math.max(0, songSeconds(ac().currentTime)) : 0)
 }
 
 async function setEra(era) {
@@ -872,6 +876,9 @@ function layerNamed(text) {
 
 async function runRequest(raw) {
   const text = ` ${String(raw || "").toLowerCase().replace(/[’']/g, "").replace(/\s+/g, " ").trim()} `
+    // Phone keyboards often write “baseline” or “base” for bass.
+    .replace(/\bbase ?lines?\b/g, "bass line")
+    .replace(/\b(add|some|a|the|more|less|my|turn up the|turn down the) base\b/g, "$1 bass")
   if (!text.trim()) return { text: "Tell me what you want, like “add a horn section” or “make it tight”." }
   if (!state.layers.some((layer) => buffers.get(layer.id + ":audio"))) return { text: "Record a loop first, then tell me what to do with it.", warn: true }
 
@@ -924,7 +931,7 @@ async function runRequest(raw) {
   if (/(reverb|space|room|echo|wet|dry|roomy|spacious|cathedral|hall)/.test(text)) {
     const echo = /echo|delay/.test(text)
     const less = /(less|dry|drier|remove|no |reduce|tighter)/.test(text)
-    nudgeSpace(less ? -0.18 : 0.18, echo)
+    nudgeSpace(less ? -0.25 : 0.25, echo)
     return { text: `${less ? "Less" : "More"} ${echo ? "echo" : "room sound"} on every layer. Undo puts it back.` }
   }
 
@@ -963,10 +970,13 @@ async function runRequest(raw) {
     if (genre) return useGenre(genre)
   }
 
-  const genre = genreFrom(text)
-  if (genre && /(make|turn|style|genre|vibe|feel|sound|give|add|like|into)/.test(text)) return useGenre(genre)
-
+  // “Add acoustic guitar chords” asks for a guitar, not the Acoustic genre:
+  // a named instrument wins unless a style is clearly asked for.
   const part = partFrom(text)
+  const genre = genreFrom(text)
+  const styleAsked = /(style|genre|vibe|feel like|sound like|make it|turn it into|package)/.test(text)
+  if (genre && (!part || styleAsked) && /(make|turn|style|genre|vibe|feel|sound|give|add|like|into)/.test(text)) return useGenre(genre)
+
   if (part) return makePart(part)
 
   return {
