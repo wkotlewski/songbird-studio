@@ -77,7 +77,7 @@ The public page is a static site: HTML, CSS, and JavaScript, hosted on GitHub Pa
 
 Sound runs in the browser with the Web Audio API. The microphone uses the MediaRecorder API. Building instruments and genre packages runs in a Web Worker, so the studio keeps playing and scrolling while a layer is being built. A looped layer is built for one pass and then repeated. Song titles and recordings stay in this browser.
 
-Instruments are real recordings: samples rendered from the FluidR3 GM soundfont by Frank Wen, released under the MIT license (see `site/sounds/LICENSE-FluidR3.txt`). `tools/build-sounds.py` rebuilds them. Only the notes a part plays are downloaded, the first time it's used.
+Instruments are real recordings. Trumpet, trombone, tuba, and French horn, held and short notes, come from [VSCO 2 Community Edition](https://github.com/sgossner/VSCO-2-CE) by Versilian Studios, released under CC0 (see `site/sounds/LICENSE-VSCO2CE.txt`); `tools/build-brass.py` rebuilds them. A horn section is those players split by range. The rest are samples rendered from the FluidR3 GM soundfont by Frank Wen, released under the MIT license (see `site/sounds/LICENSE-FluidR3.txt`); `tools/build-sounds.py` rebuilds them. Only the notes a part plays are downloaded, the first time it's used.
 
 `node check-packages.js` checks the genre packages and the sound engine.
 

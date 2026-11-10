@@ -2160,7 +2160,7 @@ function chordTones(midi, key, low) {
 // Pick a chord for each half bar that fits the notes sung over it, the way
 // a player would: chord tones count for it, clashing notes against it, home
 // is a good place to start and end, and a chord holds when the tune rests.
-function harmonize(melody, key, beat, phase, pass) {
+function harmonize(melody, key, beat, phase, pass, options = {}) {
   const span = beat * 2
   const degrees = key.minor ? [0, 2, 3, 4, 5] : [0, 1, 3, 4, 5]
   const chords = degrees.map((degree) => {
@@ -2192,7 +2192,11 @@ function harmonize(melody, key, beat, phase, pass) {
         else score -= overlap * lead * 0.7
       }
       if (chord.degree === 0 && (index === 0 || index === spans.length - 1)) score += beat * 0.4
-      if (previous && previous.degree === chord.degree) score += beat * 0.15
+      // Held sounds (choir, organ, strings) change chord less often: every
+      // change is heard in full, so it has to be worth it.
+      if (previous && previous.degree === chord.degree) score += beat * (options.steady ? 0.45 : 0.15)
+      // On the bar line rather than mid-bar, when it's close.
+      if (options.steady && previous && previous.degree !== chord.degree && index % 2 === 1) score -= beat * 0.2
       if (score > bestScore) {
         bestScore = score
         best = chord
@@ -2220,6 +2224,73 @@ function voiceChord(chord, style, low, high) {
   })
 }
 
+// The three notes of a chord, placed so each voice moves as little as it
+// can from the last chord. The first chord sits around the middle.
+function leadVoices(chord, prev, low, high, center) {
+  const pcs = chord.tones
+  const near = (pc, target) => {
+    let m = target - ((((target - pc) % 12) + 12) % 12)
+    if (target - m > 6) m += 12
+    while (m < low) m += 12
+    while (m > high) m -= 12
+    return m
+  }
+  if (!prev) {
+    // Close position, top voice near the middle of the range.
+    let best = null
+    const n = pcs.length
+    for (let r = 0; r < n; r++) {
+      const order = pcs.map((_, i) => pcs[(r + i) % n])
+      let bottom = near(order[0], center - 5)
+      const voices = [bottom]
+      for (let i = 1; i < n; i++) {
+        let m = bottom + ((((order[i] - bottom) % 12) + 12) % 12)
+        if (m <= voices[i - 1]) m += 12
+        voices.push(m)
+        bottom = m
+      }
+      const cost = Math.abs(voices[Math.floor(n / 2)] - center)
+      if (voices[n - 1] <= high && voices[0] >= low && (!best || cost < best.cost)) best = { voices, cost }
+    }
+    return best ? best.voices : pcs.map((pc) => near(pc, center))
+  }
+  if (prev.length !== pcs.length) return leadVoices(chord, null, low, high, center)
+  let best = null
+  for (const perm of permutations(pcs.length)) {
+    const voices = prev.map((from, i) => near(pcs[perm[i]], from))
+    const sorted = [...voices].sort((a, b) => a - b)
+    if (sorted.some((m, i) => i && m === sorted[i - 1])) continue
+    let cost = voices.reduce((sum, m, i) => sum + Math.abs(m - prev[i]), 0)
+    // Stay near the middle over a long song.
+    cost += Math.abs(sorted[1] - center) * 0.15
+    if (!best || cost < best.cost) best = { voices: sorted, cost }
+  }
+  return best ? best.voices : leadVoices(chord, null, low, high, center)
+}
+
+function permutations(n) {
+  if (n <= 1) return [[0]]
+  const out = []
+  for (const rest of permutations(n - 1)) for (let i = 0; i <= rest.length; i++) out.push([...rest.slice(0, i), n - 1, ...rest.slice(i)])
+  return out
+}
+
+// Gospel colour: a 9th on home, 7ths on the minor chords, a dominant 7th,
+// and the IV with its 9th. Four notes, for four voices.
+function gospelTones(chord, key) {
+  const scale = key.scale || (key.minor ? MINOR : MAJOR)
+  const step = (n) => ((key.root + scale[((chord.degree + n) % 7 + 7) % 7]) % 12 + 12) % 12
+  const triad = [chord.tones[0], chord.tones[1], chord.tones[2]]
+  if (chord.degree === 0 || chord.degree === 3) return [...triad, step(1)]
+  return [...triad, step(6)]
+}
+
+function bassRoot(chord, low) {
+  let root = low + ((chord.root - low) % 12 + 12) % 12
+  if (root < 40) root += 12
+  return root
+}
+
 function accompany(harmony, options) {
   const beat = options.beat
   const style = options.style || "block"
@@ -2235,7 +2306,11 @@ function accompany(harmony, options) {
     events.push({ midi, time: t, dur, vel })
   }
   if (style === "held") {
-    // Hold each chord until it changes.
+    // Hold each chord until it changes, the way a choir, an organist, or a
+    // string section would: each voice moves to the nearest note of the next
+    // chord, a note both chords share keeps sounding, and chords overlap a
+    // little so there's no gap between them.
+    const blocks = []
     for (let i = 0; i < harmony.length; i++) {
       const chord = harmony[i]
       let dur = chord.dur
@@ -2243,9 +2318,55 @@ function accompany(harmony, options) {
         dur += harmony[i + 1].dur
         i++
       }
-      voiceChord(chord, "held", options.low, options.high).forEach((midi, n) => put(midi, chord.time, dur * 0.98, n === 0 ? 0.75 : 0.65))
+      blocks.push({ chord, time: chord.time, dur })
     }
-    return events
+    const low = Math.max(options.low, 40)
+    const high = options.high
+    const center = Math.max(low + 7, Math.min(high - 7, options.center || 62))
+    const withBass = options.withBass
+    let prev = null
+    const open = []
+    const gospel = options.gospel && options.key
+    blocks.forEach((block, index) => {
+      if (gospel && block.chord.degree === 4 && block.dur >= beat * 2) {
+        // The V hangs on a sus4, then resolves, the way a choir leans into it.
+        const sus = { ...block.chord, tones: [block.chord.tones[0], (block.chord.tones[0] + 5) % 12, block.chord.tones[2], (block.chord.tones[0] + 10) % 12] }
+        const half = Math.round(block.dur / beat / 2) * beat
+        const first = leadVoices(sus, prev, low, high, center)
+        first.forEach((midi, n) => events.push({ midi, time: block.time, dur: half + 0.06, vel: 0.6 + (n === first.length - 1 ? 0.06 : 0), attack: 0.2 }))
+        prev = first
+        block = { ...block, time: block.time + half, dur: block.dur - half }
+        open.length = 0
+      }
+      const chord = gospel ? { ...block.chord, tones: gospelTones(block.chord, options.key) } : block.chord
+      const upper = leadVoices(chord, prev, low, high, center)
+      prev = upper
+      const voices = withBass ? [bassRoot(block.chord, low), ...upper] : upper
+      const end = block.time + block.dur
+      voices.forEach((midi, n) => {
+        const held = open[n]
+        // A shared note carries on into the next chord.
+        if (held && held.midi === midi && Math.abs(held.time + held.dur - block.time) < 0.05) {
+          held.dur = end - held.time
+          return
+        }
+        // The top voice carries a little more, and a choir swells in.
+        const top = n === voices.length - 1
+        const event = { midi, time: block.time, dur: block.dur + 0.06, vel: (n === 0 ? 0.72 : top && gospel ? 0.7 : 0.62) + (index % 2 ? -0.03 : 0.02) }
+        if (gospel) event.attack = 0.18
+        open[n] = event
+        events.push(event)
+      })
+    })
+    // Keep the times inside the pass, wrapping a loop's pickup to the end.
+    return events.filter((event) => {
+      if (event.time < 0) {
+        if (!options.loop) return false
+        event.time += pass
+      }
+      if (event.time >= pass || event.dur <= 0.02) return false
+      return true
+    }).map((event) => ({ ...event, dur: Math.min(event.dur, pass + 0.06 - event.time) }))
   }
   for (const chord of harmony) {
     const tones = voiceChord(chord, style, options.low, options.high)
@@ -2262,6 +2383,11 @@ function accompany(harmony, options) {
         const order = way === "D" ? tones : tones.slice(-3).reverse()
         order.forEach((midi, n) => put(midi, at + n * 0.012, Math.max(0.1, until - n * 0.012), (way === "D" ? 0.8 : 0.55) * (slot === 0 ? 1.1 : 1)))
       }
+    } else if (style === "stab") {
+      // Horn stabs: short and punchy on the one, and a push on the and of
+      // two, the way a horn section punches a groove.
+      tones.forEach((midi, n) => put(midi, chord.time, beat * 0.35, n === 0 ? 0.95 : 0.85))
+      tones.forEach((midi, n) => put(midi, chord.time + beat * 1.5, beat * 0.3, n === 0 ? 0.8 : 0.7))
     } else if (style === "beat") {
       for (let b = 0; b < 2; b++) tones.forEach((midi, n) => put(midi, chord.time + b * beat, beat * 0.9, b === 0 ? 0.8 : 0.68))
     } else {
@@ -2311,7 +2437,11 @@ function voicePlan(melody, options, key) {
     }
     return events
   }
-  if (figure === "chords" && options.harmony) return accompany(options.harmony, { ...options, low: Math.max(low, 40), high })
+  if (figure === "chords" && options.harmony) return accompany(options.harmony, { ...options, low: Math.max(low, 40), high, withBass: options.style === "held" && options.organ })
+  if (figure === "section" && options.harmony && options.style === "held") {
+    // A choir or string section: held, voice-led chords, a little higher.
+    return accompany(options.harmony, { ...options, style: "held", low: Math.max(low, 48), high, center: Math.min(high - 5, 66), gospel: options.voices, key })
+  }
   if (figure === "bass") {
     // A bass line: the root under each bar, on beats 1 and 3, with the
     // melody's lowest pull deciding the root.
@@ -2566,7 +2696,8 @@ function planFromNotes(notes, options = {}) {
   if (options.transpose) melody = melody.map((note) => ({ ...note, midi: note.midi + options.transpose }))
   const shifted = options.transpose ? { ...key, root: (key.root + options.transpose + 120) % 12 } : key
   if (options.figure !== "bass") melody = fitRange(melody, options.low, options.high)
-  const harmony = options.figure === "chords" || options.figure === "bass" ? harmonize(melody, shifted, beat, phase, pass) : null
+  const heldSection = options.figure === "section" && options.style === "held"
+  const harmony = options.figure === "chords" || options.figure === "bass" || heldSection ? harmonize(melody, shifted, beat, phase, pass, { steady: options.style === "held" }) : null
   const events = voicePlan(melody, { ...options, total: pass, beat, phase, harmony, loop }, shifted)
   return { events, key: shifted, pass, total, loop, melody, harmony, grid: { beat, phase } }
 }
