@@ -868,3 +868,34 @@ button.chord-pad.on, button.drum-pad.on { transform: scale(0.94); filter: bright
 .level-gain .ms { font-size: 20px; color: var(--md-on-surface-variant); }
 .level-gain.off { opacity: 0.45; }
 .mic-level .btn { width: 100%; min-height: 44px; }
+
+/* ---- Play and stop from any panel ------------------------------------- */
+.sheet-transport { display: flex; align-items: center; gap: 6px; flex: none; }
+.sheet-transport .icon-btn { width: 40px; height: 40px; }
+.sheet-transport .sheet-play { background: var(--md-primary); color: var(--md-on-primary); border-color: transparent; }
+.sheet-transport .sheet-play.is-on { background: var(--md-tertiary, #EC4899); color: #fff; }
+.sheet-transport .sheet-play .glyph { font-variation-settings: "FILL" 1; }
+@media (min-width: 760px) {
+  /* On a computer the song's own transport is always in view. */
+  .sheet-transport [data-action="jump"] { display: none; }
+}
+
+/* ---- Delete on each channel --------------------------------------------- */
+button.mini.danger { color: var(--md-error); }
+
+/* ---- Every chord ---------------------------------------------------------- */
+.chord-view { margin: 10px 0 4px; }
+.root-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin: 6px 0 4px; }
+button.root-chip {
+  min-height: 40px;
+  border-radius: var(--md-shape-full, 999px);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  font: 700 15px/1 "Plus Jakarta Sans", system-ui, sans-serif;
+  cursor: pointer;
+}
+button.root-chip.on { background: var(--md-primary); color: var(--md-on-primary); border-color: transparent; }
+.chord-pads.all { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.chord-pads.all button.chord-pad { min-height: 64px; font-size: 18px; }
+.chord-pads.all button.chord-pad small { font-size: 10px; }
