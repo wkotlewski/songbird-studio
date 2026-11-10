@@ -890,6 +890,13 @@ async function runRequest(raw) {
   if (!text.trim()) return { text: "Tell me what you want, like “add a horn section” or “make it tight”." }
   if (!state.layers.some((layer) => buffers.get(layer.id + ":audio"))) return { text: "Record a loop first, then tell me what to do with it.", warn: true }
 
+  // “Make it a full song”, “verse chorus bridge”: the song builder, which
+  // reads the whole request itself.
+  if (/(full|whole|complete|finished|real) song|make (it|this) (a|into a) song|a song i can|arrange|song structure|verse.*(chorus|bridge)|chorus.*(verse|bridge)|finish (it|my song|the song)|turn (it|this) into a song|build (it|the song|my song) out/.test(text)) {
+    openArrange(raw)
+    return { text: "Here's a plan for the whole song. Change anything you like, then tap Build my song." }
+  }
+
   // Several requests in one: “make it tight and add drums”.
   const pieces = text.split(/\s(?:and then|then|and also|also|plus|,|;)\s|\sand\s(?=(?:add|make|turn|bring|put|give|change|fade|remove|take|raise|lower|move|transpose|speed|slow|clean|fix|tighten|snap|tune|mute)\b)/).map((piece) => ` ${piece.trim()} `).filter((piece) => piece.trim())
   if (pieces.length > 1) {
@@ -1052,6 +1059,7 @@ function magicPanel(head) {
       <textarea id="magic-say" rows="2" placeholder="Add a horn section and make it tight" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
       <button class="btn btn-primary magic-go" type="submit" ${busy}>${state.transforming ? "Working…" : `${ms("wand_stars")}Do it`}</button>
     </form>
+    ${sources.length ? `<button class="song-card" data-arrange-open>${ms("auto_awesome")}<span><b>Make it a full song</b><small>Pick a vibe. I'll add what's missing, lay out verse and chorus, fills, a climax, and fades.</small></span>${ms("arrow_forward")}</button>` : ""}
     ${chatMarkup()}
     <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your keyboard to say it out loud. Or try one:"}</p>
     <div class="choices magic-suggest">${SUGGESTIONS.map((line) => `<button class="chip" data-magic-say="${esc(line)}" ${busy}>${esc(line)}</button>`).join("")}</div>

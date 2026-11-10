@@ -899,3 +899,50 @@ button.root-chip.on { background: var(--md-primary); color: var(--md-on-primary)
 .chord-pads.all { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .chord-pads.all button.chord-pad { min-height: 64px; font-size: 18px; }
 .chord-pads.all button.chord-pad small { font-size: 10px; }
+
+/* ---- Make it a full song ------------------------------------------------- */
+button.song-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 12px 0;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: var(--md-shape-large);
+  background: linear-gradient(120deg, rgba(52, 211, 153, 0.22), rgba(236, 72, 153, 0.22));
+  color: var(--md-on-surface);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 251, 242, 0.12);
+}
+button.song-card > .ms:first-child { font-size: 28px; color: #F9A8D4; }
+button.song-card span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+button.song-card b { font-size: 16px; }
+button.song-card small { font-size: 13px; color: var(--md-on-surface-variant); }
+.plan-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 6px 0 10px; }
+button.plan-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  border-radius: var(--md-shape-large);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  text-align: left;
+  cursor: pointer;
+}
+button.plan-card .ms { color: var(--md-primary); font-size: 24px; }
+button.plan-card b { font-size: 14px; }
+button.plan-card small { font-size: 12px; color: var(--md-on-surface-variant); line-height: 1.35; }
+button.plan-card.on { background: var(--md-secondary-container); border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
+.song-map { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; counter-reset: part; }
+.song-map li { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "name who at"; align-items: baseline; gap: 2px 10px; padding: 8px 12px; border-radius: 12px; background: rgba(16, 53, 44, 0.7); }
+.song-map b { grid-area: name; font-size: 14px; }
+.song-map span { grid-area: at; font-size: 12px; color: var(--md-on-surface-variant); }
+.song-map small { grid-area: who; font-size: 12px; color: var(--md-on-surface-variant); }
+@media (max-width: 759px) {
+  body[data-panel="arrange"] #inspector { max-height: 82dvh; }
+}
