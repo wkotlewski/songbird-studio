@@ -337,6 +337,7 @@ async function buildSong() {
   const mark = undoStack.length
   snapshot(state.layers.map((layer) => layer.id))
   const before = new Set(state.layers.map((layer) => layer.id))
+  const wasSelected = state.selected
   const added = []
   const missed = []
   const step = (text) => {
@@ -416,8 +417,9 @@ async function buildSong() {
     }
     state.fadeIn = arrange.plan === "background" || arrange.vibes.some((id) => ["chill", "dreamy", "gentle"].includes(id)) ? 3 : 0
     state.fadeOut = arrange.plan === "jam" || arrange.vibes.includes("party") ? 4 : 8
-    // One Undo for the whole build.
+    // One Undo for the whole build. Your selection stays where it was.
     undoStack.splice(mark + 1)
+    if (state.layers.some((layer) => layer.id === wasSelected)) state.selected = wasSelected
     rememberSong()
     renderRuler()
     renderTracks()
