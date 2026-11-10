@@ -197,6 +197,21 @@ function playedPart(layer) {
   return make && (make.melody || make.hits) ? make : null
 }
 
+// Chords that fit a song with no tune yet: I, V, vi, IV, one per bar, in the
+// song's key, over one loop.
+function backingNotes() {
+  const beat = 60 / Math.max(40, state.bpm || 92)
+  const bar = beat * 4
+  const pass = state.loopSec || (state.loopBars || 4) * bar
+  const bars = Math.max(1, Math.round(pass / bar))
+  const key = { root: ((state.songKey ?? state.keyPc ?? 0) % 12 + 12) % 12, minor: false }
+  const steps = [0, 4, 5, 3]
+  const melody = []
+  for (let i = 0; i < bars; i++) melody.push({ time: i * bar, dur: bar, midi: SongbirdMusic.scaleStep(60 + key.root, steps[i % 4], key), chord: true })
+  const length = Math.max(state.lengthSec || pass, pass)
+  return { melody, key, pass, total: length, loop: length > pass + 0.01, beat, phase: 0 }
+}
+
 function withPlayed(choice, layer) {
   const played = playedPart(layer)
   if (!played || choice.pattern || choice.melody || choice.hits) return choice
@@ -324,12 +339,17 @@ async function makePart(choice, options = {}) {
   }
   choice = withPlayed(choice, options.source)
   choice = withPlayed(choice, target)
-  const fromPlay = !!(choice.melody || choice.hits)
+  let fromPlay = !!(choice.melody || choice.hits)
   let source = fromPlay ? null : origin(options.source)
   if (fromPlay) source = null
   else if (choice.family === "drums") source = source && kindOf(source) === "drums" ? source : rhythmLayer()
   else if (!source || kindOf(source) === "drums") source = melodyLayer()
-  if (choice.family !== "drums" && !source && !fromPlay) return { text: "Record a hum, a song, or an instrument first. Then I can turn it into anything.", warn: true }
+  if (choice.family !== "drums" && !source && !fromPlay) {
+    // No tune yet, only a beat (or nothing): the instrument plays chords in
+    // the song's key, a chord a bar, in time with what's there.
+    choice = { ...choice, ...backingNotes(), backing: true }
+    fromPlay = true
+  }
   // The first time a recording becomes an instrument, you see the notes
   // Songbird heard and can fix them before anything is built.
   if (choice.family !== "drums" && !fromPlay && source && isRecording(source) && !source.notes && !options.checked && typeof openNoteCheck === "function") {
@@ -394,7 +414,7 @@ async function makePart(choice, options = {}) {
         loop: !!made.loopSamples,
         lengthSec: Math.round((made.samples.length / made.rate) * 100) / 100,
         range: source?.range ? { ...source.range } : { start: 0, end: made.samples.length / made.rate },
-        from: fromPlay ? "you played it" : source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : melodyLayer() ? `a groove that fits ${melodyLayer().name}` : "a groove on the beat",
+        from: choice.backing ? `chords in ${KEY_LABEL[((choice.key?.root || 0) % 12 + 12) % 12]} that fit your beat` : fromPlay ? "you played it" : source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : melodyLayer() ? `a groove that fits ${melodyLayer().name}` : "a groove on the beat",
       }
       state.layers.push(layer)
       buffers.set(id + ":audio", buffer)
@@ -414,7 +434,8 @@ async function makePart(choice, options = {}) {
           : `${target.baseName} is now ${label}.`
     return { text: `${said} Undo takes it back.` }
   } catch (error) {
-    return { text: /sounds missing|missing sounds|Failed to fetch/i.test(String(error)) ? "The instrument sounds didn't load. Check the connection and try again." : "That didn't work. Nothing changed.", warn: true }
+    console.error("Magic couldn't make that part:", error)
+    return { text: /sounds missing|missing sounds|Failed to fetch|Load failed|NetworkError|network/i.test(String(error)) ? "The instrument sounds didn't load. Check the connection and try again." : "That didn't work. Nothing changed.", warn: true }
   } finally {
     making = false
     state.transforming = false
