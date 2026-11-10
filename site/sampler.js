@@ -166,6 +166,53 @@
 
   // Families that keep sounding while a note is held stop with a short fade
   // at the end of the note. Plucked and struck sounds ring out naturally.
+  // A recorded note lasts a few seconds. A held chord can last longer, so a
+  // sustained sound repeats the steady middle of its note, crossfading each
+  // pass into the next, the way a sampler loops a sustain. Other notes play
+  // once and fade as they would on the real instrument.
+  function sustainNote(ctx, sample, rate, into, begin, stopAt, sustain) {
+    const buffer = sample.buffer
+    const play = (from, start, stop, fadeIn, fadeOut) => {
+      const source = ctx.createBufferSource()
+      source.buffer = buffer
+      source.playbackRate.value = rate
+      const level = ctx.createGain()
+      if (fadeIn) {
+        level.gain.setValueAtTime(0, start)
+        level.gain.linearRampToValueAtTime(1, start + fadeIn)
+      }
+      if (fadeOut) {
+        level.gain.setValueAtTime(1, stop - fadeOut)
+        level.gain.linearRampToValueAtTime(0, stop)
+      }
+      source.connect(level)
+      level.connect(into)
+      source.start(start, from)
+      source.stop(stop + 0.01)
+    }
+    const available = (buffer.duration - sample.offset) / rate
+    const loopFrom = sample.offset + Math.min(0.6, (buffer.duration - sample.offset) * 0.25)
+    const loopTo = buffer.duration - 0.6
+    if (!sustain || stopAt - begin <= available - 0.05 || loopTo - loopFrom < 0.6) {
+      play(sample.offset, begin, stopAt, 0, 0)
+      return
+    }
+    const fade = 0.25
+    let start = begin
+    let from = sample.offset
+    let first = true
+    for (let guard = 0; start < stopAt && guard < 400; guard++) {
+      const length = (loopTo - from) / rate
+      const stop = Math.min(start + length, stopAt)
+      const last = stop >= stopAt
+      play(from, start, stop, first ? 0 : fade, last ? 0 : fade)
+      if (last) break
+      start = stop - fade
+      from = loopFrom
+      first = false
+    }
+  }
+
   const HELD = new Set(["strings", "horns", "woodwinds", "voices", "synths"])
 
   async function render(plan, options) {
@@ -191,6 +238,8 @@
     } else {
       const { info, notes } = await instrument(options.instrument, options.decodeWith || ctx, (plan.events || []).map((event) => event.midi))
       const held = HELD.has(info.family)
+      // Organs hold their notes too, but start with a key's quick attack.
+      const sustained = /organ|pad/.test(options.instrument || "")
       const list = [...notes.keys()]
       for (const event of plan.events || []) {
         if (event.time >= seconds) continue
@@ -198,25 +247,23 @@
         for (const note of list) if (Math.abs(note - event.midi) < Math.abs(near - event.midi)) near = note
         const sample = notes.get(near)
         if (!sample) continue
-        const source = ctx.createBufferSource()
-        source.buffer = sample.buffer
-        source.playbackRate.value = 2 ** ((event.midi - near) / 12)
+        const rate = 2 ** ((event.midi - near) / 12)
         const gain = ctx.createGain()
         const level = (event.vel ?? 0.85) * (options.level ?? 1)
         // A note can't start before the song does.
         const at = Math.max(0, event.time)
-        const lead = Math.min(sample.speak || 0, at) / source.playbackRate.value
+        const lead = Math.min(sample.speak || 0, at) / rate
         const begin = Math.max(0, at - lead)
         const end = at + Math.max(0.08, event.dur)
         gain.gain.setValueAtTime(0, begin)
-        gain.gain.linearRampToValueAtTime(level, begin + (held ? 0.03 : 0.004))
-        const release = held ? 0.18 : 0.6
+        // Held sounds swell in and let go gently, so chords flow into each
+        // other instead of clicking off.
+        gain.gain.linearRampToValueAtTime(level, begin + (held ? 0.06 : 0.004))
+        const release = held ? 0.32 : 0.6
         gain.gain.setValueAtTime(level, end)
         gain.gain.linearRampToValueAtTime(0.0001, end + release)
-        source.connect(gain)
         gain.connect(out)
-        source.start(begin, sample.offset)
-        source.stop(end + release + 0.02)
+        sustainNote(ctx, sample, rate, gain, begin, end + release + 0.02, held || sustained)
       }
     }
     const rendered = await ctx.startRendering()
