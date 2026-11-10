@@ -1521,8 +1521,8 @@ button.layer-delete {
 
 .dock-btn b .spark { margin-right: 4px; }
 @media (max-width: 759px) {
-  /* On a phone the layer's name gets the whole label. Delete layer is in Mix. */
-  .track-label button.layer-delete { display: none; }
+  /* On a phone the layer's delete stays right next to its name. */
+  .track-label button.layer-delete { width: 30px; height: 30px; min-width: 30px; min-height: 30px; }
   .dock { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
   button.dock-btn { padding: 6px 4px; }
   .dock-btn b { display: flex; align-items: center; justify-content: center; white-space: nowrap; font-size: 13px; }

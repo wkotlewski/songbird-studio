@@ -7,6 +7,43 @@
   const RATE = 44100
   let index = null
   const loaded = new Map()
+  const BUILD = (() => {
+    try { return new URL(document.currentScript.src).search } catch { return "" }
+  })()
+
+  // Phones drop requests now and then, and too many at once can choke them,
+  // so files load a few at a time and a failed one is tried again.
+  let active = 0
+  const waiting = []
+  function slot() {
+    if (active < 6) {
+      active++
+      return Promise.resolve()
+    }
+    return new Promise((resolve) => waiting.push(resolve))
+  }
+  function release() {
+    const next = waiting.shift()
+    if (next) next()
+    else active--
+  }
+  async function fetchRetry(url, kind) {
+    let last
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await slot()
+      try {
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`sounds missing ${url}`)
+        return kind === "json" ? await res.json() : await res.arrayBuffer()
+      } catch (error) {
+        last = error
+      } finally {
+        release()
+      }
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)))
+    }
+    throw last
+  }
 
   function decode(ctx, data) {
     return new Promise((resolve, reject) => {
@@ -16,10 +53,11 @@
   }
 
   async function getIndex() {
-    if (!index) index = fetch("sounds/index.json").then((res) => {
-      if (!res.ok) throw new Error("sounds missing")
-      return res.json()
-    })
+    if (!index) {
+      index = fetchRetry(`sounds/index.json${BUILD}`, "json")
+      // A failed list is asked for again next time, not remembered.
+      index.catch(() => { index = null })
+    }
     return index
   }
 
@@ -59,10 +97,10 @@
   // samples a part actually plays are fetched.
   function loadOne(url, ctx) {
     if (!loaded.has(url)) {
-      const job = fetch(url).then((res) => {
-        if (!res.ok) throw new Error(`missing ${url}`)
-        return res.arrayBuffer()
-      }).then((data) => decode(ctx, data)).then((buffer) => {
+      const job = fetchRetry(url, "bytes").then((data) => decode(ctx, data).catch((error) => {
+        // Decoding can fail on a busy phone. Once more, on a fresh copy.
+        return fetchRetry(url, "bytes").then((again) => decode(ctx, again)).catch(() => { throw error })
+      })).then((buffer) => {
         const offset = firstSound(buffer)
         return { buffer, offset, speak: speakTime(buffer, offset) }
       })

@@ -24,7 +24,26 @@ const DRUM_PADS = [
 const PIANO_KEYS = "awsedftgyhujkolp;"
 const DRUM_KEYS = "asdfghjk"
 
+// Every chord, by its shape above the root.
+const CHORD_TYPES = [
+  { id: "", name: "Major", steps: [0, 4, 7] },
+  { id: "m", name: "Minor", steps: [0, 3, 7] },
+  { id: "7", name: "Seven", steps: [0, 4, 7, 10] },
+  { id: "m7", name: "Minor seven", steps: [0, 3, 7, 10] },
+  { id: "maj7", name: "Major seven", steps: [0, 4, 7, 11] },
+  { id: "sus2", name: "Sus two", steps: [0, 2, 7] },
+  { id: "sus4", name: "Sus four", steps: [0, 5, 7] },
+  { id: "6", name: "Six", steps: [0, 4, 7, 9] },
+  { id: "add9", name: "Add nine", steps: [0, 4, 7, 14] },
+  { id: "dim", name: "Diminished", steps: [0, 3, 6] },
+  { id: "aug", name: "Augmented", steps: [0, 4, 8] },
+  { id: "9", name: "Nine", steps: [0, 4, 7, 10, 14] },
+]
+
 const pad = {
+  chordView: "key",
+  chordRoot: null,
+  pianoMode: "keys",
   kind: "piano",
   octave: 60,
   kit: "standard",
@@ -61,6 +80,33 @@ function warmPad() {
   return job
 }
 
+// How a chord is held: a guitar spreads it over six strings from a low
+// root; a piano plays a bass note under a close chord.
+function voicing(steps, family) {
+  if (family === "guitar") {
+    const fifth = steps.includes(7) ? 7 : steps[steps.length - 1] % 12
+    const tones = [0, fifth, ...steps.map((step) => 12 + step)]
+    return [...new Set(tones)].sort((a, b) => a - b).slice(0, 6)
+  }
+  return [-12, ...steps]
+}
+
+function chordRoot(pc, family) {
+  // Guitar roots sit on the low strings; piano chords around middle C.
+  const low = family === "guitar" ? 40 : 48
+  return low + ((pc - (low % 12) + 12) % 12)
+}
+
+function chordOf(pc, type, family) {
+  const root = chordRoot(pc, family)
+  return { root, name: noteName(root) + type.id, label: type.name, tones: voicing(type.steps, family) }
+}
+
+// Every chord on one root: pick a letter, then the kind of chord.
+function rootChords(pc, family) {
+  return CHORD_TYPES.map((type) => chordOf(pc, type, family))
+}
+
 // Six chords that fit the key, in the order people reach for them.
 function padChords(key) {
   const full = SongbirdMusic.keyFrom(key)
@@ -72,12 +118,16 @@ function padChords(key) {
     const tones = SongbirdMusic.chordTones(root, key, root)
     const third = (tones[1] - tones[0] + 12) % 12
     const fifth = (tones[2] - tones[0] + 12) % 12
+    const type = third === 3 ? (fifth === 6 ? "dim" : "m") : ""
+    const family = padInfo().family
+    const steps = CHORD_TYPES.find((item) => item.id === type).steps
+    const at = family === "guitar" ? root : chordRoot(root % 12, family)
     return {
-      root,
+      root: at,
       home: i === 0,
-      name: noteName(root) + (third === 3 ? (fifth === 6 ? "dim" : "m") : ""),
-      // Spread over six strings, the way a guitar chord is held.
-      tones: [0, fifth, 12, 12 + third, 12 + fifth, 24],
+      name: noteName(root) + type,
+      label: ["Home", "", "", "", "", ""][i],
+      tones: voicing(steps, family),
     }
   })
 }
@@ -91,14 +141,32 @@ function padPanel() {
   const busy = live || state.arming ? "disabled" : ""
   const key = padKey()
   let surface = ""
-  if (info.id === "piano") {
-    surface = `<div class="check-keys pad-keys">
+  const chordsShown = info.id === "guitar" || (info.id === "piano" && pad.pianoMode === "chords")
+  const modeRow = info.id === "piano"
+    ? `<div class="choices" role="group" aria-label="Play keys or chords">
+        ${filterChip(`${ms("piano")}Keys`, `data-pad-mode="keys"`, pad.pianoMode !== "chords")}
+        ${filterChip(`${ms("library_music")}Chords`, `data-pad-mode="chords"`, pad.pianoMode === "chords")}
+      </div>`
+    : ""
+  if (chordsShown) {
+    const view = pad.chordView === "all" ? "all" : "key"
+    const rootPc = pad.chordRoot ?? key.root
+    const list = view === "all" ? rootChords(rootPc, info.family) : padChords(key)
+    const pads = list.map((chord) => `<button class="chord-pad ${chord.home ? "home" : ""}" data-pad-chord="${chord.root}" data-tones="${chord.tones.join(",")}" aria-label="${esc(chord.name)} chord">${esc(chord.name)}${chord.label ? `<small>${esc(chord.label)}</small>` : ""}</button>`).join("")
+    surface = `${modeRow}
+      <div class="choices chord-view" role="group" aria-label="Which chords">
+        ${filterChip(`Fits ${esc(keyName(key))}`, `data-pad-view="key"`, view === "key")}
+        ${filterChip("All chords", `data-pad-view="all"`, view === "all")}
+      </div>
+      ${view === "all" ? `<p class="hint">Pick a letter, then a chord.</p>
+        <div class="root-row" role="group" aria-label="Chord letter">${Array.from({ length: 12 }, (_, pc) => `<button class="root-chip ${pc === rootPc ? "on" : ""}" data-pad-root="${pc}" aria-pressed="${pc === rootPc}">${noteName(pc)}</button>`).join("")}</div>` : ""}
+      <div class="chord-pads ${view === "all" ? "all" : ""}">${pads}</div>`
+  } else if (info.id === "piano") {
+    surface = `${modeRow}<div class="check-keys pad-keys">
       ${iconButton("chevron_left", `data-pad="oct-down" aria-label="Lower keys"`)}
       ${keyboardMarkup(pad.octave, 10, "data-pad-key", { key, octaves: true })}
       ${iconButton("chevron_right", `data-pad="oct-up" aria-label="Higher keys"`)}
     </div>`
-  } else if (info.id === "guitar") {
-    surface = `<div class="chord-pads">${padChords(key).map((chord) => `<button class="chord-pad ${chord.home ? "home" : ""}" data-pad-chord="${chord.root}" data-tones="${chord.tones.join(",")}" aria-label="${esc(chord.name)} chord">${esc(chord.name)}${chord.home ? "<small>home</small>" : ""}</button>`).join("")}</div>`
   } else {
     surface = `<div class="drum-pads">${DRUM_PADS.map((item) => `<button class="drum-pad" data-pad-hit="${item.kind}" aria-label="${esc(item.name)}"><b>${esc(item.say)}</b><small>${esc(item.name)}</small></button>`).join("")}</div>`
   }
@@ -124,7 +192,7 @@ function padPanel() {
     <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : state.padRec ? "Recording. Play along!" : "Try it first. Then tap the record button."}</p>
     ${!live && songHasSound() ? `<button class="listen-btn ${playing ? "on" : ""}" data-action="play" id="listen-btn" aria-label="${playing ? "Stop" : "Play what you have"}">${ms(playing ? "stop" : "play_arrow")}${playing ? "Stop" : "Listen to what you have"}</button>` : ""}
     ${looperBox()}
-    <p class="hint">We count 1, 2, 3, 4, then you play along with the dots. ${info.id === "piano" ? "Hold a key longer for a longer note." : info.id === "guitar" ? "Each tap strums the chord." : "Tap the pads to the beat."} Every note lands on the beat when “Fix my timing” is on.</p>`
+    <p class="hint">We count 1, 2, 3, 4, then you play along with the dots. ${info.id === "piano" ? "Hold a key or chord longer for a longer sound." : info.id === "guitar" ? "Each tap strums the chord." : "Tap the pads to the beat."} Every note lands on the beat when “Fix my timing” is on.</p>`
 }
 
 // ---------------------------------------------------------------------------
@@ -151,13 +219,17 @@ function releaseNote(id) {
   void held.voice.then((voice) => voice?.stop()).catch(() => {})
 }
 
-function hitChord(root, tones) {
+// A guitar strums its chord and lets it ring until the next one. A piano
+// holds its chord for as long as you hold the pad.
+function hitChord(root, tones, id) {
   const ctx = ac()
   const now = ctx.currentTime
-  tones.forEach((step, i) => {
-    void SongbirdSampler.playNote(ctx, padOut(), "steel-guitar", root + step, i ? 0.7 : 0.85, now + i * 0.022).catch(() => {})
-  })
-  if (state.padRec) pad.events.push({ midi: root, tones: [...tones], time: padTime(), dur: 0 })
+  const info = padInfo()
+  const strum = info.family === "guitar"
+  const voices = tones.map((step, i) => SongbirdSampler.playNote(ctx, padOut(), info.instrument, root + step, strum ? (i ? 0.7 : 0.85) : (i ? 0.62 : 0.75), now + i * (strum ? 0.022 : 0.004)).catch(() => null))
+  const record = state.padRec ? { midi: root, tones: [...tones], time: padTime(), dur: 0 } : null
+  if (record) pad.events.push(record)
+  if (!strum && id) pad.held.set(id, { voice: Promise.all(voices).then((list) => ({ stop: (at) => list.forEach((voice) => voice?.stop(at)) })), record, at: now })
 }
 
 function hitDrum(kind) {
@@ -321,7 +393,7 @@ async function finishPad() {
 // Taps
 
 document.body.addEventListener("click", (event) => {
-  const node = event.target.closest?.("[data-pad],[data-pad-kind],[data-pad-kit]")
+  const node = event.target.closest?.("[data-pad],[data-pad-kind],[data-pad-kit],[data-pad-mode],[data-pad-view],[data-pad-root]")
   if (!node || node.disabled) return
   const d = node.dataset
   if (d.padKind) {
@@ -332,6 +404,9 @@ document.body.addEventListener("click", (event) => {
     pad.kit = d.padKit
     warmPad()
   }
+  if (d.padMode) pad.pianoMode = d.padMode === "chords" ? "chords" : "keys"
+  if (d.padView) pad.chordView = d.padView === "all" ? "all" : "key"
+  if (d.padRoot != null) pad.chordRoot = Number(d.padRoot)
   const key = padKey()
   if (d.pad === "oct-up") pad.octave = Math.min(84, pad.octave + 12)
   if (d.pad === "oct-down") pad.octave = Math.max(36, pad.octave - 12)
@@ -354,7 +429,7 @@ document.body.addEventListener("pointerdown", (event) => {
   node.classList.add("on")
   const d = node.dataset
   if (d.padKey) hitNote(Number(d.padKey), `p${event.pointerId}`)
-  if (d.padChord) hitChord(Number(d.padChord), d.tones.split(",").map(Number))
+  if (d.padChord) hitChord(Number(d.padChord), d.tones.split(",").map(Number), `p${event.pointerId}`)
   if (d.padHit) hitDrum(d.padHit)
 })
 
@@ -374,18 +449,20 @@ document.addEventListener("keydown", (event) => {
   if (/input|textarea|select/i.test(event.target?.tagName || "")) return
   const k = event.key.toLowerCase()
   const info = padInfo()
-  if (info.id === "piano" && PIANO_KEYS.includes(k)) {
+  const chordKeys = "1234567890-="
+  const chordPads = document.querySelectorAll("[data-pad-chord]")
+  if (chordPads.length && chordKeys.includes(k)) {
+    const node = chordPads[chordKeys.indexOf(k)]
+    if (node) {
+      event.preventDefault()
+      node.classList.add("on")
+      hitChord(Number(node.dataset.padChord), node.dataset.tones.split(",").map(Number), `k${k}`)
+    }
+  } else if (info.id === "piano" && !chordPads.length && PIANO_KEYS.includes(k)) {
     event.preventDefault()
     const midi = pad.octave + PIANO_KEYS.indexOf(k)
     hitNote(midi, `k${k}`)
     document.querySelector(`[data-pad-key="${midi}"]`)?.classList.add("on")
-  } else if (info.id === "guitar" && /^[1-6]$/.test(k)) {
-    event.preventDefault()
-    const node = document.querySelectorAll("[data-pad-chord]")[Number(k) - 1]
-    if (node) {
-      node.classList.add("on")
-      hitChord(Number(node.dataset.padChord), node.dataset.tones.split(",").map(Number))
-    }
   } else if (info.id === "drums" && DRUM_KEYS.includes(k)) {
     event.preventDefault()
     const item = DRUM_PADS[DRUM_KEYS.indexOf(k)]

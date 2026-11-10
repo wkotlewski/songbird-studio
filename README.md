@@ -56,9 +56,9 @@ Songbird never guesses what you can do from your age. Big, clear controls are th
 My Music and Studio are the only two places. Everything else opens over your song.
 
 - **Record:** use the microphone with the loop pedal, or start from a vibe: claps, snaps, guitar strums, or piano chords in the key you pick. A mic level control and meter show how loud you're coming in before and while you record.
-- **Play an instrument:** tap piano keys, strum guitar chords that fit your key, or play a drum kit on pads, right on the screen (or with a computer keyboard). Songbird counts you in, plays along, and puts every note on the beat.
+- **Play an instrument:** tap piano keys or piano chords, strum guitar chords (the ones that fit your key, or every chord: pick a letter, then major, minor, seven, sus, and more), or play a drum kit on pads, right on the screen (or with a computer keyboard). Songbird counts you in, plays along, and puts every note on the beat.
 - **Check your notes:** before a hum becomes an instrument, Songbird shows the notes and the key it heard. Pick the right key, move every note higher or lower, tap a key to fix one note, or turn a note into a chord. The instrument plays exactly what you approved, and you can open the notes again any time.
-- **Build:** shape a layer. Keep it steady, build it up to a climax, or go verse and chorus.
+- **Build:** set how long the whole song is, or just one layer, and fade either in and out. Keep it steady, build it up to a climax, or go verse and chorus.
 - **✨ Magic:** say what you want, or turn a layer into one of 40 real recorded instruments, 7 drum kits, and 11 percussion sounds. Choose the era: 1900s parlor, 1920s, '50s, '60s, '70s, '80s, '90s, 2000s, or today. Add a genre package, from 25 including gospel, R&B, hip-hop, country, jazz, Afrobeats, lo-fi, cinematic, and children's music. Or blend two together. Magic clear tidies hiss and brings a voice forward.
 - **Mix:** set each layer's volume, bass, treble, left and right, and space, or pick a mix preset. Magic timing tightens notes that are barely off the beat.
 - **Finish:** download the song as a WAV file.

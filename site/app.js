@@ -1,3 +1,9 @@
+// The build this page came with. Scripts and sounds ask for this build, so
+// a phone never mixes a fresh page with an old cached engine.
+const BUILD = (() => {
+  try { return new URL(document.currentScript.src).search } catch { return "" }
+})()
+
 const STARTERS = []
 
 const INPUTS = [
@@ -328,6 +334,7 @@ const state = {
   input: "hum",
   recordMode: "mic",
   padRec: false,
+  lengthScope: "song",
   micTest: false,
   vibe: "claps",
   keyPc: 0,
@@ -488,7 +495,7 @@ const engine = (() => {
   }
   try {
     if (typeof Worker !== "undefined" && location.protocol !== "file:") {
-      worker = new Worker("engine-worker.js")
+      worker = new Worker(`engine-worker.js${BUILD}`)
       worker.onmessage = (event) => {
         const { id, ok, result, error } = event.data || {}
         const job = waiting.get(id)
@@ -562,7 +569,7 @@ function silentWavUrl() {
 // Older iPhones have no audioSession setting. A silent looping <audio>
 // element switches the page to media playback, which does the same job.
 function keepSpeakerOn() {
-  if (state.recording || state.arming || state.counting) {
+  if (state.recording || state.arming || state.counting || state.micTest) {
     // "auto" lets the iPhone keep the loudspeaker while the mic is open.
     // "play-and-record" moves sound to the quiet earpiece, so the
     // count-in can't be heard without headphones.
@@ -1633,8 +1640,9 @@ function jumpSection(direction) {
     landed = next
     target = next.start * span
   }
+  // Skipping only moves the playhead. It doesn't select the part, so the
+  // panels keep showing what you were working on.
   const wasPlaying = playing
-  if (landed) state.section = landed.id
   placePlayhead(target)
   renderRuler()
   revealPlayhead()
@@ -2066,6 +2074,7 @@ function renderMix(head, layer) {
         ${hasNotes(item) ? `<button class="mini" data-notes-open="${item.id}" aria-label="Check the notes in ${esc(item.name)}" title="Notes">${ms("music_note")}</button>` : ""}
         <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms("volume_off")}</button>
         <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}" title="Solo">${ms("hearing")}</button>
+        <button class="mini danger" data-action="delete-layer" data-id="${item.id}" aria-label="Delete ${esc(item.name)}" title="Delete">${ms("delete")}</button>
       </div>
       ${hear.label ? `<span class="hear-state">${hear.label}</span>` : ""}
       <label class="field">Volume
@@ -2303,7 +2312,7 @@ function genrePanel() {
 
 function renderInspector() {
   const layer = selectedLayer()
-  const head = (title) => `<div class="sheet-head"><h2>${title}</h2>${iconButton("close", `data-action="close-panel" aria-label="Close" title="Close"`)}</div>`
+  const head = (title) => `<div class="sheet-head"><h2>${title}</h2><div class="sheet-transport">${state.layers.length ? `${iconButton("skip_previous", `data-action="jump" data-jump="-1" aria-label="Back" title="Back"`)}<button class="icon-btn sheet-play ${playing ? "is-on" : ""}" id="sheet-play" data-action="play" aria-label="${playing ? "Stop" : "Play"}" title="${playing ? "Stop" : "Play"}">${ms(playing ? "stop" : "play_arrow", "glyph")}</button>` : ""}${iconButton("close", `data-action="close-panel" aria-label="Close" title="Close"`)}</div></div>`
   let body = ""
   if (state.panel === "record") {
     const micMode = state.recordMode === "mic"
@@ -2362,13 +2371,21 @@ function renderInspector() {
   } else if (state.panel === "notes") {
     body = noteCheckPanel(head)
   } else if (state.panel === "build") {
-    const shaping = selectedLayer()
-    const shapingLength = shaping?.lengthSec || state.lengthSec
+    const picked = selectedLayer()
+    const songWide = state.lengthScope !== "layer" || !picked
+    const shaping = songWide ? null : picked
+    const shapingLength = songWide ? state.lengthSec : shaping?.lengthSec || state.lengthSec
+    const fadeIn = songWide ? state.fadeIn || 0 : shaping?.fadeIn || 0
+    const fadeOut = songWide ? state.fadeOut || 0 : shaping?.fadeOut || 0
     const mins = shapingLength ? Math.floor(shapingLength / 60) : ""
     const secs = shapingLength ? String(shapingLength % 60).padStart(2, "0") : ""
     const suggestions = INTENTS.find((item) => item.id === state.intent)
     body = `${head("How long, and how it builds")}
-      <p class="hint">${shaping ? `Working on ${esc(shaping.name)}.` : "Record a sound first."} Pick how long the song is, and whether it starts soft and builds up.</p>
+      ${picked ? `<div class="choices scope-row" role="group" aria-label="What to change">
+        ${filterChip(`${ms("layers")}Whole song`, `data-action="length-scope" data-scope="song"`, songWide)}
+        ${filterChip(`Just ${esc(picked.name)}`, `data-action="length-scope" data-scope="layer"`, !songWide)}
+      </div>` : ""}
+      <p class="hint">${!state.layers.length ? "Record a sound first. " : songWide ? "Changes the whole song: every layer loops or stops to fit. " : `Changes only ${esc(shaping.name)}. `}Pick how long it is, how it fades, and whether it builds up.</p>
       <label class="field">Say what you want
         <textarea id="wish" rows="3" placeholder="3 minutes, soft intro, build up, then soften at the end">${esc(state.wish)}</textarea>
       </label>
@@ -2381,6 +2398,11 @@ function renderInspector() {
         <label class="field">Seconds<input id="len-sec" type="number" min="0" max="59" value="${secs}" aria-label="Seconds" /></label>
         ${outlinedButton("Use this length", `data-action="apply-length-custom"`)}
       </div>
+      <p class="ask">Fade in</p>
+      <div class="choices">${[[0, "None"], [2, "2 sec"], [4, "4 sec"], [8, "8 sec"]].map(([seconds, label]) => filterChip(label, `data-action="set-fade" data-which="in" data-seconds="${seconds}"`, fadeIn === seconds)).join("")}</div>
+      <p class="ask">Fade out</p>
+      <div class="choices">${[[0, "None"], [3, "3 sec"], [6, "6 sec"], [10, "10 sec"]].map(([seconds, label]) => filterChip(label, `data-action="set-fade" data-which="out" data-seconds="${seconds}"`, fadeOut === seconds)).join("")}</div>
+      <p class="hint">${songWide ? "Fades are on the whole song, and in your download." : `Fades ${esc(shaping.name)} in at its start and out at its end.`}</p>
       <p class="ask">How should it feel?</p>
       <div class="choices">${INTENTS.map((item) => filterChip(item.title, `data-action="pick-intent" data-intent="${item.id}"`, state.intent === item.id)).join("")}</div>
       ${suggestions ? `<p class="hint">${esc(suggestions.detail)}</p>${suggestions.shapes.map((id) => {
@@ -2736,8 +2758,8 @@ function rememberSong() {
   state.song.fadeOut = state.fadeOut || 0
   state.song.era = state.era
   state.song.songKey = state.songKey ?? null
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut,
   }))
   state.song.audioKept = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
   const stored = saveSongs()
@@ -2976,17 +2998,40 @@ function micLevelBox() {
 
 async function startMicTest() {
   if (state.micTest || state.recording || state.counting) return
+  // Start the sound engine inside the tap, and tell the phone the mic is
+  // coming before asking for it: an iPhone set to playback-only won't open it.
+  const ctx = ac()
+  if (ctx.state !== "running") void ctx.resume().catch(() => {})
+  state.micTest = true
+  audioSession("auto")
+  levelWatch.word = "Opening the mic…"
+  renderInspector()
   try {
-    recStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
-    })
-  } catch {
-    $("save-status").textContent = "Microphone permission is needed to check the level."
+    try {
+      recStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      })
+    } catch (error) {
+      if (error && (error.name === "NotAllowedError" || error.name === "SecurityError")) throw error
+      recStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    }
+  } catch (error) {
+    state.micTest = false
+    levelWatch.word = error && error.name === "NotAllowedError"
+      ? "Songbird needs the microphone. Allow it in your browser's settings, then try again."
+      : "The mic didn't open. Close other apps using it, then try again."
+    keepSpeakerOn()
+    renderInspector()
     return
   }
-  audioSession("auto")
+  if (!state.micTest) {
+    recStream.getTracks().forEach((track) => track.stop())
+    recStream = null
+    return
+  }
+  if (ctx.state !== "running") await ctx.resume().catch(() => {})
   armHotMic(recStream)
-  state.micTest = true
+  levelWatch.word = "Listening. Sing or talk like you will when you record."
   levelWatch.peak = 0
   levelWatch.held = 0
   renderInspector()
@@ -2997,6 +3042,7 @@ function stopMicTest(keepStream) {
   if (!state.micTest) return
   state.micTest = false
   levelWatch.word = ""
+  keepSpeakerOn()
   if (!keepStream) {
     recStream?.getTracks().forEach((track) => track.stop())
     recStream = null
@@ -3046,7 +3092,7 @@ function watchLevel() {
       let word
       if (now - (levelWatch.rawAt || 0) < 1500) word = "Too loud for the mic. Move back a little."
       else if (levelWatch.held > 0.9) word = micLevel.auto ? "Very loud. Move back a little." : "Too loud. Turn it down or move back."
-      else if (levelWatch.held < 0.02) word = "I can't hear much. Sing or play something."
+      else if (levelWatch.held < 0.02) word = "I can't hear anything yet. Sing or talk into the mic."
       else if (levelWatch.held < 0.08) word = micLevel.auto ? "A bit quiet. Songbird will lift it, but closer sounds clearer." : "Too quiet. Turn it up or move closer."
       else word = "Good level."
       if (word !== levelWatch.word) {
@@ -3711,13 +3757,29 @@ function shapeSelectedLayer(lengthSec, shapeId, heard) {
 
 function applyPlan(lengthSec, shapeId, heard) {
   const layer = selectedLayer()
-  if (layer && buffers.get(layer.id + ":audio")) {
+  if (state.lengthScope === "layer" && layer && buffers.get(layer.id + ":audio")) {
     shapeSelectedLayer(lengthSec, shapeId, heard)
     return
   }
   const nextLength = clampLength(lengthSec || state.lengthSec || 60)
   const nextShape = SHAPES[shapeId] ? shapeId : null
   snapshot()
+  // The whole song: each layer loops to fill the new length, or stops at it.
+  for (const item of state.layers) {
+    const source = buffers.get(item.id + ":audio")
+    if (!source) continue
+    const start = item.range ? item.range.start : 0
+    if (start >= nextLength - 0.05) continue
+    const want = nextLength - start
+    const has = item.range ? item.range.end - start : item.lengthSec || source.duration
+    if (Math.abs(has - want) < 0.05 && Math.abs(source.duration - want) < 0.05) continue
+    const tiled = tilePhrase(source, want)
+    buffers.set(item.id + ":audio", tiled)
+    item.peaks = peaksFromSamples(tiled.getChannelData(0))
+    item.lengthSec = Math.round(want * 100) / 100
+    item.range = { start, end: start + want }
+    if (item.shape) item.shape = null
+  }
   state.lengthSec = nextLength
   if (nextShape && nextShape !== state.shape) state.sections = null
   state.shape = nextShape
@@ -3728,6 +3790,7 @@ function applyPlan(lengthSec, shapeId, heard) {
   renderTracks()
   renderInspector()
   $("save-status").textContent = state.heard
+  if (playing) play(Math.min(state.playAt || 0, Math.max(0, nextLength - 1)))
 }
 
 function lengthNote(seconds, hadShape, extra) {
@@ -4691,6 +4754,14 @@ let busNode = null
 const GUIDE_LEVEL = 0.1
 
 function syncListen(on) {
+  const sheet = $("sheet-play")
+  if (sheet) {
+    sheet.classList.toggle("is-on", on)
+    sheet.setAttribute("aria-label", on ? "Stop" : "Play")
+    sheet.title = on ? "Stop" : "Play"
+    const glyph = sheet.querySelector(".glyph")
+    if (glyph) glyph.textContent = on ? "stop" : "play_arrow"
+  }
   const button = $("listen-btn")
   if (!button) return
   button.classList.toggle("on", on)
@@ -4755,6 +4826,23 @@ function hearingMark(layer) {
   return { className: "", label: "" }
 }
 
+// A fade in at the start and out at the end of a stretch of the song.
+function scheduleEnvelope(param, fadeIn, fadeOut, start, end, from, when) {
+  const length = Math.max(0.05, end - start)
+  const fin = Math.min(fadeIn, length / 2)
+  const fout = Math.min(fadeOut, length / 2)
+  const level = (t) => {
+    const at = t - start
+    let v = 1
+    if (fin && at < fin) v = Math.min(v, Math.max(0, at / fin))
+    if (fout && at > length - fout) v = Math.min(v, Math.max(0, (length - at) / fout))
+    return Math.max(0.0001, v)
+  }
+  param.cancelScheduledValues(when)
+  param.setValueAtTime(level(from), when)
+  for (const t of [start + fin, end - fout, end]) if (t > from) param.linearRampToValueAtTime(level(t), when + (t - from))
+}
+
 function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
   const rangeStart = layer.range ? layer.range.start : 0
   const rangeEnd = layer.range ? Math.min(span, layer.range.end) : span
@@ -4808,7 +4896,13 @@ function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
   low.connect(high)
   high.connect(gain)
   gain.connect(gate)
-  gate.connect(hole)
+  if ((layer.fadeIn || 0) > 0 || (layer.fadeOut || 0) > 0) {
+    // This layer's own fade, over its place in the song.
+    const fade = ctx.createGain()
+    scheduleEnvelope(fade.gain, layer.fadeIn || 0, layer.fadeOut || 0, rangeStart, rangeEnd, from, when)
+    gate.connect(fade)
+    fade.connect(hole)
+  } else gate.connect(hole)
   hole.connect(pan)
   pan.connect(dry)
   dry.connect(destination)
@@ -5114,6 +5208,28 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "play") playing ? stopPlayback() : play()
   if (action === "jump") jumpSection(Number(node.dataset.jump) < 0 ? -1 : 1)
+  if (action === "length-scope") {
+    state.lengthScope = node.dataset.scope === "layer" ? "layer" : "song"
+    renderInspector()
+  }
+  if (action === "set-fade") {
+    const which = node.dataset.which === "in" ? "in" : "out"
+    const seconds = Math.max(0, Number(node.dataset.seconds) || 0)
+    const layer = state.lengthScope === "layer" ? selectedLayer() : null
+    let text
+    if (layer) {
+      snapshot([layer.id])
+      if (which === "in") layer.fadeIn = seconds
+      else layer.fadeOut = seconds
+      rememberSong()
+      text = seconds ? `${layer.name} fades ${which} over ${seconds} seconds. Undo takes it back.` : `${layer.name} has no fade ${which} now.`
+      if (playing) play(which === "out" ? Math.max(0, (layer.range?.end || state.lengthSec || 0) - seconds - 2) : layer.range?.start || 0)
+    } else {
+      text = setFade(which, seconds).text
+    }
+    $("save-status").textContent = text
+    renderInspector()
+  }
   if (action === "mic-auto") {
     micLevel.auto = !micLevel.auto
     levelWatch.word = ""

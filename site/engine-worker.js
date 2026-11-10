@@ -1,7 +1,7 @@
 // Songbird sound engine, off the main thread.
 // Runs the same music.js and packages.js the page uses, so the studio keeps
 // scrolling, animating, and playing while a layer is being built.
-importScripts("music.js", "packages.js")
+importScripts(`music.js${self.location.search}`, `packages.js${self.location.search}`)
 
 function transferList(value, list = []) {
   if (!value || typeof value !== "object") return list
