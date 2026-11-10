@@ -1135,7 +1135,7 @@ function syncLoopChip() {
 function syncDock() {
   const open = document.body.classList.contains("sheet-open")
   document.querySelectorAll(".dock-btn").forEach((button) => {
-    const on = open && button.dataset.panel === (state.panel === "sounds" || state.panel === "notes" ? "transform" : state.panel)
+    const on = open && button.dataset.panel === (["sounds", "notes", "arrange"].includes(state.panel) ? "transform" : state.panel)
     button.classList.toggle("on", on)
     button.setAttribute("aria-pressed", on ? "true" : "false")
   })
@@ -2370,6 +2370,8 @@ function renderInspector() {
     body = soundsPanel(head)
   } else if (state.panel === "notes") {
     body = noteCheckPanel(head)
+  } else if (state.panel === "arrange") {
+    body = arrangeMarkup(head)
   } else if (state.panel === "build") {
     const picked = selectedLayer()
     const songWide = state.lengthScope !== "layer" || !picked
@@ -2758,8 +2760,8 @@ function rememberSong() {
   state.song.fadeOut = state.fadeOut || 0
   state.song.era = state.era
   state.song.songKey = state.songKey ?? null
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole,
   }))
   state.song.audioKept = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
   const stored = saveSongs()
@@ -3869,8 +3871,11 @@ function scheduleHoles(hole, gaps, when, fromSec) {
   for (const gap of upcoming) {
     const down = Math.max(cursor + 0.01, when + Math.max(0, gap.start - fromSec))
     const up = Math.max(down + 0.01, when + (gap.end - fromSec))
-    param.setValueAtTime(0, down)
-    param.setValueAtTime(1, up)
+    // A short ramp, so a part comes in and drops out without a click.
+    param.setValueAtTime(1, down)
+    param.linearRampToValueAtTime(0, down + 0.02)
+    param.setValueAtTime(0, up)
+    param.linearRampToValueAtTime(1, up + 0.02)
     cursor = up
   }
 }
@@ -4800,7 +4805,7 @@ function refreshMix(layer) {
   const space = Math.max(0, Math.min(1, layer.space || 0))
   nodes.dry.gain.setValueAtTime(1 - space * 0.35, now)
   nodes.wet.gain.setValueAtTime(space * 0.5, now)
-  if (nodes.echo) nodes.echo.gain.setValueAtTime(Math.min(0.5, layer.echo || 0), now)
+  if (nodes.echo) nodes.echo.gain.setValueAtTime(Math.min(0.6, (layer.echo || 0) * 1.2), now)
   const span = nodes.span || layer.lengthSec || state.lengthSec || 1
   const elapsed = songSeconds(now)
   const shapeId = layer.shape || state.shape
@@ -4881,11 +4886,13 @@ function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
   let echoGain = null
   if ((layer.echo || 0) > 0.02) {
     const delay = ctx.createDelay(1.5)
-    delay.delayTime.value = layer.room === "large" ? 0.32 : layer.room === "medium" ? 0.2 : 0.13
+    // The echo repeats on the eighth note, so it lands in time with the song.
+    const eighth = Math.min(0.6, 30 / Math.max(40, state.bpm || 92))
+    delay.delayTime.value = layer.room === "large" ? 0.32 : layer.room === "medium" ? 0.2 : eighth
     const feedback = ctx.createGain()
-    feedback.gain.value = Math.min(0.42, (layer.echo || 0) * 0.7)
+    feedback.gain.value = Math.min(0.45, (layer.echo || 0) * 0.9)
     echoGain = ctx.createGain()
-    echoGain.gain.value = Math.min(0.5, layer.echo)
+    echoGain.gain.value = Math.min(0.6, layer.echo * 1.2)
     pan.connect(delay)
     delay.connect(feedback)
     feedback.connect(delay)
