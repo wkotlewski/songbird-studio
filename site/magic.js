@@ -344,6 +344,14 @@ async function makePart(choice, options = {}) {
   if (fromPlay) source = null
   else if (choice.family === "drums") source = source && kindOf(source) === "drums" ? source : rhythmLayer()
   else if (!source || kindOf(source) === "drums") source = melodyLayer()
+  // A part Songbird built from notes (one you played, or chords it chose)
+  // hands those notes on, so a new part follows them instead of listening
+  // to the audio.
+  if (!fromPlay && source && choice.family !== "drums" && !isRecording(source) && playedPart(source)?.melody) {
+    choice = withPlayed(choice, source)
+    fromPlay = true
+    source = null
+  }
   if (choice.family !== "drums" && !source && !fromPlay) {
     // No tune yet, only a beat (or nothing): the instrument plays chords in
     // the song's key, a chord a bar, in time with what's there.
@@ -449,7 +457,7 @@ const FAMILY_COLORS = { drums: "#3d7eff", bass: "#d98a00", keys: "#f0a202", guit
 
 async function tightenAll(what = { snap: true, tune: true }) {
   const layers = state.layers.filter((layer) => isRecording(layer) && buffers.get(layer.id + ":audio"))
-  if (!layers.length) return { text: "Record something first, then I can tighten it.", warn: true }
+  if (!layers.length) return state.layers.length ? { text: "Everything here was played on the beat already, so it's tight." } : { text: "Record something first, then I can tighten it.", warn: true }
   state.transforming = true
   say(what.snap && what.tune ? "Snapping everything to the beat and fixing pitch…" : what.snap ? "Snapping everything to the beat…" : "Fixing pitch…")
   renderInspector()
@@ -655,6 +663,10 @@ function nudgeSpace(amount, echo) {
     refreshMix(layer)
   }
   rememberSong()
+  // An echo that wasn't there when the song started needs its own path, so
+  // the song picks up where it is with the new sound. If it wasn't playing,
+  // it plays so you hear the change.
+  play(playing ? Math.max(0, songSeconds(ac().currentTime)) : 0)
 }
 
 async function setEra(era) {
@@ -872,8 +884,18 @@ function layerNamed(text) {
 
 async function runRequest(raw) {
   const text = ` ${String(raw || "").toLowerCase().replace(/[’']/g, "").replace(/\s+/g, " ").trim()} `
+    // Phone keyboards often write “baseline” or “base” for bass.
+    .replace(/\bbase ?lines?\b/g, "bass line")
+    .replace(/\b(add|some|a|the|more|less|my|turn up the|turn down the) base\b/g, "$1 bass")
   if (!text.trim()) return { text: "Tell me what you want, like “add a horn section” or “make it tight”." }
   if (!state.layers.some((layer) => buffers.get(layer.id + ":audio"))) return { text: "Record a loop first, then tell me what to do with it.", warn: true }
+
+  // “Make it a full song”, “verse chorus bridge”: the song builder, which
+  // reads the whole request itself.
+  if (/(full|whole|complete|finished|real) song|make (it|this) (a|into a) song|a song i can|arrange|song structure|verse.*(chorus|bridge)|chorus.*(verse|bridge)|finish (it|my song|the song)|turn (it|this) into a song|build (it|the song|my song) out/.test(text)) {
+    openArrange(raw)
+    return { text: "Here's a plan for the whole song. Change anything you like, then tap Build my song." }
+  }
 
   // Several requests in one: “make it tight and add drums”.
   const pieces = text.split(/\s(?:and then|then|and also|also|plus|,|;)\s|\sand\s(?=(?:add|make|turn|bring|put|give|change|fade|remove|take|raise|lower|move|transpose|speed|slow|clean|fix|tighten|snap|tune|mute)\b)/).map((piece) => ` ${piece.trim()} `).filter((piece) => piece.trim())
@@ -924,7 +946,7 @@ async function runRequest(raw) {
   if (/(reverb|space|room|echo|wet|dry|roomy|spacious|cathedral|hall)/.test(text)) {
     const echo = /echo|delay/.test(text)
     const less = /(less|dry|drier|remove|no |reduce|tighter)/.test(text)
-    nudgeSpace(less ? -0.18 : 0.18, echo)
+    nudgeSpace(less ? -0.25 : 0.25, echo)
     return { text: `${less ? "Less" : "More"} ${echo ? "echo" : "room sound"} on every layer. Undo puts it back.` }
   }
 
@@ -963,10 +985,13 @@ async function runRequest(raw) {
     if (genre) return useGenre(genre)
   }
 
-  const genre = genreFrom(text)
-  if (genre && /(make|turn|style|genre|vibe|feel|sound|give|add|like|into)/.test(text)) return useGenre(genre)
-
+  // “Add acoustic guitar chords” asks for a guitar, not the Acoustic genre:
+  // a named instrument wins unless a style is clearly asked for.
   const part = partFrom(text)
+  const genre = genreFrom(text)
+  const styleAsked = /(style|genre|vibe|feel like|sound like|make it|turn it into|package)/.test(text)
+  if (genre && (!part || styleAsked) && /(make|turn|style|genre|vibe|feel|sound|give|add|like|into)/.test(text)) return useGenre(genre)
+
   if (part) return makePart(part)
 
   return {
@@ -1034,6 +1059,7 @@ function magicPanel(head) {
       <textarea id="magic-say" rows="2" placeholder="Add a horn section and make it tight" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
       <button class="btn btn-primary magic-go" type="submit" ${busy}>${state.transforming ? "Working…" : `${ms("wand_stars")}Do it`}</button>
     </form>
+    ${sources.length ? `<button class="song-card" data-arrange-open>${ms("auto_awesome")}<span><b>Make it a full song</b><small>Pick a vibe. I'll add what's missing, lay out verse and chorus, fills, a climax, and fades.</small></span>${ms("arrow_forward")}</button>` : ""}
     ${chatMarkup()}
     <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your keyboard to say it out loud. Or try one:"}</p>
     <div class="choices magic-suggest">${SUGGESTIONS.map((line) => `<button class="chip" data-magic-say="${esc(line)}" ${busy}>${esc(line)}</button>`).join("")}</div>

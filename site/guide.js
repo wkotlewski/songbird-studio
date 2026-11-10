@@ -88,15 +88,19 @@ function ideasFor(step, facts) {
     go("More sounds", "library_music", "browse")
     return ideas
   }
+  if (step === "add" || step === "polish") {
+    // Once there's a groove, Songbird can finish the song.
+    if (facts.count >= 1 && !state.sections?.some((section) => /^arr-/.test(section.id))) ideas.push({ label: "Make it a full song", icon: "auto_awesome", action: "arrange" })
+  }
   if (step === "add") {
     if (!facts.hasDrums) say("Add a beat", "graphic_eq", "add drums")
     if (facts.hasMelody && !facts.hasBass) say("Add a bass line", "speaker", "add a bass line")
-    if (facts.hasMelody && !facts.hasChords) say("Add guitar", "music_note", "add acoustic guitar chords")
+    if (facts.hasMelody && !facts.hasChords) say("Add guitar", "music_note", "add guitar chords")
     if (facts.hasMelody && !facts.hasVoices) say("Add a choir", "record_voice_over", "add harmony vocals")
     if (facts.hasMelody && !facts.hasHorns) say("Add horns", "campaign", "add a horn section")
     if (facts.hasMelody) say("Add strings", "airwave", "add strings")
     if (!facts.hasMelody) go("Hum a tune on top", "mic", "record")
-    const picks = ideas.slice(0, 3)
+    const picks = ideas.slice(0, 4)
     picks.push({ label: "More sounds", icon: "library_music", action: "browse" })
     picks.push({ label: "Record another sound", icon: "mic", action: "record" })
     return picks
@@ -105,7 +109,8 @@ function ideasFor(step, facts) {
     go("Balance it for me", "tune", "balance")
     if (!facts.tight) say("Fix my timing & notes", "check", "make it tight")
     if (!state.fadeOut) say("Fade out at the end", "volume_down", "fade out at the end")
-    say("Add more echo", "spatial_audio", "more reverb")
+    say("Add more echo", "spatial_audio", "more echo")
+    say("More room sound", "speaker", "more reverb")
     return ideas
   }
   go("Save my song", "download", "save")
@@ -223,6 +228,10 @@ async function guideDo(action) {
     const title = $("song-title")
     title?.focus()
     title?.select?.()
+    return
+  }
+  if (action === "arrange") {
+    openArrange()
     return
   }
   if (action === "browse") {

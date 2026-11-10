@@ -186,7 +186,7 @@
         gain.gain.value = (hit.vel ?? 0.8) * (name === "hat" || name === "pedal-hat" ? 0.55 : 1)
         source.connect(gain)
         gain.connect(out)
-        source.start(hit.time, sample.offset)
+        source.start(Math.max(0, hit.time), sample.offset)
       }
     } else {
       const { info, notes } = await instrument(options.instrument, options.decodeWith || ctx, (plan.events || []).map((event) => event.midi))
@@ -203,9 +203,11 @@
         source.playbackRate.value = 2 ** ((event.midi - near) / 12)
         const gain = ctx.createGain()
         const level = (event.vel ?? 0.85) * (options.level ?? 1)
-        const lead = Math.min(sample.speak || 0, event.time) / source.playbackRate.value
-        const begin = event.time - lead
-        const end = event.time + Math.max(0.08, event.dur)
+        // A note can't start before the song does.
+        const at = Math.max(0, event.time)
+        const lead = Math.min(sample.speak || 0, at) / source.playbackRate.value
+        const begin = Math.max(0, at - lead)
+        const end = at + Math.max(0.08, event.dur)
         gain.gain.setValueAtTime(0, begin)
         gain.gain.linearRampToValueAtTime(level, begin + (held ? 0.03 : 0.004))
         const release = held ? 0.18 : 0.6
