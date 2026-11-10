@@ -947,22 +947,75 @@ button.plan-card.on { background: var(--md-secondary-container); border-color: v
   body[data-panel="arrange"] #inspector { max-height: 82dvh; }
 }
 
-/* ---- What's playing now ---------------------------------------------- */
+/* ---- Three states on a lane ------------------------------------------
+   Selected: the one layer your changes go to. A filled label, an outline,
+             and a "Selected" tag.
+   Playing:  only a small moving meter beside its name; resting parts of the
+             song show as an empty lane.
+   Muted:    grey, the name struck through, and the mute button lit. */
 .wave .bars i.rest { height: 2px !important; background: rgba(255, 251, 242, 0.12) !important; }
-.track .track-label { transition: opacity 0.2s ease, box-shadow 0.2s ease; }
-.track.resting .track-label { opacity: 0.5; }
-.track.resting .lane { opacity: 0.55; }
-.track.sounding .track-label { box-shadow: inset 3px 0 0 #34D399, 0 0 0 1px rgba(52, 211, 153, 0.35); }
+.track.selected .track-label {
+  outline: 2px solid var(--md-primary);
+  outline-offset: -2px;
+  background: var(--md-secondary-container);
+}
+.track.selected .lane { box-shadow: inset 0 0 0 2px rgba(52, 211, 153, 0.45); border-radius: 12px; }
+.track-meta small.picked {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  padding: 1px 8px 1px 4px;
+  border-radius: 999px;
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+.track-meta small.picked .ms { font-size: 14px; }
+.track.resting .lane { opacity: 0.45; }
 .track.sounding .role::before {
   content: "";
   display: inline-block;
-  width: 7px;
-  height: 7px;
+  width: 12px;
+  height: 10px;
   margin-right: 5px;
-  border-radius: 50%;
-  background: #34D399;
-  vertical-align: 1px;
-  animation: sounding-pulse 0.9s ease-in-out infinite alternate;
+  vertical-align: -1px;
+  background:
+    linear-gradient(#34D399, #34D399) 0 100% / 3px 60% no-repeat,
+    linear-gradient(#34D399, #34D399) 4.5px 100% / 3px 100% no-repeat,
+    linear-gradient(#34D399, #34D399) 9px 100% / 3px 40% no-repeat;
+  animation: sounding-meter 0.6s ease-in-out infinite alternate;
 }
-@keyframes sounding-pulse { from { opacity: 0.45; transform: scale(0.8); } to { opacity: 1; transform: scale(1.1); } }
+@keyframes sounding-meter {
+  from { background-size: 3px 40%, 3px 90%, 3px 60%; }
+  to { background-size: 3px 90%, 3px 50%, 3px 100%; }
+}
 @media (prefers-reduced-motion: reduce) { .track.sounding .role::before { animation: none; } }
+.track.muted .layer-name { text-decoration: line-through; }
+.track.muted .track-label { outline-style: dashed; }
+button.layer-mute {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  cursor: pointer;
+}
+button.layer-mute .ms { font-size: 19px; }
+button.layer-mute.on { background: rgba(236, 72, 153, 0.22); color: #F9A8D4; }
+@media (max-width: 759px) {
+  /* Room for the name next to mute and delete. */
+  .label-top { gap: 0; }
+  .track-label button.layer-mute,
+  .track-label button.layer-delete { width: 24px; height: 24px; min-width: 24px; min-height: 24px; }
+  .track-label button.layer-mute .ms,
+  .track-label button.layer-delete .ms { font-size: 17px; }
+  .track-label .layer-name { padding-left: 2px; padding-right: 2px; }
+}
