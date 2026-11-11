@@ -710,11 +710,17 @@ async function setEra(era) {
   return { text: `${changed.length === 1 ? "The part" : `${changed.length} parts`} now sound like ${name}. Your own recordings stay as they are.` }
 }
 
+// Hiss and background noise come out of your recordings: the layer you
+// picked, or every recording in the song.
 async function cleanNoise() {
-  const layers = state.layers.filter((layer) => isRecording(layer) && buffers.get(layer.id + ":audio"))
-  if (!layers.length) return { text: "Record something first.", warn: true }
+  const layers = magicTargets().filter((layer) => isRecording(layer) && buffers.get(layer.id + ":audio"))
+  if (!layers.length) {
+    return state.magicScope === "layer" && state.layers.some((layer) => isRecording(layer))
+      ? { text: "That layer was made by Songbird, so it has no mic hiss. Pick one of your recordings, or Whole song.", warn: true }
+      : { text: "Record something first.", warn: true }
+  }
   state.transforming = true
-  say("Removing background noise…")
+  say("Removing hiss and background noise…")
   const changed = []
   try {
     for (const layer of layers) {
@@ -734,7 +740,7 @@ async function cleanNoise() {
   rememberSong()
   renderTracks()
   play(0)
-  return { text: `Background noise is down on ${changed.length === 1 ? changed[0].layer.name : `${changed.length} recordings`}. Undo brings it back.` }
+  return { text: `Hiss and background noise are out of ${changed.length === 1 ? changed[0].layer.name : `${changed.length} recordings`}. Undo brings them back.` }
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,7 +1039,7 @@ async function useGenre(id) {
 
 const SUGGESTIONS = [
   "Fix my timing & notes",
-  "Remove background noise",
+  "Remove hiss and background noise",
   "Add a horn section",
   "Add harmony vocals",
   "Add drums",

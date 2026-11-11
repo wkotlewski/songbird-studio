@@ -927,9 +927,18 @@ function startCapture(stream) {
       samples.set(chunk, at)
       at += chunk.length
     }
-    cleanTake(samples, ctx.sampleRate)
-    take.wav = new Blob([encodeWav(audioBuffer(samples, ctx.sampleRate))], { type: "audio/wav" })
-    take.onstop?.()
+    const finish = (clean) => {
+      if (clean && clean.length === samples.length) samples.set(clean)
+      cleanTake(samples, ctx.sampleRate)
+      take.wav = new Blob([encodeWav(audioBuffer(samples, ctx.sampleRate))], { type: "audio/wav" })
+      take.onstop?.()
+    }
+    // Phone mics hiss. Unless you turned it off, each take has its steady
+    // hiss taken out before it's levelled, so lifting a quiet take doesn't
+    // lift the hiss with it.
+    if (micLevel.clean && samples.length > ctx.sampleRate) {
+      engine.call("removeHiss", samples, ctx.sampleRate, { amount: 0.6 }).then(finish, () => finish(null))
+    } else finish(null)
   }
   return take
 }
@@ -971,9 +980,9 @@ function cleanTake(samples, rate) {
 const micLevel = (() => {
   try {
     const saved = JSON.parse(localStorage.getItem("songbird-mic-level") || "null")
-    if (saved && typeof saved.db === "number") return { auto: saved.auto !== false, db: Math.max(-12, Math.min(18, saved.db)) }
+    if (saved && typeof saved.db === "number") return { auto: saved.auto !== false, db: Math.max(-12, Math.min(18, saved.db)), clean: saved.clean !== false }
   } catch { /* first visit */ }
-  return { auto: true, db: 0 }
+  return { auto: true, db: 0, clean: true }
 })()
 
 function micGainValue() {
@@ -3065,6 +3074,7 @@ function micLevelBox() {
       <span>${ms("volume_up")}</span>
       <b id="mic-gain-value">${db > 0 ? "+" : ""}${db} dB</b>
     </label>
+    <div class="choices">${filterChip("Remove hiss as I record", `data-action="mic-clean" aria-pressed="${micLevel.clean}" ${busy ? "disabled" : ""}`, micLevel.clean)}</div>
     ${state.recording ? "" : outlinedButton(state.micTest ? `${ms("stop")}Stop checking` : `${ms("mic")}Check my mic`, `data-action="mic-test" ${busy ? "disabled" : ""}`)}
   </div>`
 }
@@ -5308,6 +5318,12 @@ document.body.addEventListener("click", (event) => {
       text = setFade(which, seconds).text
     }
     $("save-status").textContent = text
+    renderInspector()
+  }
+  if (action === "mic-clean") {
+    micLevel.clean = !micLevel.clean
+    saveMicLevel()
+    $("save-status").textContent = micLevel.clean ? "New recordings will have their hiss removed." : "New recordings keep everything the mic hears."
     renderInspector()
   }
   if (action === "mic-auto") {

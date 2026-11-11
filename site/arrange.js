@@ -6,6 +6,17 @@
 
 const SONG_PLANS = [
   {
+    // After the arrangements on Olivia Dean's The Art of Loving: piano alone
+    // first, strings and low end slip in, the band arrives by the
+    // pre-chorus, a full chorus with picked guitar and horns set back, verse
+    // two pulls back, a hush to piano and voice, then the biggest chorus.
+    id: "soul",
+    name: "Build like a soul song",
+    icon: "favorite",
+    line: "Piano first, strings slip in, the band arrives for the chorus, a hush, then the biggest chorus.",
+    sections: [["Intro", 4], ["Verse", 8], ["Pre-chorus", 4], ["Chorus", 8], ["Verse 2", 8], ["Chorus", 8], ["Hush", 2], ["Last chorus", 8], ["Outro", 4]],
+  },
+  {
     id: "song",
     name: "A song to sing over",
     icon: "mic",
@@ -40,6 +51,7 @@ const VIBES = [
   { id: "chill", name: "Chill", words: /chill|calm|mellow|relax|laid ?back|lofi|lo-fi/, chords: "electric-piano", solo: "flute", kit: "brush", bass: "bass" },
   { id: "upbeat", name: "Upbeat", words: /upbeat|energetic|bright|fun|bouncy|pop/, chords: "steel-guitar", solo: "trumpet", kit: "standard", bass: "bass" },
   { id: "dreamy", name: "Dreamy", words: /dream|float|spacey|ethereal|ambient/, chords: "warm-pad", solo: "vibraphone", kit: "electronic", bass: "synth-bass" },
+  { id: "warm", name: "Warm soul", words: /warm|motown|classic soul|neo.?soul|olivia|timeless|retro soul/, chords: "grand-piano", solo: "clean-guitar", kit: "room", bass: "bass" },
   { id: "soulful", name: "Soulful", words: /soul|gospel|r&b|rnb|church/, chords: "organ", solo: "tenor-sax", kit: "room", bass: "bass" },
   { id: "funky", name: "Funky", words: /funk|groovy|disco/, chords: "clean-guitar", solo: "alto-sax", kit: "standard", bass: "bass" },
   { id: "rock", name: "Rock", words: /rock|loud|heavy|punk|grunge/, chords: "rock-guitar", solo: "rock-guitar", kit: "power", bass: "bass" },
@@ -62,8 +74,31 @@ const ADDS = [
   { id: "solo", name: "A solo" },
   { id: "strings", name: "Strings" },
   { id: "horns", name: "Horns" },
+  { id: "guitar", name: "Guitar picking" },
   { id: "fills", name: "Fills into big parts" },
 ]
+
+// A plan can have its own rules for who plays where.
+const PLAN_RULES = {
+  soul: {
+    drums: { Intro: false, Verse: false, "Pre-chorus": true, Chorus: true, "Verse 2": "half", Hush: false, "Last chorus": true, Outro: false },
+    bass: { Intro: false, Verse: "half", "Pre-chorus": true, Chorus: true, "Verse 2": true, Hush: false, "Last chorus": true, Outro: false },
+    strings: { Intro: false, Verse: true, "Pre-chorus": true, Chorus: true, "Verse 2": false, Hush: false, "Last chorus": true, Outro: true },
+    vocals: { Chorus: true, "Last chorus": true },
+    horns: { Chorus: true, "Last chorus": true },
+    guitar: { Chorus: true, "Verse 2": true, "Last chorus": true },
+    solo: { "Verse 2": "half" },
+  },
+}
+
+// Where a part sits in the mix: horns a step back, strings and voices with
+// a little room around them, as on a classic soul record.
+const MIX_PLACE = {
+  horns: { gain: 0.6, space: 0.35 },
+  strings: { gain: 0.72, space: 0.3 },
+  vocals: { gain: 0.7, space: 0.32 },
+  guitar: { gain: 0.6, space: 0.15, pan: -0.45 },
+}
 
 // true: plays the whole section. "half": comes in halfway. false: rests.
 const PLAYS_IN = {
@@ -101,6 +136,9 @@ function suggestedAdds() {
   if (!facts.hasDrums && arrange.plan !== "background") picks.add("drums")
   if (!facts.hasBass) picks.add("bass")
   if (!facts.hasChords) picks.add("chords")
+  if (arrange.plan === "soul") {
+    for (const id of ["strings", "vocals", "horns", "guitar"]) picks.add(id)
+  }
   if (arrange.plan === "song" || arrange.vibes.includes("soulful")) picks.add("vocals")
   if (arrange.plan === "jam" || arrange.plan === "song") picks.add("solo")
   if (arrange.plan === "climax" || arrange.vibes.some((id) => ["epic", "sad", "dreamy"].includes(id))) picks.add("strings")
@@ -123,6 +161,7 @@ function addLabel(id) {
   if (id === "solo") return `A solo · ${name(vibe.solo)}`
   if (id === "strings") return "Strings · String section"
   if (id === "horns") return "Horns · Horn section"
+  if (id === "guitar") return "Guitar picking · Clean electric"
   return "Fills into big parts"
 }
 
@@ -154,7 +193,8 @@ function readSongWish(text) {
   const notes = []
   // “Background vocals” is a part, not background music.
   const plain = said.replace(/(background|backing|backup) (vocals|voices|singers|singing|oohs)/g, "choir")
-  if (/verse|chorus|bridge|sing over|sing to|record (my )?vocals|vocals to|lyrics|song structure/.test(plain)) arrange.plan = "song"
+  if (/soul song|like a soul|olivia dean|art of loving|motown|build like|slow build|piano first/.test(plain)) arrange.plan = "soul"
+  else if (/verse|chorus|bridge|sing over|sing to|record (my )?vocals|vocals to|lyrics|song structure/.test(plain)) arrange.plan = "song"
   else if (/climax|big finish|build( up)?|crescendo|peak/.test(plain)) arrange.plan = "climax"
   else if (/jam|groove|steady|loop|vamp/.test(plain)) arrange.plan = "jam"
   else if (/background|study|focus|under a video|while i work/.test(plain)) arrange.plan = "background"
@@ -173,6 +213,7 @@ function readSongWish(text) {
   want("strings", "strings|violin|orchestra")
   want("horns", "horns?|brass|trumpets?")
   want("fills", "fills?|transitions?")
+  want("guitar", "guitar picking|picked guitar|fingerpick|electric guitar")
   arrange.adds = adds
   // A named solo instrument: “a guitar solo”, “sax solo”.
   const soloWord = said.match(/(guitar|sax|saxophone|trumpet|flute|violin|piano|synth|organ|cello) solo|solo (on|with) (the )?(guitar|sax|saxophone|trumpet|flute|violin|piano|synth|organ|cello)/)
@@ -231,8 +272,8 @@ function sectionWho(section, adds, sections) {
   const facts = songFacts()
   const who = ["your sounds"]
   if (adds.has("chords")) who.push("chords")
-  const names = { vocals: "background vocals", solo: "the solo", drums: "drums", bass: "bass", strings: "strings", horns: "horns" }
-  for (const role of ["drums", "bass", "vocals", "solo", "strings", "horns"]) {
+  const names = { vocals: "background vocals", solo: "the solo", drums: "drums", bass: "bass", strings: "strings", horns: "horns", guitar: "guitar picking" }
+  for (const role of ["drums", "bass", "strings", "guitar", "vocals", "solo", "horns"]) {
     const has = role === "drums" ? adds.has("drums") || facts.hasDrums : role === "bass" ? adds.has("bass") || facts.hasBass : adds.has(role)
     if (!has) continue
     const gaps = gapsFor(role, sections)
@@ -273,7 +314,7 @@ function soloFromChords(notes) {
 }
 
 function gapsFor(role, sections) {
-  const rules = PLAYS_IN[role]
+  const rules = PLAN_RULES[arrange.plan]?.[role] || PLAYS_IN[role]
   if (!rules) return []
   const gaps = []
   for (const section of sections) {
@@ -308,12 +349,12 @@ function fallbackGaps(role, sections) {
 function fillHits(sections) {
   const beat = 60 / Math.max(40, state.bpm || 92)
   const hits = []
-  const big = new Set(["Chorus", "Climax", "Bridge", "Solo", "Build", "Groove", "Main", "Verse"])
+  const big = new Set(["Chorus", "Last chorus", "Pre-chorus", "Climax", "Bridge", "Solo", "Build", "Groove", "Main", "Verse"])
   sections.forEach((section, index) => {
     if (!index || !big.has(section.name)) return
     const at = section.start
     // A snare roll over the last beat, getting louder, then a crash.
-    const lift = ["Chorus", "Climax", "Solo"].includes(section.name)
+    const lift = ["Chorus", "Last chorus", "Climax", "Solo"].includes(section.name)
     const steps = lift ? 8 : 4
     for (let i = 0; i < steps; i++) {
       const t = at - (steps - i) * (lift ? beat / 4 : beat / 4)
@@ -380,6 +421,7 @@ async function buildSong() {
       if (item.id === "vocals") await make("vocals", { family: "voices", instrument: "choir-aahs", play: "section", rhythm: "played", era: state.era || "today" })
       if (item.id === "strings") await make("strings", { family: "strings", instrument: "strings", play: "section", rhythm: "played", era: state.era || "today" })
       if (item.id === "horns") await make("horns", { family: "horns", instrument: "brass-section", play: "section", rhythm: "played", era: state.era || "today" })
+      if (item.id === "guitar") await make("guitar", { family: "guitar", instrument: "clean-guitar", play: "chords", rhythm: "strum", era: state.era || "today" }, { name: "Guitar picking" })
       if (item.id === "solo") {
         const id = arrange.soloPick || vibe.solo
         const info = instrumentInfo(id)
@@ -409,6 +451,12 @@ async function buildSong() {
       // Your own drums stay in the intro when nothing else could carry it.
       if (role === "drums" && !layer.arrangeRole && !facts.hasMelody && !adds.has("chords")) continue
       layer.gaps = gapsFor(role, sections)
+      const place = layer.arrangeRole && MIX_PLACE[role]
+      if (place) {
+        layer.gain = place.gain
+        layer.space = Math.max(layer.space || 0, place.space)
+        if (place.pan != null) layer.pan = place.pan
+      }
     }
     if (adds.has("fills") && (facts.hasDrums || adds.has("drums"))) {
       step("Adding fills into the big parts…")
