@@ -710,26 +710,49 @@ async function setEra(era) {
   return { text: `${changed.length === 1 ? "The part" : `${changed.length} parts`} now sound like ${name}. Your own recordings stay as they are.` }
 }
 
-// Hiss and background noise come out of your recordings: the layer you
-// picked, or every recording in the song.
+// Hiss and background noise come out of the layer you picked, or every
+// layer in the song. Your recordings always get the clean-up. Any other
+// layer is checked for real hiss (flat and even at the top end, in its
+// quiet moments) and cleaned if it has it, whatever made it. Drums and
+// percussion are left alone: a shaker or a hi-hat is meant to hiss.
 async function cleanNoise() {
-  const layers = magicTargets().filter((layer) => isRecording(layer) && buffers.get(layer.id + ":audio"))
-  if (!layers.length) {
-    return state.magicScope === "layer" && state.layers.some((layer) => isRecording(layer))
-      ? { text: "That layer was made by Songbird, so it has no mic hiss. Pick one of your recordings, or Whole song.", warn: true }
-      : { text: "Record something first.", warn: true }
-  }
+  const layers = magicTargets().filter((layer) => buffers.get(layer.id + ":audio"))
+  if (!layers.length) return { text: "Record something first.", warn: true }
   state.transforming = true
-  say("Removing hiss and background noise…")
   const changed = []
+  const clean = []
   try {
+    let n = 0
     for (const layer of layers) {
+      n++
+      say(`Listening for hiss in ${layer.name} (${n} of ${layers.length})…`)
       const audio = buffers.get(layer.id + ":audio")
-      const made = await engine.call("enhanceAudio", samplesOf(audio), audio.sampleRate, { mode: "clear", amount: 0.8, loopSamples: audio.loopSamples || 0 })
-      changed.push({ layer, audio, buffer: loopedBuffer(made, audio.sampleRate, audio.loopSamples || 0) })
+      const loopSamples = audio.loopSamples || 0
+      const samples = samplesOf(audio)
+      const look = loopSamples ? samples.subarray(0, loopSamples) : samples
+      const mine = isRecording(layer)
+      const drums = layer.family === "drums" || kindOf(layer) === "drums" || layer.make?.family === "drums"
+      if (!mine && drums) {
+        clean.push(layer.name)
+        continue
+      }
+      if (!mine) {
+        const check = await engine.call("hissCheck", look, audio.sampleRate)
+        if (check.flat < 0.42 || check.level < -105) {
+          clean.push(layer.name)
+          continue
+        }
+      }
+      const made = mine
+        ? await engine.call("enhanceAudio", samples, audio.sampleRate, { mode: "clear", amount: 0.8, loopSamples })
+        : await engine.call("removeHiss", samples, audio.sampleRate, { amount: 0.75, loopSamples })
+      changed.push({ layer, audio, buffer: loopedBuffer(made, audio.sampleRate, loopSamples) })
     }
   } finally {
     state.transforming = false
+  }
+  if (!changed.length) {
+    return { text: `${clean.length === 1 ? clean[0] + " has" : "None of these layers have"} no steady hiss to take out. If you still hear some, tap the layer it's in and tell me, and I'll look closer.` }
   }
   snapshot(changed.map((item) => item.layer.id))
   for (const { layer, audio, buffer } of changed) {
@@ -739,8 +762,10 @@ async function cleanNoise() {
   }
   rememberSong()
   renderTracks()
-  play(0)
-  return { text: `Hiss and background noise are out of ${changed.length === 1 ? changed[0].layer.name : `${changed.length} recordings`}. Undo brings them back.` }
+  play(playing ? Math.max(0, songSeconds(ac().currentTime)) : 0)
+  const names = changed.map((item) => item.layer.name)
+  const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(" and ")
+  return { text: `Hiss and background noise are out of ${list}.${clean.length ? ` ${clean.length === 1 ? clean[0] + " had" : clean.length + " other layers had"} no hiss, so I left ${clean.length === 1 ? "it" : "them"} as they are.` : ""} Undo brings it back.` }
 }
 
 // ---------------------------------------------------------------------------

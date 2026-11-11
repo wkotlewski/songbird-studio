@@ -1019,3 +1019,7 @@ button.layer-mute.on { background: rgba(236, 72, 153, 0.22); color: #F9A8D4; }
   .track-label button.layer-delete .ms { font-size: 17px; }
   .track-label .layer-name { padding-left: 2px; padding-right: 2px; }
 }
+
+/* The "Parts" label stays where it lives, at the start of the timeline,
+   and scrolls away with it instead of floating over the sections. */
+.ruler-gutter { position: relative; left: auto; background: transparent; }

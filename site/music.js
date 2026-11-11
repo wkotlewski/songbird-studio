@@ -2097,35 +2097,34 @@ function removeHiss(samples, sampleRate, options = {}) {
     }
     loud[f] = sum
   }
-  // 2. The hiss: at each pitch, how loud the quieter moments are. Pure
-  // digital silence doesn't count.
+  // 2. The hiss. It's learned from the quietest moments only, and its shape
+  // is smoothed across pitch with a running median: hiss is broad and even,
+  // while a note's tones are narrow peaks, so the median steps over them.
+  // That way a long held note is never mistaken for hiss.
   const live = []
   for (let f = 0; f < frames; f++) if (loud[f] > 1e-9) live.push(f)
   if (live.length < 8) return new Float32Array(source)
+  const byLoud = [...live].sort((a, b) => loud[a] - loud[b])
+  const quiet = byLoud.slice(0, Math.max(4, Math.floor(byLoud.length * 0.15)))
   const noise = new Float64Array(bins)
-  const column = new Float32Array(live.length)
-  for (let k = 0; k < bins; k++) {
-    for (let i = 0; i < live.length; i++) column[i] = power[live[i] * bins + k]
-    column.sort()
-    // Noise power at one pitch varies moment to moment; its quieter fifth
-    // sits about 6.5 dB under its average, so scale back up to the average.
-    noise[k] = column[Math.floor(column.length * 0.2)] / 0.223
-  }
-  // Smooth the hiss's shape across pitch.
+  for (const f of quiet) for (let k = 0; k < bins; k++) noise[k] += power[f * bins + k] / quiet.length
   const shape = new Float64Array(bins)
+  const reach = 16
+  const window = []
   for (let k = 0; k < bins; k++) {
-    let sum = 0
-    let count = 0
-    for (let j = Math.max(0, k - 3); j <= Math.min(bins - 1, k + 3); j++) {
-      sum += noise[j]
-      count++
-    }
-    shape[k] = sum / count
+    window.length = 0
+    for (let j = Math.max(0, k - reach); j <= Math.min(bins - 1, k + reach); j++) window.push(noise[j])
+    window.sort((a, b) => a - b)
+    shape[k] = window[window.length >> 1]
   }
+  // If even the quietest moments are mostly a held tone (a drone, a long
+  // chord), the median is well under them: that leaves the tone alone.
   // 3. How much of each moment to keep, smoothed over time (quick to open
   // for a note, slower to close) and across pitch, so nothing warbles.
-  const over = 1.5 + amount * 2.5
-  const floor = 0.3 - amount * 0.2
+  // Gentle: for parts Songbird made, whose quiet moments are still full of
+  // held notes. It only takes out what's clearly under them.
+  const over = options.gentle ? 1 : 1.5 + amount * 2.5
+  const floor = options.gentle ? 0.45 : 0.3 - amount * 0.2
   const lowCut = Math.round((150 / sampleRate) * size)
   const held = new Float64Array(bins).fill(1)
   const gain = new Float64Array(bins)
@@ -2166,6 +2165,50 @@ function removeHiss(samples, sampleRate, options = {}) {
     result[i] = norm[j] > 1e-6 ? out[j] / norm[j] : 0
   }
   return result
+}
+
+// Does a layer carry real hiss? Hiss is flat and even at the top end (5 to
+// 15 kHz) in a layer's quiet moments; an instrument's tone there is peaky.
+// Flatness is the ratio of the geometric to the arithmetic mean of the
+// power across that band: near 1 for hiss, near 0 for tones. Returns the
+// flatness and the band's level in dB, from the quietest moments that
+// aren't pure silence.
+function hissCheck(samples, sampleRate) {
+  const size = 2048
+  const hop = 4096
+  const { cos } = fftTable(size)
+  const lo = Math.round((5000 / sampleRate) * size)
+  const hi = Math.min(size / 2 - 1, Math.round((15000 / sampleRate) * size))
+  const frames = []
+  const re = new Float64Array(size)
+  const im = new Float64Array(size)
+  for (let at = 0; at + size < samples.length; at += hop) {
+    let any = 0
+    for (let i = 0; i < size; i++) {
+      const v = samples[at + i]
+      any += v * v
+      re[i] = v * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size))
+      im[i] = 0
+    }
+    if (any < 1e-9) continue
+    fftInPlace(re, im)
+    let sum = 0
+    let logs = 0
+    for (let k = lo; k <= hi; k++) {
+      const p = re[k] * re[k] + im[k] * im[k] + 1e-20
+      sum += p
+      logs += Math.log(p)
+    }
+    const n = hi - lo + 1
+    frames.push({ any, flat: Math.exp(logs / n) / (sum / n), level: 10 * Math.log10(sum / n / (size * size) + 1e-20) })
+  }
+  if (frames.length < 6) return { flat: 0, level: -120 }
+  frames.sort((a, b) => a.any - b.any)
+  const quiet = frames.slice(0, Math.max(3, Math.floor(frames.length * 0.2)))
+  return {
+    flat: quiet.reduce((sum, f) => sum + f.flat, 0) / quiet.length,
+    level: quiet.reduce((sum, f) => sum + f.level, 0) / quiet.length,
+  }
 }
 
 function enhanceAudio(samples, sampleRate, options = {}) {
@@ -3011,6 +3054,7 @@ globalThis.SongbirdMusic = {
   enhanceAudio,
   planPerformance,
   removeHiss,
+  hissCheck,
   planFromNotes,
   readNotes,
   snapPlayed,
