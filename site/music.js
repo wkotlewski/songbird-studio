@@ -1993,6 +1993,181 @@ function inputMakeup(peak, noise) {
   return Math.min(4.5, Math.max(1.15, 0.48 / Math.max(peak, 0.02)))
 }
 
+// ---------------------------------------------------------------------------
+// Hiss removal, the way a studio noise reducer works: listen to the quietest
+// moments to learn the steady hiss (its level at every pitch), then take
+// that much out of every moment, singing included. The cut is smoothed over
+// time and pitch so what's left doesn't warble, and it never goes all the
+// way to silence, so breaths and room still sound natural.
+
+const fftTables = new Map()
+
+function fftTable(n) {
+  if (!fftTables.has(n)) {
+    const cos = new Float64Array(n / 2)
+    const sin = new Float64Array(n / 2)
+    for (let k = 0; k < n / 2; k++) {
+      cos[k] = Math.cos((-2 * Math.PI * k) / n)
+      sin[k] = Math.sin((-2 * Math.PI * k) / n)
+    }
+    const rev = new Uint32Array(n)
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1
+      for (; j & bit; bit >>= 1) j ^= bit
+      j ^= bit
+      rev[i] = j
+    }
+    fftTables.set(n, { cos, sin, rev })
+  }
+  return fftTables.get(n)
+}
+
+function fftInPlace(re, im) {
+  const n = re.length
+  const { cos, sin, rev } = fftTable(n)
+  for (let i = 1; i < n; i++) {
+    const j = rev[i]
+    if (i < j) {
+      let t = re[i]
+      re[i] = re[j]
+      re[j] = t
+      t = im[i]
+      im[i] = im[j]
+      im[j] = t
+    }
+  }
+  for (let size = 2; size <= n; size <<= 1) {
+    const half = size >> 1
+    const stride = n / size
+    for (let start = 0; start < n; start += size) {
+      for (let k = 0; k < half; k++) {
+        const c = cos[k * stride]
+        const s = sin[k * stride]
+        const a = start + k
+        const b = a + half
+        const tr = re[b] * c - im[b] * s
+        const ti = re[b] * s + im[b] * c
+        re[b] = re[a] - tr
+        im[b] = im[a] - ti
+        re[a] += tr
+        im[a] += ti
+      }
+    }
+  }
+}
+
+function removeHiss(samples, sampleRate, options = {}) {
+  if (options.loopSamples) {
+    const looped = onEachLoop(samples, sampleRate, options.loopSamples, sampleRate, (pass) => removeHiss(pass, sampleRate, { ...options, loopSamples: 0 }))
+    if (looped) return looped
+  }
+  const source = samples instanceof Float32Array ? samples : Float32Array.from(samples)
+  const amount = Math.min(1, Math.max(0.2, options.amount ?? 0.75))
+  const size = 2048
+  const hop = size / 4
+  const bins = size / 2 + 1
+  if (source.length < size * 2) return new Float32Array(source)
+  const win = new Float64Array(size)
+  for (let i = 0; i < size; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size)
+  const frames = Math.ceil((source.length + size) / hop)
+  const pad = new Float32Array(frames * hop + size)
+  pad.set(source, size / 2)
+  // 1. The spectrum of every moment, kept as real and imaginary parts.
+  const specRe = new Float32Array(frames * bins)
+  const specIm = new Float32Array(frames * bins)
+  const power = new Float32Array(frames * bins)
+  const re = new Float64Array(size)
+  const im = new Float64Array(size)
+  const loud = new Float64Array(frames)
+  for (let f = 0; f < frames; f++) {
+    const at = f * hop
+    for (let i = 0; i < size; i++) {
+      re[i] = pad[at + i] * win[i]
+      im[i] = 0
+    }
+    fftInPlace(re, im)
+    const row = f * bins
+    let sum = 0
+    for (let k = 0; k < bins; k++) {
+      specRe[row + k] = re[k]
+      specIm[row + k] = im[k]
+      const p = re[k] * re[k] + im[k] * im[k]
+      power[row + k] = p
+      sum += p
+    }
+    loud[f] = sum
+  }
+  // 2. The hiss: at each pitch, how loud the quieter moments are. Pure
+  // digital silence doesn't count.
+  const live = []
+  for (let f = 0; f < frames; f++) if (loud[f] > 1e-9) live.push(f)
+  if (live.length < 8) return new Float32Array(source)
+  const noise = new Float64Array(bins)
+  const column = new Float32Array(live.length)
+  for (let k = 0; k < bins; k++) {
+    for (let i = 0; i < live.length; i++) column[i] = power[live[i] * bins + k]
+    column.sort()
+    // Noise power at one pitch varies moment to moment; its quieter fifth
+    // sits about 6.5 dB under its average, so scale back up to the average.
+    noise[k] = column[Math.floor(column.length * 0.2)] / 0.223
+  }
+  // Smooth the hiss's shape across pitch.
+  const shape = new Float64Array(bins)
+  for (let k = 0; k < bins; k++) {
+    let sum = 0
+    let count = 0
+    for (let j = Math.max(0, k - 3); j <= Math.min(bins - 1, k + 3); j++) {
+      sum += noise[j]
+      count++
+    }
+    shape[k] = sum / count
+  }
+  // 3. How much of each moment to keep, smoothed over time (quick to open
+  // for a note, slower to close) and across pitch, so nothing warbles.
+  const over = 1.5 + amount * 2.5
+  const floor = 0.3 - amount * 0.2
+  const lowCut = Math.round((150 / sampleRate) * size)
+  const held = new Float64Array(bins).fill(1)
+  const gain = new Float64Array(bins)
+  const out = new Float64Array(pad.length)
+  const norm = new Float64Array(pad.length)
+  for (let f = 0; f < frames; f++) {
+    const row = f * bins
+    for (let k = 0; k < bins; k++) {
+      let g = 1
+      if (k >= lowCut) {
+        const p = power[row + k]
+        g = p > 0 ? Math.max(floor, Math.sqrt(Math.max(0, p - over * shape[k]) / p)) : floor
+      }
+      held[k] = g > held[k] ? held[k] + (g - held[k]) * 0.8 : held[k] + (g - held[k]) * 0.4
+    }
+    gain[0] = held[0]
+    gain[bins - 1] = held[bins - 1]
+    for (let k = 1; k < bins - 1; k++) gain[k] = (held[k - 1] + 2 * held[k] + held[k + 1]) / 4
+    for (let k = 0; k < bins; k++) {
+      re[k] = specRe[row + k] * gain[k]
+      im[k] = -specIm[row + k] * gain[k]
+    }
+    for (let k = 1; k < size / 2; k++) {
+      re[size - k] = re[k]
+      im[size - k] = -im[k]
+    }
+    // Inverse: the forward transform of the conjugate, scaled.
+    fftInPlace(re, im)
+    const at = f * hop
+    for (let i = 0; i < size; i++) {
+      out[at + i] += (re[i] / size) * win[i]
+      norm[at + i] += win[i] * win[i]
+    }
+  }
+  const result = new Float32Array(source.length)
+  for (let i = 0; i < source.length; i++) {
+    const j = i + size / 2
+    result[i] = norm[j] > 1e-6 ? out[j] / norm[j] : 0
+  }
+  return result
+}
+
 function enhanceAudio(samples, sampleRate, options = {}) {
   if (options.loopSamples) {
     const looped = onEachLoop(samples, sampleRate, options.loopSamples, sampleRate, (pass) => enhanceAudio(pass, sampleRate, { ...options, loopSamples: 0 }))
@@ -2002,6 +2177,8 @@ function enhanceAudio(samples, sampleRate, options = {}) {
   const mode = options.mode || "clear"
   const source = samples instanceof Float32Array ? samples : Float32Array.from(samples)
   let out = new Float32Array(source)
+  // Hiss comes out first, everywhere, singing included.
+  if (mode === "clear" || mode === "hiss") out = removeHiss(out, sampleRate, { amount })
   if (mode === "clear" || mode === "hiss" || mode === "smooth") {
     out = runBiquad(out, biquad("highpass", 75, sampleRate, 0.7))
   }
@@ -2009,7 +2186,7 @@ function enhanceAudio(samples, sampleRate, options = {}) {
   const env = followLevel(out, sampleRate)
   const hiss = mode === "bright" || mode === "warm" ? null : highBand(out, sampleRate, mode === "hiss" ? 4200 : 5600)
   const open = Math.max(1e-5, noise * (mode === "hiss" ? 2.2 : 2.8) * (1.15 - amount * 0.35))
-  const closed = mode === "hiss" ? 0.08 : 0.16
+  const closed = mode === "hiss" ? 0.3 : 0.4
   if (mode === "clear" || mode === "hiss") {
     const next = new Float32Array(out.length)
     for (let i = 0; i < out.length; i++) {
@@ -2025,9 +2202,12 @@ function enhanceAudio(samples, sampleRate, options = {}) {
     }
     out = next
   }
-  if (mode === "clear" || mode === "bright") {
+  if (mode === "bright") {
     out = runBiquad(out, biquad("highshelf", 2800, sampleRate, 0.7, 1.5 + amount * 3))
   }
+  // Clear adds a little presence where a voice's words are, not up where
+  // hiss lives.
+  if (mode === "clear") out = runBiquad(out, biquad("peaking", 3000, sampleRate, 1, 1 + amount * 1.5))
   if (mode === "warm") {
     out = runBiquad(out, biquad("lowshelf", 180, sampleRate, 0.7, 1.5 + amount * 3.5))
     out = runBiquad(out, biquad("highshelf", 7000, sampleRate, 0.7, -1.5 - amount * 2))
@@ -2830,6 +3010,7 @@ globalThis.SongbirdMusic = {
   inputMakeup,
   enhanceAudio,
   planPerformance,
+  removeHiss,
   planFromNotes,
   readNotes,
   snapPlayed,
