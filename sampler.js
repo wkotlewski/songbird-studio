@@ -248,7 +248,30 @@
   // Short notes on an instrument with recorded short notes (trumpet,
   // trombone, tuba, horn) use those, so stabs are punchy, not cut-off
   // long notes.
-  async function playPart(ctx, out, part, options, seconds) {
+  // A plucked or struck note (piano, guitar, harp, vibraphone, bells) is
+  // mixed straight into the part's buffer: its sample, at its pitch, with
+  // the same rise and release a node would give it. Held notes still use
+  // nodes, for their looping sustain.
+  function mixNote(mix, sample, rate, level, begin, end, attack, release) {
+    const data = sample.buffer.getChannelData(0)
+    const step = (rate * sample.buffer.sampleRate) / RATE
+    const first = Math.round(begin * RATE)
+    const hold = Math.round(end * RATE)
+    const last = Math.min(mix.length, Math.round((end + release) * RATE))
+    const rise = Math.max(1, Math.round(attack * RATE))
+    const fall = Math.max(1, last - hold)
+    let pos = sample.offset * sample.buffer.sampleRate
+    for (let i = first; i < last && pos < data.length - 1; i++, pos += step) {
+      const j = pos | 0
+      const value = data[j] + (data[j + 1] - data[j]) * (pos - j)
+      let g = level
+      if (i - first < rise) g *= (i - first) / rise
+      if (i >= hold) g *= Math.max(0, 1 - (i - hold) / fall)
+      mix[i] += value * g
+    }
+  }
+
+  async function playPart(ctx, out, part, options, seconds, mix) {
     const idx = await getIndex()
     const decodeWith = options.decodeWith || ctx
     const shortId = idx.instruments[`${part.instrument}-stac`] ? `${part.instrument}-stac` : null
@@ -260,7 +283,8 @@
     if (shortEvents.length) sets.push({ events: shortEvents, short: true, ...(await instrument(shortId, decodeWith, shortEvents.map((event) => event.midi))) })
     const real = /VSCO/.test(idx.instruments[part.instrument]?.source || "")
     for (const set of sets) {
-      const held = HELD.has(set.info.family)
+      // Harp and pizzicato are plucked: they ring and fade, not hold.
+      const held = HELD.has(set.info.family) && !/harp|pizzicato/.test(part.instrument || "")
       // Organs hold their notes too, but start with a key's quick attack.
       const sustained = /organ|pad/.test(part.instrument || "")
       // Real brass keeps the attack it was recorded with.
@@ -287,8 +311,13 @@
         const release = set.short ? 0.12 : held ? 0.32 : 0.6
         gain.gain.setValueAtTime(level, end)
         gain.gain.linearRampToValueAtTime(0.0001, end + release)
+        const sustain = !set.short && (held || sustained)
+        if (mix && !sustain) {
+          mixNote(mix, sample, rate, level, begin, end, event.attack || baseAttack, release)
+          continue
+        }
         gain.connect(out)
-        sustainNote(ctx, sample, rate, gain, begin, end + release + 0.02, !set.short && (held || sustained))
+        sustainNote(ctx, sample, rate, gain, begin, end + release + 0.02, sustain)
       }
     }
   }
@@ -301,21 +330,41 @@
     const out = chain(ctx, options.era)
     if (options.kit || options.single) {
       const sounds = await kit(options.kit || "standard", options.decodeWith || ctx, new Set((plan.hits || []).map((hit) => hit.kind)))
+      // Drum hits are mixed straight into one buffer, then played through
+      // the era's sound once. One audio node per hit gets slow fast: a
+      // shaker on sixteenths over a whole song is over a thousand hits.
+      const mix = new Float32Array(length)
       for (const hit of plan.hits || []) {
         const name = sounds.has(hit.kind) ? hit.kind : hit.kind === "hat" ? "pedal-hat" : "snare"
         const sample = sounds.get(name)
         if (!sample || hit.time >= seconds) continue
-        const source = ctx.createBufferSource()
-        source.buffer = sample.buffer
-        const gain = ctx.createGain()
-        gain.gain.value = (hit.vel ?? 0.8) * (name === "hat" || name === "pedal-hat" ? 0.55 : 1)
-        source.connect(gain)
-        gain.connect(out)
-        source.start(Math.max(0, hit.time), sample.offset)
+        const data = sample.buffer.getChannelData(0)
+        const step = sample.buffer.sampleRate / RATE
+        const level = (hit.vel ?? 0.8) * (name === "hat" || name === "pedal-hat" ? 0.55 : 1)
+        const at = Math.round(Math.max(0, hit.time) * RATE)
+        let pos = sample.offset * sample.buffer.sampleRate
+        for (let i = at; i < length && pos < data.length - 1; i++, pos += step) {
+          const j = pos | 0
+          const frac = pos - j
+          mix[i] += level * (data[j] + (data[j + 1] - data[j]) * frac)
+        }
       }
+      const buffer = ctx.createBuffer(1, length, RATE)
+      buffer.getChannelData(0).set(mix)
+      const source = ctx.createBufferSource()
+      source.buffer = buffer
+      source.connect(out)
+      source.start(0)
     } else {
       const parts = await partsFor(options.instrument, plan.events || [])
-      for (const part of parts) await playPart(ctx, out, part, options, seconds)
+      const mix = new Float32Array(length)
+      for (const part of parts) await playPart(ctx, out, part, options, seconds, mix)
+      const buffer = ctx.createBuffer(1, length, RATE)
+      buffer.getChannelData(0).set(mix)
+      const source = ctx.createBufferSource()
+      source.buffer = buffer
+      source.connect(out)
+      source.start(0)
     }
     const rendered = await ctx.startRendering()
     const all = rendered.getChannelData(0)
