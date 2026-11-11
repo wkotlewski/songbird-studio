@@ -75,8 +75,173 @@ const ADDS = [
   { id: "strings", name: "Strings" },
   { id: "horns", name: "Horns" },
   { id: "guitar", name: "Guitar picking" },
+  { id: "color", name: "Color & percussion" },
   { id: "fills", name: "Fills into big parts" },
 ]
+
+// ---------------------------------------------------------------------------
+// Color: the instruments that come in just when they're needed, the way
+// congas, a shaker, a harp sweep, or a vibraphone sparkle do on a record.
+// Each vibe has its palette. Each color has a part it plays and the
+// moments it plays in.
+
+const COLOR_SETS = {
+  warm: ["shaker", "congas", "tambourine", "harp", "vibes", "flute"],
+  soulful: ["tambourine", "congas", "shaker", "harp", "vibes"],
+  chill: ["shaker", "congas", "vibes", "flute"],
+  jazzy: ["shaker", "congas", "vibes", "flute"],
+  upbeat: ["tambourine", "bongos", "shaker", "bells"],
+  party: ["tambourine", "cowbell", "shaker", "bells"],
+  funky: ["congas", "cowbell", "tambourine", "shaker"],
+  gentle: ["shaker", "harp", "musicbox", "bells"],
+  dreamy: ["harp", "bells", "musicbox", "shaker"],
+  epic: ["harp", "bells", "pizz", "tambourine"],
+  sad: ["harp", "pizz", "bells"],
+  dark: ["pizz", "harp", "shaker"],
+  rock: ["tambourine", "shaker"],
+  plain: ["shaker", "tambourine", "harp", "vibes"],
+}
+
+const QUIET = /Intro|Outro|Hush|Start|Release/
+const BIG = /^(Chorus|Last chorus|Climax|Solo|Groove|Main)/
+const CHORUS = /^(Chorus|Last chorus|Climax)/
+const LIFT = /^(Chorus|Last chorus|Climax|Solo)/
+
+// What each color plays, in one bar, and where it comes in.
+const COLORS = {
+  shaker: { name: "Shaker", kind: "hits", pan: 0.35, gain: 0.42, bar: Array.from({ length: 16 }, (_, i) => [i / 4, "shaker", i % 4 === 0 ? 0.55 : i % 2 === 0 ? 0.4 : 0.27]), plays: (s, i, all) => !QUIET.test(s.name) && i > firstVerse(all) },
+  congas: { name: "Congas", kind: "hits", pan: -0.3, gain: 0.55, bar: [[0, "low-conga", 0.45], [1, "conga", 0.65], [2.5, "conga", 0.5], [3, "low-conga", 0.75], [3.5, "low-conga", 0.65]], plays: (s) => BIG.test(s.name) },
+  tambourine: { name: "Tambourine", kind: "hits", pan: 0.25, gain: 0.45, bar: [[1, "tambourine", 0.7], [3, "tambourine", 0.75]], plays: (s, i, all) => CHORUS.test(s.name) || (!all.some((x) => CHORUS.test(x.name)) && BIG.test(s.name) && i > firstVerse(all)) },
+  bongos: { name: "Bongos", kind: "hits", pan: -0.35, gain: 0.5, bar: Array.from({ length: 8 }, (_, i) => [i / 2, i % 2 ? "low-bongo" : "high-bongo", i % 4 === 0 ? 0.65 : 0.45]), plays: (s) => BIG.test(s.name) },
+  cowbell: { name: "Cowbell", kind: "hits", pan: 0.3, gain: 0.35, bar: [[0, "cowbell", 0.6], [1.5, "cowbell", 0.45], [2, "cowbell", 0.55], [3.5, "cowbell", 0.45]], plays: (s) => BIG.test(s.name) },
+  harp: { name: "Harp", kind: "harp", instrument: "harp", pan: -0.2, gain: 0.5 },
+  vibes: { name: "Vibraphone", kind: "sparkle", instrument: "vibraphone", pan: 0.2, gain: 0.45 },
+  bells: { name: "Bells", kind: "sparkle", instrument: "bells", pan: 0.25, gain: 0.35 },
+  musicbox: { name: "Music box", kind: "sparkle", instrument: "music-box", pan: 0.15, gain: 0.35, quietOnly: true },
+  flute: { name: "Flute line", kind: "line", instrument: "flute", pan: 0.3, gain: 0.45 },
+  pizz: { name: "Plucked strings", kind: "pluck", instrument: "pizzicato", pan: -0.25, gain: 0.45 },
+}
+
+function firstVerse(sections) {
+  const i = sections.findIndex((section) => /Verse|Groove|Build|Main/.test(section.name))
+  return i < 0 ? 0 : i
+}
+
+function colorPalette() {
+  return COLOR_SETS[arrange.vibes[0]] || COLOR_SETS.plain
+}
+
+// The song's chords over its whole length, so color parts fit the harmony.
+async function songHarmony(total) {
+  const beat = 60 / Math.max(40, state.bpm || 92)
+  const tune = melodyLayer()
+  let notes = null
+  const played = tune ? playedPart(tune) : null
+  if (played?.melody) notes = played
+  else if (tune && isRecording(tune)) {
+    if (tune.notes) notes = tune.notes
+    else {
+      const audio = sourceAudio(tune)
+      if (audio) {
+        try {
+          notes = await engine.call("readNotes", samplesOf(audio), audio.sampleRate, { bpm: state.bpm || 92, loopSamples: audio.loopSamples || 0 })
+        } catch { notes = null }
+      }
+    }
+  }
+  if (!notes || !notes.melody?.length) {
+    const chordPart = state.layers.map((layer) => playedPart(layer)).find((part) => part?.melody?.some((note) => note.chord))
+    notes = chordPart || backingNotes()
+  }
+  const pass = notes.pass || loopSeconds()
+  const plan = SongbirdMusic.planFromNotes(notes.melody, { key: notes.key, pass, total: pass, loop: true, beat: notes.beat || beat, phase: notes.phase || 0, figure: "chords", style: "held" })
+  const harmony = plan.harmony || []
+  const out = []
+  for (let at = 0; at < total - 0.01; at += pass) for (const chord of harmony) if (at + chord.time < total) out.push({ ...chord, time: at + chord.time })
+  return { chords: out, key: SongbirdMusic.keyFrom(plan.key || notes.key) }
+}
+
+function chordAt(harmony, t) {
+  let found = harmony.chords[0]
+  for (const chord of harmony.chords) if (chord.time <= t + 0.01) found = chord
+  return found
+}
+
+// Chord tones in a range, low to high.
+function tonesIn(chord, low, high) {
+  const out = []
+  for (let m = low; m <= high; m++) if (chord.tones.includes(((m % 12) + 12) % 12)) out.push(m)
+  return out
+}
+
+function colorPart(id, sections, harmony, total) {
+  const color = COLORS[id]
+  const beat = 60 / Math.max(40, state.bpm || 92)
+  const bar = beat * 4
+  if (color.kind === "hits") {
+    const hits = []
+    sections.forEach((section, index) => {
+      if (!color.plays(section, index, sections)) return
+      for (let t = section.start; t < section.end - 0.01; t += bar) {
+        for (const [pos, kind, vel] of color.bar) {
+          const time = t + pos * beat
+          if (time < section.end - 0.01) hits.push({ kind, time, vel: Math.min(1, vel * (0.92 + Math.random() * 0.16)) })
+        }
+      }
+    })
+    return hits.length ? { family: "drums", drums: "kit", kit: "standard", hits } : null
+  }
+  const melody = []
+  const lastBig = [...sections].reverse().find((section) => CHORUS.test(section.name)) || [...sections].reverse().find((section) => BIG.test(section.name))
+  sections.forEach((section, index) => {
+    if (color.kind === "harp") {
+      // A sweep up into each big part, and gentle rolled chords in the quiet ones.
+      if (LIFT.test(section.name) && section.start > beat) {
+        const chord = chordAt(harmony, section.start)
+        const run = tonesIn(chord, 55, 86)
+        const notes = run.slice(-10)
+        notes.forEach((midi, i) => melody.push({ time: section.start - beat + (i * beat) / notes.length, dur: 1.4, midi, vel: 0.45 + (0.35 * i) / notes.length }))
+      }
+      if (/Intro|Hush/.test(section.name)) {
+        for (let t = section.start; t < section.end - 0.01; t += bar) {
+          const roll = tonesIn(chordAt(harmony, t), 52, 76).slice(0, 6)
+          roll.forEach((midi, i) => melody.push({ time: t + i * beat * 0.25, dur: bar * 0.9, midi, vel: 0.4 }))
+        }
+      }
+    }
+    if (color.kind === "sparkle") {
+      const here = color.quietOnly ? /Intro|Outro|Hush/.test(section.name) : section === lastBig || /Outro/.test(section.name)
+      if (!here) return
+      for (let t = section.start; t < section.end - 0.01; t += beat * 2) {
+        const top = tonesIn(chordAt(harmony, t), 72, 91)
+        const pick = top.slice(-3)
+        pick.forEach((midi, i) => melody.push({ time: t + i * beat * 0.5, dur: beat * 0.9, midi, vel: 0.4 + (i === 0 ? 0.1 : 0) }))
+      }
+    }
+    if (color.kind === "line") {
+      // A counter line in the second verse and the bridge: long notes on the
+      // chord's third, an answer to the tune rather than a copy of it.
+      const verses = sections.filter((item) => /Verse/.test(item.name))
+      const here = section === verses[1] || /Bridge/.test(section.name) || (!verses[1] && section === verses[0])
+      if (!here) return
+      for (const chord of harmony.chords) {
+        if (chord.time < section.start - 0.01 || chord.time >= section.end - 0.01) continue
+        const third = tonesIn(chord, 72, 86).find((m) => (((m - chord.root) % 12) + 12) % 12 === 3 || (((m - chord.root) % 12) + 12) % 12 === 4)
+        if (third) melody.push({ time: chord.time + beat * 0.5, dur: Math.max(beat, Math.min(chord.dur, section.end - chord.time) - beat * 0.6), midi: third, vel: 0.5 })
+      }
+    }
+    if (color.kind === "pluck") {
+      if (!/Verse 2|Build|Bridge/.test(section.name) && !(section.name === "Verse" && index > firstVerse(sections))) return
+      for (let t = section.start; t < section.end - 0.01; t += beat / 2) {
+        const tones = tonesIn(chordAt(harmony, t), 55, 74)
+        const step = Math.round((t - section.start) / (beat / 2))
+        melody.push({ time: t, dur: beat * 0.3, midi: tones[[0, 2, 1, 2][step % 4] % tones.length], vel: step % 2 ? 0.4 : 0.55 })
+      }
+    }
+  })
+  const info = instrumentInfo(color.instrument)
+  return melody.length ? { family: info?.family || "keys", instrument: color.instrument, play: "solo", rhythm: "played", melody, key: harmony.key } : null
+}
 
 // A plan can have its own rules for who plays where.
 const PLAN_RULES = {
@@ -144,6 +309,7 @@ function suggestedAdds() {
   if (arrange.plan === "climax" || arrange.vibes.some((id) => ["epic", "sad", "dreamy"].includes(id))) picks.add("strings")
   if (arrange.vibes.some((id) => ["funky", "soulful"].includes(id))) picks.add("horns")
   if ((facts.hasDrums || picks.has("drums")) && arrange.plan !== "background") picks.add("fills")
+  if (arrange.plan !== "background" || arrange.vibes.length) picks.add("color")
   return picks
 }
 
@@ -162,6 +328,7 @@ function addLabel(id) {
   if (id === "strings") return "Strings · String section"
   if (id === "horns") return "Horns · Horn section"
   if (id === "guitar") return "Guitar picking · Clean electric"
+  if (id === "color") return `Color · ${colorPalette().map((key) => COLORS[key].name.toLowerCase()).join(", ")}`
   return "Fills into big parts"
 }
 
@@ -280,6 +447,19 @@ function sectionWho(section, adds, sections) {
     const covered = gaps.filter((gap) => gap.start < section.end - 0.01 && gap.end > section.start + 0.01)
     if (!covered.length) who.push(names[role])
     else if (covered.every((gap) => gap.end < section.end - 0.01)) who.push(`${names[role]} come in`)
+  }
+  if (adds.has("color")) {
+    const index = sections.indexOf(section)
+    for (const id of colorPalette()) {
+      const color = COLORS[id]
+      let on = false
+      if (color.plays) on = color.plays(section, index, sections)
+      else if (color.kind === "harp") on = /Intro|Hush/.test(section.name) || LIFT.test(section.name)
+      else if (color.kind === "sparkle") on = color.quietOnly ? /Intro|Outro|Hush/.test(section.name) : section === ([...sections].reverse().find((item) => CHORUS.test(item.name)) || [...sections].reverse().find((item) => BIG.test(item.name))) || /Outro/.test(section.name)
+      else if (color.kind === "line") on = section === sections.filter((item) => /Verse/.test(item.name))[1] || /Bridge/.test(section.name)
+      else if (color.kind === "pluck") on = /Verse 2|Build|Bridge/.test(section.name)
+      if (on) who.push(color.kind === "harp" && LIFT.test(section.name) ? "a harp sweep in" : color.name.toLowerCase())
+    }
   }
   return who.join(", ")
 }
@@ -407,7 +587,7 @@ async function buildSong() {
       }
       return layer
     }
-    const wanted = ADDS.filter((item) => adds.has(item.id) && item.id !== "fills")
+    const wanted = ADDS.filter((item) => adds.has(item.id) && item.id !== "fills" && item.id !== "color")
     let count = 0
     for (const item of wanted) {
       count++
@@ -462,6 +642,23 @@ async function buildSong() {
       step("Adding fills into the big parts…")
       const hits = fillHits(sections)
       if (hits.length) await make("fills", { family: "drums", drums: "kit", kit: vibe.kit, hits, pass: total, total, loop: false, beat: 60 / (state.bpm || 92), phase: 0 }, { name: "Fills" })
+    }
+    if (adds.has("color")) {
+      const harmony = await songHarmony(total)
+      const palette = colorPalette()
+      let n = 0
+      for (const id of palette) {
+        n++
+        step(`Adding color: ${COLORS[id].name.toLowerCase()} (${n} of ${palette.length})…`)
+        const part = colorPart(id, sections, harmony, total)
+        if (!part) continue
+        const layer = await make("color", { ...part, era: state.era || "today", pass: total, total, loop: false, beat: 60 / (state.bpm || 92), phase: 0 }, { name: COLORS[id].name })
+        if (layer) {
+          layer.gain = COLORS[id].gain
+          layer.pan = COLORS[id].pan
+          layer.space = Math.max(layer.space || 0, 0.25)
+        }
+      }
     }
     state.fadeIn = arrange.plan === "background" || arrange.vibes.some((id) => ["chill", "dreamy", "gentle"].includes(id)) ? 3 : 0
     state.fadeOut = arrange.plan === "jam" || arrange.vibes.includes("party") ? 4 : 8
