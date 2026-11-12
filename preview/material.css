@@ -1,0 +1,1039 @@
+/* Songbird on Material Design 3.
+   Icons are Google's Material Symbols (Rounded). Buttons follow the
+   Material 3 types — filled, tonal, outlined, text, icon buttons, FAB,
+   filter chips, switch, navigation bar — with state layers and a ripple.
+   Colors are Songbird's, mapped onto Material's color roles. Loaded after
+   app.css so these rules win. */
+
+:root {
+  --md-primary: #34D399;
+  --md-on-primary: #003825;
+  --md-primary-container: #0f5a41;
+  --md-on-primary-container: #a6f4cf;
+  --md-secondary-container: #1d4a3d;
+  --md-on-secondary-container: #c9ecdc;
+  --md-tertiary: #F9A8D4;
+  --md-record: #EC4899;
+  --md-on-record: #ffffff;
+  --md-surface: #0b1f19;
+  --md-surface-container: #10352C;
+  --md-surface-container-high: #18483C;
+  --md-on-surface: #FFFBF2;
+  --md-on-surface-variant: rgba(255, 251, 242, 0.72);
+  --md-outline: rgba(201, 236, 220, 0.5);
+  --md-outline-variant: rgba(201, 236, 220, 0.22);
+  --md-error: #E8B86D;
+  --md-shape-full: 999px;
+  --md-shape-large: 16px;
+  --md-shape-medium: 12px;
+  --md-shape-small: 8px;
+  --md-label-large: 500 14px/20px "Plus Jakarta Sans", system-ui, sans-serif;
+  --md-motion: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ---- Icons ------------------------------------------------------------ */
+.ms {
+  font-family: "Material Symbols Rounded";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: "liga";
+  font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: "FILL" 0, "wght" 500, "GRAD" 0, "opsz" 24;
+  flex: none;
+  user-select: none;
+}
+.ms.fill,
+button.on .ms,
+button[aria-pressed="true"] .ms,
+#play-btn .ms,
+#rec-btn .ms,
+.mic .ms { font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24; }
+
+/* ---- Shared: state layer and ripple ------------------------------------ */
+button.btn,
+button.chip,
+button.icon-btn,
+button.dock-btn,
+button.family,
+button.listen-btn,
+button.mic,
+button.mini,
+button.layer-delete,
+button.looper-new,
+.magic-go {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s var(--md-motion), box-shadow 0.2s var(--md-motion), color 0.2s var(--md-motion), border-color 0.2s var(--md-motion);
+}
+/* The state layer: a wash of the content color on hover, focus and press. */
+button.btn::before,
+button.chip::before,
+button.icon-btn::before,
+button.family::before,
+button.listen-btn::before,
+button.mic::before,
+button.mini::before,
+button.looper-new::before,
+.dock-btn .nav-pill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s linear;
+  z-index: -1;
+}
+button.btn:hover::before,
+button.chip:hover::before,
+button.icon-btn:hover::before,
+button.family:hover::before,
+button.listen-btn:hover::before,
+button.mic:hover::before,
+button.mini:hover::before,
+button.looper-new:hover::before,
+.dock-btn:hover .nav-pill::before { opacity: 0.08; }
+button.btn:focus-visible::before,
+button.chip:focus-visible::before,
+button.icon-btn:focus-visible::before,
+button.family:focus-visible::before,
+button.listen-btn:focus-visible::before,
+button.mic:focus-visible::before,
+button.btn:active::before,
+button.chip:active::before,
+button.icon-btn:active::before,
+button.family:active::before,
+button.listen-btn:active::before,
+button.mic:active::before,
+.dock-btn:active .nav-pill::before { opacity: 0.12; }
+button:disabled::before { opacity: 0 !important; }
+
+.md-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.16;
+  transform: scale(0);
+  pointer-events: none;
+  z-index: -1;
+  animation: md-ripple 0.45s var(--md-motion) forwards;
+}
+@keyframes md-ripple {
+  to { transform: scale(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .md-ripple { display: none; }
+}
+
+/* ---- Common buttons ----------------------------------------------------- */
+button.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 24px;
+  border-radius: var(--md-shape-full);
+  font: var(--md-label-large);
+  letter-spacing: 0.1px;
+  box-shadow: none;
+  filter: none;
+}
+button.btn .ms { font-size: 18px; margin-left: -8px; }
+/* Filled: the main action. */
+button.btn.btn-primary,
+button.btn-primary:hover,
+button.btn-primary:active {
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  border: 0;
+}
+button.btn.btn-primary:hover { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15); }
+/* Outlined: the second action. */
+button.btn.btn-secondary,
+button.btn-secondary:hover {
+  background: transparent;
+  color: var(--md-primary);
+  border: 1px solid var(--md-outline);
+}
+/* Outlined, warning color: delete. */
+button.btn.btn-danger,
+button.btn-danger:hover {
+  background: transparent;
+  color: var(--md-error);
+  border: 1px solid rgba(232, 184, 109, 0.6);
+}
+button.btn:disabled {
+  opacity: 1;
+  background: rgba(255, 251, 242, 0.12) !important;
+  color: rgba(255, 251, 242, 0.38) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+button.btn-secondary:disabled { background: transparent !important; border: 1px solid rgba(255, 251, 242, 0.12) !important; }
+/* Taller on touch screens, so a thumb always lands. */
+@media (pointer: coarse) {
+  button.btn { min-height: 48px; }
+}
+
+/* Text button: the quiet action. */
+button.looper-new {
+  min-height: 40px;
+  padding: 0 12px;
+  margin-left: -12px;
+  border-radius: var(--md-shape-full);
+  color: var(--md-primary);
+  font: var(--md-label-large);
+  text-decoration: none;
+  background: transparent;
+  border: 0;
+}
+
+/* ---- Filter chips ------------------------------------------------------ */
+button.chip,
+.section-tools button.chip,
+.looper .choices .chip,
+.magic-suggest .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 16px;
+  border-radius: var(--md-shape-small);
+  border: 1px solid var(--md-outline-variant);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font: var(--md-label-large);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+@media (pointer: coarse) {
+  button.chip { min-height: 40px; }
+}
+button.chip:hover { background: transparent; }
+/* Selected: tonal fill and a check mark, the Material filter chip. */
+button.chip.on,
+button.chip.on:hover,
+.chip.on,
+.choices button.chip.on,
+.seg button.chip.on {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  border-color: transparent;
+  padding-left: 8px;
+}
+button.chip.on::after {
+  content: "check";
+  order: -1;
+  font-family: "Material Symbols Rounded";
+  font-size: 18px;
+  line-height: 1;
+  font-weight: normal;
+  -webkit-font-feature-settings: "liga";
+  font-feature-settings: "liga";
+  font-variation-settings: "FILL" 0, "wght" 600;
+}
+/* Suggestion chips (Magic ideas) never show a check. */
+.magic-suggest .chip { color: var(--md-on-surface); }
+.looper .choices .chip.on::after { display: none; }
+.looper .choices .chip.on { padding-left: 16px; }
+
+/* ---- Icon buttons ------------------------------------------------------ */
+button.icon-btn {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  border: 1px solid var(--md-outline-variant);
+  box-shadow: none;
+}
+button.icon-btn:hover { background: transparent; }
+/* Play: filled icon button. While playing it's tonal with a stop icon. */
+button#play-btn,
+body[data-sound="play"] #play-btn {
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  border: 0;
+  box-shadow: none;
+}
+button#play-btn.is-on {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border: 0;
+  box-shadow: 0 0 0 3px var(--md-primary);
+}
+/* Record: filled in the record color; while recording, a ring. */
+button#rec-btn,
+button.icon-btn.rec,
+body[data-sound="record"] #rec-btn {
+  background: var(--md-record);
+  color: var(--md-on-record);
+  border: 0;
+}
+body[data-sound="record"] #rec-btn { box-shadow: 0 0 0 4px rgba(236, 72, 153, 0.35); }
+#rec-btn .ms { font-size: 22px; }
+/* The close button on sheets and the home button stay standard. */
+.sheet-head button.icon-btn { width: 40px; height: 40px; }
+
+/* Transport on a phone: larger icon buttons sharing the row. */
+@media (max-width: 759px) {
+  .transport .icon-btn { border-radius: var(--md-shape-large); }
+  .transport #play-btn, .transport #rec-btn { border-radius: var(--md-shape-full); }
+  .transport .ms { font-size: 26px; }
+}
+
+/* Mute and solo: small toggle icon buttons. */
+button.mini {
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: var(--md-shape-full);
+  border: 1px solid var(--md-outline-variant);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font: var(--md-label-large);
+}
+button.mini.on { background: var(--md-secondary-container); color: var(--md-on-secondary-container); border-color: transparent; }
+
+/* A layer's delete: a small standard icon button. */
+button.layer-delete {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--md-error);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+button.layer-delete .ms { font-size: 20px; }
+
+/* ---- Record: the big FAB ------------------------------------------------ */
+button.mic,
+#inspector button.mic {
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
+  background: var(--md-record);
+  color: var(--md-on-record);
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 8px auto 4px;
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3), 0 6px 10px 4px rgba(0, 0, 0, 0.15);
+}
+button.mic .ms { font-size: 40px; }
+button.mic.hot { border-radius: 48px; box-shadow: 0 0 0 8px rgba(236, 72, 153, 0.3); }
+body[data-sound="record"] button.mic { transform: none; }
+
+/* Listen / Stop: an extended FAB in the tonal style. */
+button.listen-btn {
+  gap: 12px;
+  min-height: 56px;
+  border-radius: var(--md-shape-large);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border: 0;
+  font: var(--md-label-large);
+  font-size: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.15);
+}
+button.listen-btn.on { background: var(--md-surface-container-high); color: var(--md-on-surface); border: 0; }
+button.listen-btn .ms { font-size: 24px; }
+
+/* Magic's "Do it": a filled button with the wand. */
+.magic-go { border-radius: var(--md-shape-full); min-height: 52px; }
+.magic-go .ms { font-size: 20px; }
+
+/* ---- Switch ------------------------------------------------------------ */
+button.switch {
+  width: 52px;
+  height: 32px;
+  border-radius: var(--md-shape-full);
+  border: 2px solid var(--md-outline);
+  background: var(--md-surface-container);
+}
+button.switch span {
+  top: 6px;
+  left: 6px;
+  width: 16px;
+  height: 16px;
+  background: var(--md-outline);
+  transition: transform 0.2s var(--md-motion), width 0.2s var(--md-motion), height 0.2s var(--md-motion), top 0.2s var(--md-motion), left 0.2s var(--md-motion);
+}
+button.switch.on { background: var(--md-primary); border-color: var(--md-primary); }
+button.switch.on span {
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  transform: translateX(20px);
+  background: var(--md-on-primary);
+}
+button.switch:active span { width: 28px; height: 28px; top: 0; left: 0; }
+button.switch.on:active span { transform: translateX(18px); }
+
+/* ---- Navigation bar (the dock) ----------------------------------------- */
+.dock .dock-btn,
+button.dock-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 64px;
+  padding: 6px 2px 8px;
+  border: 0;
+  border-radius: var(--md-shape-medium);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  box-shadow: none;
+}
+.dock .dock-btn:hover,
+button.dock-btn:hover,
+button.dock-btn.on,
+button.dock-btn.on[data-panel="record"] { border: 0; background: transparent; box-shadow: none; }
+.dock-btn .nav-pill {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  max-width: 100%;
+  height: 32px;
+  border-radius: var(--md-shape-full);
+  transition: background-color 0.2s var(--md-motion);
+}
+.dock-btn .plan-copy { display: flex; flex-direction: column; align-items: center; }
+.dock-btn .plan-copy b { font: var(--md-label-large); font-size: 12px; font-weight: 600; text-align: center; color: inherit; }
+.dock-btn .plan-copy > span { display: none !important; }
+button.dock-btn.on { color: var(--md-on-surface); }
+button.dock-btn.on .nav-pill { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+button.dock-btn.on[data-panel="record"] .nav-pill { background: rgba(236, 72, 153, 0.28); color: #ffd6ea; }
+.dock { padding-top: 6px; }
+@media (min-width: 760px) {
+  .dock .dock-btn, button.dock-btn { min-height: 72px; }
+  .dock-btn .plan-copy > span { display: block !important; font-size: 11px; font-weight: 400; color: var(--md-on-surface-variant); text-align: center; }
+}
+
+/* ---- Cards: the instrument families ------------------------------------ */
+button.family {
+  border-radius: var(--md-shape-medium);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  font: var(--md-label-large);
+  font-size: 12px;
+  gap: 6px;
+}
+button.family .ms { font-size: 28px; color: var(--md-primary); }
+button.family.on { background: var(--md-secondary-container); color: var(--md-on-secondary-container); border-color: transparent; }
+button.family.on .ms { color: var(--md-on-secondary-container); }
+
+/* Search field: Material search bar. */
+.search { position: relative; }
+.search .ms { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--md-on-surface-variant); pointer-events: none; }
+.search input { padding-left: 46px; border-radius: var(--md-shape-full); }
+
+/* Mute and solo carry icons. */
+button.mini .ms { font-size: 20px; }
+
+/* New song: the Material FAB, the screen's one big create action. */
+.lib-head button.icon-btn[data-action="new-song"] {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--md-shape-large);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.15);
+}
+.lib-head button.icon-btn[data-action="new-song"] .ms { font-size: 28px; }
+
+/* Transport icons sized for a thumb. */
+.transport button.icon-btn .ms { font-size: 26px; }
+.transport button#play-btn .ms, .transport button#rec-btn .ms { font-size: 30px; }
+
+/* Navigation bar icons at Material's 24px (an older rule shrank every span). */
+button.dock-btn .nav-pill .ms { font-size: 24px; color: inherit; }
+
+/* Phones: the transport keeps the same circles as desktop. They share the
+   row evenly, and each stays a true circle. */
+@media (max-width: 759px) {
+  .transport { justify-content: space-between; gap: 6px; }
+  .transport button.icon-btn,
+  .transport button#play-btn,
+  .transport button#rec-btn {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    min-width: 0;
+    max-width: none;
+    aspect-ratio: 1;
+    border-radius: 50%;
+  }
+}
+@media (max-width: 359px) {
+  .transport button.icon-btn,
+  .transport button#play-btn,
+  .transport button#rec-btn { width: 44px; height: 44px; }
+  .transport button.icon-btn .ms { font-size: 22px; }
+  .transport button#play-btn .ms, .transport button#rec-btn .ms { font-size: 26px; }
+}
+
+/* Playing and recording rings are drawn inside the button, so nothing is
+   cropped at the edge of the row. */
+button#play-btn.is-on { box-shadow: inset 0 0 0 3px var(--md-primary); }
+body[data-sound="record"] #rec-btn,
+body[data-sound="record"] .transport #rec-btn { box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85); }
+body[data-sound="play"] #play-btn::after { display: none; }
+@media (max-width: 759px) {
+  /* The buttons fit, so the row doesn't need to scroll (which cropped them). */
+  .transport { overflow: visible; padding: 2px 0; }
+  /* A hint that can't fit on a phone is left out instead of cut to "T…". */
+  .section-bar .section-guide { display: none; }
+}
+
+/* ---- The guide: what to do next ---------------------------------------- */
+.guide {
+  flex: 0 0 auto;
+  margin: 8px 12px 0;
+  padding: 12px 14px 14px;
+  border-radius: var(--md-shape-large);
+  background: rgba(16, 53, 44, 0.92);
+  border: 1px solid var(--md-outline-variant);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.15);
+}
+.guide[hidden] { display: none; }
+.guide-steps { display: flex; align-items: center; gap: 2px; margin: 0 0 8px; }
+.guide-step {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--md-on-surface-variant);
+  font: var(--md-label-large);
+  font-size: 11px;
+}
+.guide-step .dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--md-outline);
+  font-size: 12px;
+  font-weight: 700;
+}
+.guide-step .dot .ms { font-size: 16px; }
+.guide-step.done .dot { background: var(--md-secondary-container); border-color: transparent; color: var(--md-on-secondary-container); }
+.guide-step.on { color: var(--md-on-surface); }
+.guide-step.on .dot { background: var(--md-primary); color: var(--md-on-primary); border-color: transparent; }
+.guide-hide { flex: none; width: 40px; height: 40px; border: 0; border-radius: 50%; background: none; color: var(--md-on-surface-variant); display: inline-flex; align-items: center; justify-content: center; }
+.guide-title { margin: 0; font: var(--type-section); font-size: 18px; color: var(--md-on-surface); }
+.guide-hint { margin: 4px 0 10px; font: var(--type-body); font-size: 14px; color: var(--md-on-surface-variant); }
+.guide-ideas { display: flex; flex-wrap: wrap; gap: 8px; }
+.guide-ideas .btn { padding: 0 16px; }
+.guide-ideas .btn .ms { margin-left: -4px; }
+.guide.small { padding: 0; }
+.guide-peek {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: var(--md-on-surface);
+  font: var(--md-label-large);
+  text-align: left;
+}
+.guide-peek .ms:first-child { color: var(--md-primary); }
+.guide-peek .ms:last-child { margin-left: auto; color: var(--md-on-surface-variant); }
+/* A phone shows one sheet at a time: the guide steps aside while one is open. */
+@media (max-width: 1099px) {
+  body.sheet-open .guide { display: none; }
+}
+@media (max-width: 759px) {
+  .guide { margin: 6px 12px 0; padding: 10px 12px 12px; }
+  .guide-title { font-size: 16px; }
+  .guide-hint { font-size: 13px; margin-bottom: 8px; }
+  .guide-ideas .btn { min-height: 40px; font-size: 13px; padding: 0 12px; }
+}
+
+/* ---- First-time welcome -------------------------------------------------- */
+.welcome {
+  margin: 16px 0;
+  padding: 18px;
+  border-radius: var(--md-shape-large);
+  background: rgba(16, 53, 44, 0.85);
+  border: 1px solid var(--md-outline-variant);
+}
+.welcome-title { margin: 0 0 12px; font: var(--type-section); font-size: 20px; }
+.welcome-steps { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.welcome-steps li { display: grid; grid-template-columns: 44px 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center; }
+.welcome-steps .ms {
+  grid-row: 1 / 3;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.welcome-steps b { font-size: 16px; }
+.welcome-steps span:not(.ms) { color: var(--md-on-surface-variant); font-size: 14px; }
+.welcome-go { width: 100%; min-height: 56px; font-size: 16px; }
+
+.guide-note { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0; padding: 8px 10px; border-radius: var(--md-shape-medium); background: rgba(52, 211, 153, 0.12); color: var(--md-on-surface); font-size: 13px; line-height: 1.35; }
+.guide-note .ms { font-size: 18px; color: var(--md-primary); }
+.guide-note.warn { background: rgba(232, 184, 109, 0.14); }
+.guide-note.warn .ms { color: var(--md-error); }
+.guide-note.working .ms { animation: guide-spin 1.4s linear infinite; }
+@keyframes guide-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .guide-note.working .ms { animation: none; } }
+
+/* Zoom: two small icon buttons. */
+.section-bar .zoom-btn { width: 40px; height: 40px; }
+.section-bar .zoom { gap: 6px; }
+@media (max-width: 759px) {
+  /* On a phone the ideas are one row you can swipe, so the card stays short. */
+  .guide-ideas { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px 2px; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .guide-ideas::-webkit-scrollbar { display: none; }
+  .guide-ideas .btn { flex: none; white-space: nowrap; }
+  .guide-steps { margin-bottom: 6px; }
+  .guide-step .dot { width: 24px; height: 24px; }
+}
+
+/* ---- The sound browser ------------------------------------------------- */
+.browse-card { margin: 18px 0 6px; padding: 14px; border-radius: var(--md-shape-large); background: rgba(16, 53, 44, 0.7); border: 1px solid var(--md-outline-variant); }
+.browse-card .magic-h { margin-top: 0; }
+.browse-card .btn { width: 100%; min-height: 48px; }
+.browse-card .chip .ms { font-size: 18px; margin-left: -4px; }
+.browse-step { margin: 18px 0 0; }
+.browse-step h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font: var(--type-section); font-size: 17px; }
+.browse-step .num { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--md-primary); color: var(--md-on-primary); font-size: 13px; font-weight: 700; flex: none; }
+.tile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.era-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+button.sound-tile {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-height: 60px;
+  padding: 10px 12px;
+  border-radius: var(--md-shape-medium);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  text-align: left;
+  font: var(--md-label-large);
+}
+button.sound-tile b { font-size: 14px; font-weight: 600; }
+button.sound-tile span { font-size: 12px; font-weight: 400; color: var(--md-on-surface-variant); line-height: 1.3; }
+button.sound-tile::before { content: ""; position: absolute; inset: 0; background: currentColor; opacity: 0; z-index: -1; transition: opacity 0.15s linear; }
+button.sound-tile:hover::before { opacity: 0.06; }
+button.sound-tile.on { background: var(--md-secondary-container); color: var(--md-on-secondary-container); border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
+button.sound-tile.on span { color: var(--md-on-secondary-container); }
+.era-row button.sound-tile { min-height: 56px; padding: 8px 10px; }
+.browse-bar {
+  position: sticky;
+  bottom: -24px;
+  margin: 18px -16px -24px;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+  background: rgba(11, 31, 25, 0.97);
+  border-top: 1px solid var(--md-outline-variant);
+  z-index: 3;
+}
+.browse-summary { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font: var(--md-label-large); color: var(--md-on-surface); }
+.browse-summary .ms { color: var(--md-primary); font-size: 20px; }
+.browse-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.browse-actions .btn { width: 100%; min-height: 48px; padding: 0 12px; }
+.browse-note { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 0; padding: 8px 10px; border-radius: var(--md-shape-medium); background: rgba(52, 211, 153, 0.12); font-size: 13px; line-height: 1.35; }
+.browse-note .ms { font-size: 18px; color: var(--md-primary); }
+.browse-note.warn { background: rgba(232, 184, 109, 0.14); }
+.browse-note.warn .ms { color: var(--md-error); }
+.mix-channel-top button.mini .ms { font-size: 20px; }
+@media (min-width: 1100px) { .browse-bar { bottom: 0; margin-bottom: 0; } }
+
+/* The sound browser gets most of a phone screen. */
+@media (max-width: 759px) {
+  body[data-panel="sounds"] #inspector { max-height: 82dvh; }
+}
+.browse-bar { background: #0b1f19; }
+
+/* Before recording: the beat, the speed, and a preview. */
+.tempo-box { margin: 6px 0 4px; padding: 12px 14px; border-radius: var(--md-shape-large); background: rgba(16, 53, 44, 0.7); border: 1px solid var(--md-outline-variant); }
+.tempo-tip { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px; font-size: 14px; line-height: 1.4; color: var(--md-on-surface); }
+.tempo-tip .ms { color: var(--md-primary); font-size: 20px; }
+.tempo-row { display: flex; align-items: center; gap: 8px; }
+.tempo-row .icon-btn { width: 44px; height: 44px; flex: none; }
+.tempo-read { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+.tempo-read b { font-size: 22px; line-height: 1; }
+.tempo-read span { font-size: 11px; color: var(--md-on-surface-variant); }
+.tempo-row .btn { margin-left: auto; padding: 0 14px; min-height: 44px; }
+.tempo-presets { margin-top: 10px; }
+.beat-lights.idle i { opacity: 0.55; }
+.tempo-row .btn, .tempo-read span { white-space: nowrap; }
+.tempo-row { gap: 6px; }
+.tempo-read { min-width: 58px; }
+
+/* ---- Keys: the note check and the piano pad -------------------------------- */
+.check-keys { display: flex; align-items: stretch; gap: 4px; margin: 10px 0; }
+.check-keys > .icon-btn { width: 36px; height: auto; min-height: 44px; flex: none; border-radius: var(--md-shape-medium); }
+.keys { position: relative; flex: 1; display: flex; height: 132px; user-select: none; -webkit-user-select: none; touch-action: none; }
+.keys .key { border: 0; padding: 0; cursor: pointer; font: inherit; -webkit-tap-highlight-color: transparent; touch-action: none; }
+.keys .key.white {
+  position: relative;
+  flex: 1;
+  margin: 0 1.5px;
+  background: #fff8ee;
+  color: #10352c;
+  border-radius: 0 0 9px 9px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: inset 0 -4px 0 rgba(16, 53, 44, 0.12);
+  transition: background 0.06s linear, transform 0.06s linear;
+}
+.keys .key.white sub { font-size: 9px; opacity: 0.6; margin-left: 1px; }
+.keys .key.black {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  width: calc(100% / var(--whites) * 0.62);
+  height: 58%;
+  transform: translateX(-50%);
+  background: #10241e;
+  border-radius: 0 0 6px 6px;
+  box-shadow: inset 0 -3px 0 rgba(255, 255, 255, 0.08);
+}
+.keys .key.in-key.white::after { content: ""; position: absolute; left: 50%; bottom: 30px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--md-primary); }
+.keys .key.in-key.black::after { content: ""; position: absolute; left: 50%; bottom: 8px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--md-primary); }
+.keys .key.white.on { background: var(--md-primary); transform: translateY(2px); }
+.keys .key.black.on { background: #0f5a41; }
+
+/* ---- Check your notes -------------------------------------------------- */
+.check-loading { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 36px 0; color: var(--md-on-surface-variant); }
+.check-loading .ms { font-size: 40px; color: var(--md-primary); animation: check-pulse 1s ease-in-out infinite alternate; }
+@keyframes check-pulse { from { opacity: 0.4; transform: scale(0.9); } to { opacity: 1; transform: scale(1.05); } }
+.check-key { display: grid; gap: 12px; margin: 6px 0 12px; padding: 12px 14px; border-radius: var(--md-shape-large); background: rgba(16, 53, 44, 0.7); border: 1px solid var(--md-outline-variant); }
+.check-key .ask { margin: 0 0 6px; }
+.check-key .hint { margin: 6px 0 0; }
+.key-pick { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.key-pick .ask { margin: 0 4px 0 0; }
+.key-pick .icon-btn { width: 40px; height: 40px; }
+.key-now { min-width: 76px; text-align: center; font-size: 16px; }
+.row.tight { gap: 8px; flex-wrap: wrap; }
+.row.tight .btn { min-height: 44px; }
+.roll-scroll { overflow-x: auto; margin: 0 -2px; padding: 2px; border-radius: var(--md-shape-medium); }
+.roll { position: relative; height: 168px; border-radius: var(--md-shape-medium); background: repeating-linear-gradient(0deg, rgba(255, 251, 242, 0.035) 0 12px, transparent 12px 24px), #0d2a22; border: 1px solid var(--md-outline-variant); }
+.roll-beats i { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255, 251, 242, 0.08); }
+.roll-beats i.bar { background: rgba(255, 251, 242, 0.2); }
+button.roll-note {
+  position: absolute;
+  min-height: 22px;
+  min-width: 22px;
+  transform: translateY(50%);
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: #F9A8D4;
+  color: #3b0a25;
+  font: 700 11px/22px "Plus Jakarta Sans", system-ui, sans-serif;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+}
+button.roll-note.chord { background: #c58bff; color: #23063f; box-shadow: 0 -5px 0 -1px rgba(197, 139, 255, 0.55), 0 -10px 0 -2px rgba(197, 139, 255, 0.3); }
+button.roll-note.fixed { background: #ffd89a; color: #3b2600; }
+button.roll-note.on { outline: 3px solid var(--md-primary); outline-offset: 1px; z-index: 2; }
+.note-tools { margin: 10px 0 0; padding: 10px 12px; border-radius: var(--md-shape-large); background: var(--md-secondary-container); min-height: 48px; }
+.note-tools.idle { background: transparent; padding: 4px 2px; }
+.note-tools .note-now { margin: 0 0 8px; font-size: 15px; }
+.note-tools .hint { margin: 8px 0 0; }
+.note-tools .icon-btn { width: 44px; height: 44px; }
+button.text-btn { display: inline-flex; align-items: center; gap: 6px; margin: 10px auto 0; padding: 6px 10px; border: 0; background: none; color: var(--md-primary); font: var(--md-label-large); cursor: pointer; }
+button.text-btn .ms { font-size: 18px; }
+body[data-panel="notes"] .browse-bar .browse-actions { margin: 0; }
+@media (max-width: 759px) {
+  body[data-panel="notes"] #inspector,
+  body[data-panel="record"] #inspector { max-height: 82dvh; }
+}
+
+/* ---- Play an instrument ------------------------------------------------- */
+.pad-kinds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 0 8px; }
+button.pad-kind {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 64px;
+  padding: 8px;
+  border-radius: var(--md-shape-large);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  font: var(--md-label-large);
+  cursor: pointer;
+}
+button.pad-kind .ms { font-size: 26px; color: var(--md-primary); }
+button.pad-kind.on { background: var(--md-secondary-container); border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
+button.pad-kind:disabled { opacity: 0.6; }
+.pad-keys .keys { height: 150px; }
+.kit-row { margin: 8px 0 4px; }
+.chord-pads, .drum-pads { display: grid; gap: 8px; margin: 12px 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+.chord-pads { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.drum-pads { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+button.chord-pad, button.drum-pad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 0;
+  border-radius: var(--md-shape-large);
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.06s linear, filter 0.06s linear;
+}
+button.chord-pad { min-height: 76px; background: #ff8ab0; color: #3b0a25; font: 700 22px/1 "Plus Jakarta Sans", system-ui, sans-serif; }
+button.chord-pad.home { background: #34D399; color: #003825; }
+button.chord-pad small { font-size: 11px; font-weight: 600; opacity: 0.75; }
+button.drum-pad { aspect-ratio: 1; min-height: 64px; background: #3d7eff; color: #fff; }
+button.drum-pad:nth-child(2) { background: #b44dff; }
+button.drum-pad:nth-child(3), button.drum-pad:nth-child(7) { background: #f0a202; color: #2b1a00; }
+button.drum-pad:nth-child(4) { background: #ff8ab0; color: #3b0a25; }
+button.drum-pad:nth-child(5), button.drum-pad:nth-child(6) { background: #1fbfa7; color: #00281f; }
+button.drum-pad:nth-child(8) { background: #ffd89a; color: #3b2600; }
+button.drum-pad b { font-size: 16px; }
+button.drum-pad small { font-size: 11px; opacity: 0.85; }
+button.chord-pad.on, button.drum-pad.on { transform: scale(0.94); filter: brightness(1.2); }
+
+/* ---- Mic level ------------------------------------------------------------ */
+.mic-level { margin: 12px 0; padding: 12px 14px; border-radius: var(--md-shape-large); background: rgba(16, 53, 44, 0.7); border: 1px solid var(--md-outline-variant); }
+.mic-level .looper-head .ask { margin: 0 0 2px; }
+.mic-level .looper-head .hint { margin: 0; min-height: 20px; }
+.level-bar { position: relative; height: 12px; margin: 12px 0 4px; border-radius: 6px; background: rgba(255, 251, 242, 0.08); overflow: hidden; }
+.level-good { position: absolute; top: 0; bottom: 0; left: 47%; right: 6%; background: rgba(52, 211, 153, 0.16); }
+.level-fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: linear-gradient(90deg, #1fbfa7 0%, #34D399 75%, #f0a202 90%, #EC4899 100%); background-size: 100% 100%; }
+.level-peak { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: #fffbf2; opacity: 0.8; }
+.level-peak.hot { background: #EC4899; }
+.mic-level:not(.live) .level-fill, .mic-level:not(.live) .level-peak { opacity: 0; }
+.level-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--md-on-surface-variant); }
+.level-gain { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.level-gain input { flex: 1; }
+.level-gain b { min-width: 52px; text-align: right; font-size: 13px; }
+.level-gain .ms { font-size: 20px; color: var(--md-on-surface-variant); }
+.level-gain.off { opacity: 0.45; }
+.mic-level .btn { width: 100%; min-height: 44px; }
+
+/* ---- Play and stop from any panel ------------------------------------- */
+.sheet-transport { display: flex; align-items: center; gap: 6px; flex: none; }
+.sheet-transport .icon-btn { width: 40px; height: 40px; }
+.sheet-transport .sheet-play { background: var(--md-primary); color: var(--md-on-primary); border-color: transparent; }
+.sheet-transport .sheet-play.is-on { background: var(--md-tertiary, #EC4899); color: #fff; }
+.sheet-transport .sheet-play .glyph { font-variation-settings: "FILL" 1; }
+@media (min-width: 760px) {
+  /* On a computer the song's own transport is always in view. */
+  .sheet-transport [data-action="jump"] { display: none; }
+}
+
+/* ---- Delete on each channel --------------------------------------------- */
+button.mini.danger { color: var(--md-error); }
+
+/* ---- Every chord ---------------------------------------------------------- */
+.chord-view { margin: 10px 0 4px; }
+.root-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin: 6px 0 4px; }
+button.root-chip {
+  min-height: 40px;
+  border-radius: var(--md-shape-full, 999px);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  font: 700 15px/1 "Plus Jakarta Sans", system-ui, sans-serif;
+  cursor: pointer;
+}
+button.root-chip.on { background: var(--md-primary); color: var(--md-on-primary); border-color: transparent; }
+.chord-pads.all { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.chord-pads.all button.chord-pad { min-height: 64px; font-size: 18px; }
+.chord-pads.all button.chord-pad small { font-size: 10px; }
+
+/* ---- Make it a full song ------------------------------------------------- */
+button.song-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 12px 0;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: var(--md-shape-large);
+  background: linear-gradient(120deg, rgba(52, 211, 153, 0.22), rgba(236, 72, 153, 0.22));
+  color: var(--md-on-surface);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 251, 242, 0.12);
+}
+button.song-card > .ms:first-child { font-size: 28px; color: #F9A8D4; }
+button.song-card span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+button.song-card b { font-size: 16px; }
+button.song-card small { font-size: 13px; color: var(--md-on-surface-variant); }
+.plan-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 6px 0 10px; }
+button.plan-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  border-radius: var(--md-shape-large);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  text-align: left;
+  cursor: pointer;
+}
+button.plan-card .ms { color: var(--md-primary); font-size: 24px; }
+button.plan-card b { font-size: 14px; }
+button.plan-card small { font-size: 12px; color: var(--md-on-surface-variant); line-height: 1.35; }
+button.plan-card.on { background: var(--md-secondary-container); border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
+.song-map { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; counter-reset: part; }
+.song-map li { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "name who at"; align-items: baseline; gap: 2px 10px; padding: 8px 12px; border-radius: 12px; background: rgba(16, 53, 44, 0.7); }
+.song-map b { grid-area: name; font-size: 14px; }
+.song-map span { grid-area: at; font-size: 12px; color: var(--md-on-surface-variant); }
+.song-map small { grid-area: who; font-size: 12px; color: var(--md-on-surface-variant); }
+@media (max-width: 759px) {
+  body[data-panel="arrange"] #inspector { max-height: 82dvh; }
+}
+
+/* ---- Three states on a lane ------------------------------------------
+   Selected: the one layer your changes go to. A filled label, an outline,
+             and a "Selected" tag.
+   Playing:  only a small moving meter beside its name; resting parts of the
+             song show as an empty lane.
+   Muted:    grey, the name struck through, and the mute button lit. */
+.wave .bars i.rest { height: 2px !important; background: rgba(255, 251, 242, 0.12) !important; }
+.track.selected .track-label {
+  outline: 2px solid var(--md-primary);
+  outline-offset: -2px;
+  background: var(--md-secondary-container);
+}
+.track.selected .lane { box-shadow: inset 0 0 0 2px rgba(52, 211, 153, 0.45); border-radius: 12px; }
+.track-meta small.picked {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  padding: 1px 8px 1px 4px;
+  border-radius: 999px;
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+.track-meta small.picked .ms { font-size: 14px; }
+.track.resting .lane { opacity: 0.45; }
+.track.sounding .role::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 10px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  background:
+    linear-gradient(#34D399, #34D399) 0 100% / 3px 60% no-repeat,
+    linear-gradient(#34D399, #34D399) 4.5px 100% / 3px 100% no-repeat,
+    linear-gradient(#34D399, #34D399) 9px 100% / 3px 40% no-repeat;
+  animation: sounding-meter 0.6s ease-in-out infinite alternate;
+}
+@keyframes sounding-meter {
+  from { background-size: 3px 40%, 3px 90%, 3px 60%; }
+  to { background-size: 3px 90%, 3px 50%, 3px 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .track.sounding .role::before { animation: none; } }
+.track.muted .layer-name { text-decoration: line-through; }
+.track.muted .track-label { outline-style: dashed; }
+button.layer-mute {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  cursor: pointer;
+}
+button.layer-mute .ms { font-size: 19px; }
+button.layer-mute.on { background: rgba(236, 72, 153, 0.22); color: #F9A8D4; }
+@media (max-width: 759px) {
+  /* Room for the name next to mute and delete. */
+  .label-top { gap: 0; }
+  .track-label button.layer-mute,
+  .track-label button.layer-delete { width: 24px; height: 24px; min-width: 24px; min-height: 24px; }
+  .track-label button.layer-mute .ms,
+  .track-label button.layer-delete .ms { font-size: 17px; }
+  .track-label .layer-name { padding-left: 2px; padding-right: 2px; }
+}
+
+/* The "Parts" label stays where it lives, at the start of the timeline,
+   and scrolls away with it instead of floating over the sections. */
+.ruler-gutter { position: relative; left: auto; background: transparent; }
+
+/* Song files: send a whole song, open one from a friend. */
+.lib-head button.icon-btn[data-action="open-song-file"] { width: 48px; height: 48px; flex-shrink: 0; }
+.welcome-open { width: 100%; min-height: 48px; margin-top: 8px; }
+.library-note { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.song-file-box { display: grid; gap: 6px; margin-bottom: 10px; }
+.song-file-box .btn { width: 100%; min-height: 48px; justify-content: center; }
+.song-file-box .hint { margin: 0; }
+body.file-over::after {
+  content: "Drop the song file to open it";
+  position: fixed; inset: 12px; z-index: 9999; display: grid; place-items: center;
+  border: 3px dashed #34D399; border-radius: 24px; background: rgba(7, 28, 23, 0.82);
+  color: #fff; font: 600 20px/1.3 "Plus Jakarta Sans", system-ui, sans-serif; pointer-events: none;
+}
