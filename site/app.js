@@ -1189,7 +1189,8 @@ function renderShareBox(song) {
   if (state.shareFor !== song.id) return ""
   const emails = songEmails(song)
   return `<div class="share-box">
-    <p class="hint">Add their email. Songbird opens your mail app with a message to them, and saves the address on this song.</p>
+    ${song.layers?.length ? songFileBox(song.id) : ""}
+    <p class="hint">Or add their email. Songbird opens your mail app with a message to them, and saves the address on this song.</p>
     ${emails.length ? `<p class="hint">${emails.map((email) => esc(email)).join(", ")}</p>` : ""}
     ${state.shareNote ? `<p class="hint">${esc(state.shareNote)}</p>` : ""}
     <div class="share-row">
@@ -1200,8 +1201,8 @@ function renderShareBox(song) {
 }
 
 function songCard(song) {
-  const meta = song.demo ? song.line || "Press play" : shareDetail(song)
-  const badge = song.demo ? "Example" : songEmails(song).length ? "Shared" : "Yours"
+  const meta = song.demo ? song.line || "Press play" : song.received && !songEmails(song).length ? "Your own copy. Changes stay on this device." : shareDetail(song)
+  const badge = song.demo ? "Example" : song.received ? "Sent to you" : songEmails(song).length ? "Shared" : "Yours"
   const manage = song.demo
     ? ""
     : `<div class="song-actions">
@@ -1236,6 +1237,7 @@ function renderSongs() {
         <li><span class="ms" aria-hidden="true">download</span><b>Save</b><span>Keep it, play it, share it.</span></li>
       </ol>
       <button class="btn btn-primary welcome-go" data-action="new-song"><span class="ms" aria-hidden="true">arrow_forward</span>Make my first song</button>
+      <button class="btn btn-secondary welcome-open" data-action="open-song-file"><span class="ms" aria-hidden="true">file_open</span>Open a song file</button>
       <p class="hint">Songbird shows you what to do next at every step.</p>
     </section>`
     return
@@ -2499,7 +2501,8 @@ function renderInspector() {
       <div class="seg">${filterChip("Audio", "", true)}${outlinedButton("Video", `data-action="video-note"`)}</div>
       <p class="hint">Saves the song to your phone, exactly as you hear it now. It stays private: nothing is uploaded.</p>
       ${filledButton(`${ms("download")}Save my song`, `data-action="download-mix"`)}
-      <p id="finish-note" class="hint"></p>`
+      <p id="finish-note" class="hint"></p>
+      ${state.song && !state.song.demo && state.layers.length ? `<p class="ask">Send it to someone</p>${songFileBox(state.song.id)}` : ""}`
   } else {
     body = renderMix(head, layer)
   }
