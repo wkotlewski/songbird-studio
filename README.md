@@ -64,9 +64,10 @@ My Music and Studio are the only two places. Everything else opens over your son
 - **✨ Magic:** say what you want, or turn a layer into one of 40 real recorded instruments, 7 drum kits, and 11 percussion sounds. Choose the era: 1900s parlor, 1920s, '50s, '60s, '70s, '80s, '90s, 2000s, or today. Add a genre package, from 25 including gospel, R&B, hip-hop, country, jazz, Afrobeats, lo-fi, cinematic, and children's music. Or blend two together. Magic clear tidies hiss and brings a voice forward.
 - **Mix:** set each layer's volume, bass, treble, left and right, and space, or pick a mix preset. Magic timing tightens notes that are barely off the beat.
 - **Finish:** download the song as a WAV file.
+- **Send a song:** in Save, or Share on a song in My Music, tap Send the song file. Every layer, the mix, the sections, the speed, and the key go into one `.songbird` file you can send by text, email, or AirDrop. Whoever gets it taps Open a song file in My Music (or drops it on the page on a computer), and the song is in their list, ready to play and keep building on. It's their own copy: what they change stays on their device, and yours stays as it is.
 - **Undo** steps back through any edit. Your original recording is always kept, so you can go back.
 
-Everything stays on your device. Your songs and recordings are not uploaded anywhere.
+Everything stays on your device. Your songs and recordings are not uploaded anywhere. A song only leaves when you send the file yourself.
 
 ## Still growing
 
@@ -76,7 +77,7 @@ Songbird is being built in the open, one phase at a time. When a feature isn't f
 
 The public page is a static site: HTML, CSS, and JavaScript, hosted on GitHub Pages. There is no application framework and no server.
 
-Sound runs in the browser with the Web Audio API. The microphone uses the MediaRecorder API. Building instruments and genre packages runs in a Web Worker, so the studio keeps playing and scrolling while a layer is being built. A looped layer is built for one pass and then repeated. Song titles and recordings stay in this browser.
+Sound runs in the browser with the Web Audio API. The microphone uses the MediaRecorder API. Building instruments and genre packages runs in a Web Worker, so the studio keeps playing and scrolling while a layer is being built. A looped layer is built for one pass and then repeated. Song titles and recordings stay in this browser. A `.songbird` file is a small header, the song and layer settings as JSON, and each layer's sound as 16-bit samples (a looped layer stores one pass), delta-coded, split into high and low bytes, and gzipped, which comes to about a fifth of the raw size. Installed as an app on a computer, Songbird registers as the opener for `.songbird` files.
 
 Instruments are real recordings. Trumpet, trombone, tuba, and French horn, held and short notes, come from [VSCO 2 Community Edition](https://github.com/sgossner/VSCO-2-CE) by Versilian Studios, released under CC0 (see `site/sounds/LICENSE-VSCO2CE.txt`); `tools/build-brass.py` rebuilds them. A horn section is those players split by range. The rest are samples rendered from the FluidR3 GM soundfont by Frank Wen, released under the MIT license (see `site/sounds/LICENSE-FluidR3.txt`); `tools/build-sounds.py` rebuilds them. Only the notes a part plays are downloaded, the first time it's used.
 
