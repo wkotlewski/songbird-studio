@@ -1305,24 +1305,58 @@ function renderShareBox(song) {
   </div>`
 }
 
+// A little picture of the song: its sound as a wave, from its layers.
+function songWave(song) {
+  const layers = (song.layers || []).filter((layer) => Array.isArray(layer.peaks) && layer.peaks.length)
+  const bars = 18
+  if (!layers.length) return `<span class="song-icon" aria-hidden="true">${ms(song.demo ? "music_note" : "graphic_eq")}</span>`
+  const values = []
+  for (let i = 0; i < bars; i++) {
+    let top = 0
+    for (const layer of layers) {
+      const peaks = layer.peaks
+      const from = Math.floor((i / bars) * peaks.length)
+      const to = Math.max(from + 1, Math.floor(((i + 1) / bars) * peaks.length))
+      for (let k = from; k < to; k++) top = Math.max(top, Math.abs(Number(peaks[k]) || 0))
+    }
+    values.push(top)
+  }
+  const loud = Math.max(0.05, ...values)
+  const rects = values.map((value, i) => {
+    const h = Math.max(2, Math.round((value / loud) * 26))
+    return `<rect x="${i * 3 + 1}" y="${16 - h / 2}" width="2" height="${h}" rx="1" />`
+  }).join("")
+  return `<span class="song-icon" aria-hidden="true"><svg viewBox="0 0 56 32" width="56" height="32">${rects}</svg></span>`
+}
+
+function songLength(song) {
+  const sec = Math.round(song.lengthSec || 0)
+  return sec ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : ""
+}
+
 function songCard(song) {
-  const meta = song.demo ? song.line || "Press play" : song.received && !songEmails(song).length ? "Your own copy. Changes stay on this device." : shareDetail(song)
-  const badge = song.demo ? "Example" : song.received ? "Sent to you" : songEmails(song).length ? "Shared" : "Yours"
+  const count = (song.layers || []).length
+  const facts = song.demo
+    ? [song.author, song.line || "Press play"]
+    : [song.received ? song.author : "", songLength(song), count ? `${count} ${count === 1 ? "layer" : "layers"}` : "Empty", songEmails(song).length ? `Shared with ${songEmails(song).join(", ")}` : ""]
+  const tag = song.demo ? "Example" : song.received ? "Sent to you" : ""
   const manage = song.demo
     ? ""
-    : `<div class="song-actions">
-        ${outlinedButton("Share", `data-action="share-song" data-id="${song.id}"`)}
-        ${dangerButton("Delete", `data-action="ask-delete" data-id="${song.id}"`)}
+    : `<div class="song-tools">
+        <button class="icon-btn small" data-action="share-song" data-id="${song.id}" aria-label="Share ${esc(song.title)}" title="Share">${ms("ios_share")}</button>
+        <button class="icon-btn small danger" data-action="ask-delete" data-id="${song.id}" aria-label="Delete ${esc(song.title)}" title="Delete">${ms("delete")}</button>
       </div>`
-  const byline = song.author ? (song.demo ? `${song.author} · Original` : song.author) : ""
   return `<article class="song">
-        <button class="song-open" data-action="open-song" data-id="${song.id}">
-          <span class="swatch" style="background:linear-gradient(135deg,#34D399,#F9A8D4)"></span>
-          <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(meta)}</span></span>
-          <span class="badge">${badge}</span>
-          ${byline ? `<span class="byline">${esc(byline)}</span>` : ""}
-        </button>
-        ${manage}
+        <div class="song-row">
+          <button class="song-open" data-action="open-song" data-id="${song.id}">
+            ${songWave(song)}
+            <span class="song-copy">
+              <b class="song-title">${esc(song.title)}</b>
+              <span class="meta">${tag ? `<span class="song-tag">${tag}</span>` : ""}${esc(facts.filter(Boolean).join(" · "))}</span>
+            </span>
+          </button>
+          ${manage}
+        </div>
         ${renderShareBox(song)}
       </article>`
 }
