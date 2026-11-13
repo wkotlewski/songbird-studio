@@ -1686,3 +1686,4 @@ html, body { touch-action: manipulation; }
 .studio-step.skipped .step-num { background: rgba(255, 251, 242, 0.15); color: inherit; }
 .studio-step.done { border-color: var(--md-primary, #34d399); }
 .studio-block .quick-grid { grid-template-columns: 1fr; } .studio-block .quick-card { min-height: 0; }
+.studio-step .step-extra { grid-column: 2; display: grid; gap: 6px; } .studio-step .tone-fine summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; font-size: 14px; opacity: 0.85; }

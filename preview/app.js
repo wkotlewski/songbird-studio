@@ -2250,6 +2250,7 @@ function renderMix(head, layer) {
   const doing = steps.filter((step) => !skip.has(step.id))
   const done = new Set(state.studioDone || [])
   if (master.polish) done.add("polish")
+  if (master.tone) done.add("tone")
   if (vocal?.lead) done.add("room")
   const channels = state.layers.map((item) => {
     const hear = hearingMark(item)
@@ -2291,9 +2292,22 @@ function renderMix(head, layer) {
           return `<li class="studio-step ${on ? "" : "skipped"} ${done.has(step.id) ? "done" : ""}">
             <span class="step-num">${done.has(step.id) ? ms("check") : index + 1}</span>
             <span class="step-copy"><b>${ms(step.icon)}${step.name}</b><small>${step.line}</small></span>
+            ${step.id === "tone" ? `<div class="step-extra">
+              <div class="choices" role="group" aria-label="Final tone">
+                ${Object.entries(MASTER_TONES).map(([id, item]) => filterChip(`${item.name}${id === suggestedTone() && !master.tone ? " · suggested" : ""}`, `data-action="master-tone" data-tone="${id}" title="${esc(item.line)}"`, (master.tone || suggestedTone()) === id && (done.has("tone") || !!master.tone))).join("")}
+              </div>
+              <details class="tone-fine"><summary>Fine-tune low and top end</summary>
+                <label class="field">Low end
+                  <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.low || 0}" data-master="low" aria-label="Whole song low end" />
+                </label>
+                <label class="field">Top end
+                  <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.high || 0}" data-master="high" aria-label="Whole song top end" />
+                </label>
+              </details>
+            </div>` : ""}
             <span class="step-actions">
               <button class="switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" data-action="studio-skip" data-step="${step.id}" aria-label="${on ? "Included" : "Skipped"}: ${step.name}" ${busy}><span></span></button>
-              <button class="step-just" data-action="${step.action}" ${busy}>Just this</button>
+              <button class="step-just" data-action="${step.id === "polish" && master.polish ? "master-polish" : step.action}" ${busy}>${step.id === "polish" && master.polish ? "Turn off" : "Just this"}</button>
             </span>
           </li>`
         }).join("")}
@@ -2305,21 +2319,6 @@ function renderMix(head, layer) {
       </div>
     </section>
 
-    <section class="mixer-block">
-      <h3 class="magic-h">The whole song's sound</h3>
-      <p class="hint">Like the tone knobs on a stereo, for everything at once.</p>
-      <div class="choices" role="group" aria-label="Song tone">
-        ${Object.entries(MASTER_TONES).map(([id, item]) => filterChip(item.name, `data-action="master-tone" data-tone="${id}" title="${esc(item.line)}"`, tone === id)).join("")}
-      </div>
-      <p class="hint">${esc(MASTER_TONES[tone].line)}.</p>
-      ${filterChip(`${ms("compress")}Polish ${master.polish ? "on" : "off"}`, `data-action="master-polish"`, !!master.polish)}
-      <label class="field">Low end
-        <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.low || 0}" data-master="low" aria-label="Whole song low end" />
-      </label>
-      <label class="field">Top end
-        <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.high || 0}" data-master="high" aria-label="Whole song top end" />
-      </label>
-    </section>
 
     <section class="mixer-block">
       <h3 class="magic-h">Each sound</h3>
@@ -2353,8 +2352,15 @@ function studioSteps() {
     state.layers.some((layer) => isRecording(layer)) ? { id: "hiss", icon: "graphic_eq", name: "Remove hiss", line: "Takes the steady hiss out of your recordings.", action: "mix-hiss" } : null,
     { id: "balance", icon: "balance", name: "Balance everything", line: vocal ? "Your voice in front, the band right under it, each sound in its own spot." : "Every sound at the right level, in its own spot.", action: "mix-balance" },
     vocal ? { id: "room", icon: "spatial_audio", name: "Make room for my voice", line: "The band steps back a little while you sing.", action: "mix-room" } : null,
+    { id: "tone", icon: "tune", name: "Final tone", line: "The sound of the whole song at once, like the tone knobs on a stereo. Tap one to hear it.", action: "master-tone-apply" },
     { id: "polish", icon: "compress", name: "Polish", line: "Holds the song together and makes it louder, without clipping.", action: "master-polish-on" },
   ].filter(Boolean)
+}
+
+// A soulful song with a voice sounds best a little warm; a band on its own,
+// a little punchy.
+function suggestedTone() {
+  return typeof leadVocal === "function" && leadVocal() ? "warm" : "punchy"
 }
 
 function markStudio(id) {
@@ -2387,8 +2393,13 @@ async function studioFinish() {
       await makeRoom(vocal).catch(() => null)
       said.push("your voice on top")
     }
+    if (step.id === "tone") {
+      state.master = { ...(state.master || {}), tone: state.master?.tone || suggestedTone() }
+      refreshMaster()
+      said.push(`${MASTER_TONES[state.master.tone].name.toLowerCase()} tone`)
+    }
     if (step.id === "polish") {
-      state.master = { ...(state.master || {}), polish: true, tone: state.master?.tone || "natural" }
+      state.master = { ...(state.master || {}), polish: true }
       refreshMaster()
       said.push("polished")
     }
@@ -2408,7 +2419,9 @@ function setMasterTone(tone) {
   refreshMaster()
   rememberSong()
   renderInspector()
-  $("save-status").textContent = `The whole song sounds ${MASTER_TONES[tone].name.toLowerCase()} now: ${MASTER_TONES[tone].line.toLowerCase()}.`
+  markStudio("tone")
+  if (!playing) play(state.playAt || 0)
+  $("save-status").textContent = `The whole song sounds ${MASTER_TONES[tone].name.toLowerCase()} now: ${MASTER_TONES[tone].line.toLowerCase()}. Listen, and tap another to compare.`
 }
 
 function togglePolish() {
@@ -5160,10 +5173,10 @@ let fadeNode = null
 // holds the sounds together, then a ceiling so it's loud without clipping).
 const MASTER_TONES = {
   natural: { name: "Natural", line: "As mixed", low: 0, mid: 0, high: 0 },
-  warm: { name: "Warm", line: "Rounder and softer on top", low: 2.5, mid: -1, high: -2 },
-  bright: { name: "Bright", line: "Clearer and more sparkle", low: -0.5, mid: 1.5, high: 3 },
-  punchy: { name: "Punchy", line: "More thump and bite", low: 3, mid: 1.5, high: 1 },
-  airy: { name: "Airy", line: "Light and open", low: -1.5, mid: 0, high: 3.5 },
+  warm: { name: "Warm", line: "Rounder and softer on top", low: 4, mid: -1.5, high: -3.5 },
+  bright: { name: "Bright", line: "Clearer, with more sparkle", low: -1, mid: 2, high: 5 },
+  punchy: { name: "Punchy", line: "More thump and bite", low: 4.5, mid: 2.5, high: 1.5 },
+  airy: { name: "Airy", line: "Light and open", low: -2.5, mid: 0, high: 5.5 },
 }
 var masterNodes = null
 
@@ -6126,6 +6139,7 @@ document.body.addEventListener("click", (event) => {
   })
   if (action === "master-tone") setMasterTone(node.dataset.tone)
   if (action === "master-polish") togglePolish()
+  if (action === "master-tone-apply") setMasterTone(state.master?.tone || suggestedTone())
   if (action === "master-polish-on") {
     if (!state.master?.polish) togglePolish()
     markStudio("polish")
