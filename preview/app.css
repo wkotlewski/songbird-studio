@@ -1566,3 +1566,72 @@ html, body { touch-action: manipulation; }
   white-space: nowrap;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Panels: the title and Close stay in view however far you scroll. */
+#inspector-body > .sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  isolation: isolate;
+}
+@media (max-width: 759px) {
+  /* On a phone a panel takes the whole screen between the player controls
+     and the bottom buttons; those stay usable while it's open. */
+  #inspector,
+  body[data-panel] #inspector {
+    top: var(--sheet-top, 34dvh);
+    bottom: var(--sheet-bottom, 0px);
+    max-height: none !important;
+    padding-top: 0;
+    border-radius: 24px 24px 0 0;
+    background: rgba(8, 14, 18, 0.9);
+    overscroll-behavior: contain;
+    transform: translateY(100dvh);
+  }
+  body.sheet-open #inspector { transform: translateY(0); }
+  body.sheet-open::before { display: none; }
+  #inspector .sheet-handle { display: none; }
+  #inspector-body > .sheet-head {
+    margin: 0 -16px;
+    padding: 14px 16px 10px;
+    background: #0b1417;
+    border-bottom: 1px solid var(--line);
+  }
+  /* Play and skip are right above the panel, so the panel needs only Close. */
+  .sheet-transport .icon-btn:not([data-action="close-panel"]) { display: none; }
+}
+
+/* Lanes: the name reads first, on up to two lines; what it is, mute and
+   delete sit under it. */
+.track-label { display: flex; flex-direction: column; gap: 2px; justify-content: center; }
+.track-label button.layer-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  overflow: hidden;
+  word-break: break-word;
+  line-height: 1.2;
+  font-size: 14px;
+  padding: 0 2px;
+}
+.track-label button.layer-name .ms { font-size: 15px; vertical-align: -2px; margin-right: 3px; color: var(--md-primary, #34d399); }
+.label-row { display: flex; align-items: center; gap: 0; min-width: 0; }
+.label-row .track-meta { flex: 1; min-width: 0; padding: 0 2px; }
+.track-label .role { font-size: 10px; letter-spacing: 0.08em; opacity: 0.85; }
+/* Layers picked with a part of the song. */
+.track.in-part .track-label { outline: 2px solid var(--md-primary, #34d399); outline-offset: -2px; background: var(--md-secondary-container); }
+.track.in-part .lane { box-shadow: inset 0 0 0 2px rgba(52, 211, 153, 0.45); border-radius: 12px; }
+/* What you can do with what you picked. */
+.section-tools .bar-title {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  padding: 6px 12px; border-radius: 999px;
+  background: var(--md-primary, #34d399); color: var(--md-on-primary, #00382a);
+  font-weight: 700; font-size: 14px; white-space: nowrap;
+}
+.section-tools .bar-title .ms { font-size: 18px; }
+.section-tools .btn, .section-tools .chip { flex: none; white-space: nowrap; }
+.section-bar .section-guide { white-space: normal; font-size: 13px; line-height: 1.3; }
+@media (max-width: 759px) {
+  .section-bar .section-guide { display: block !important; flex: 1 1 0; min-width: 160px; font-size: 12.5px; }
+}
