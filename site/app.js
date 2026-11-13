@@ -2451,7 +2451,7 @@ function renderMix(head, layer) {
 
     <section class="mixer-block studio-block">
       <h3 class="magic-h">Make it studio quality</h3>
-      <p class="hint">Songbird does these ${steps.length} steps, in this order. Turn off any you don't want, or do just one.</p>
+      <p class="hint">Songbird does the steps that are switched on, in this order. Switch off any you don't want.</p>
       <ol class="studio-steps">
         ${steps.map((step, index) => {
           const on = !skip.has(step.id)
@@ -2479,7 +2479,7 @@ function renderMix(head, layer) {
             </div>` : ""}
             <span class="step-actions">
               <button class="switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" data-action="studio-skip" data-step="${step.id}" aria-label="${on ? "Included" : "Skipped"}: ${step.name}" ${busy}><span></span></button>
-              <button class="step-just" data-action="${step.id === "polish" && master.polish ? "master-polish" : step.action}" ${busy}>${step.id === "polish" && master.polish ? "Turn off" : "Just this"}</button>
+              ${step.id === "polish" && master.polish ? `<button class="step-just" data-action="master-polish" ${busy}>Turn off polish</button>` : ""}
             </span>
           </li>`
         }).join("")}
