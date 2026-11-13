@@ -444,7 +444,7 @@ function lessOf(layer) {
     const left = sections.filter((section) => restingIn(layer, section) < 0.5).map((section) => sectionName(section, sections))
     text = sections[0]?.name === "Part"
       ? `${layer.name} now rests every other stretch, and it's a little quieter. Undo puts it back.`
-      : `${layer.name} rests in ${sectionList(drop.map((item) => sectionName(item.section, sections)))} now. It plays in ${sectionList(left)}. Undo puts it back.`
+      : `Took ${layer.name} out of ${sectionList(drop.map((item) => sectionName(item.section, sections)))}. It's still in ${sectionList(left)}. Undo puts it back.`
   } else {
     layer.gain = Math.round(Math.max(0.05, (layer.gain ?? 0.5) * 0.7) * 100) / 100
     text = on.length
@@ -476,7 +476,7 @@ function moreOf(layer) {
     if (layer.mute) layer.mute = false
     text = sections[0]?.name === "Part"
       ? `${layer.name} plays more of the song now. Undo puts it back.`
-      : `${layer.name} now plays in ${sectionList(add.map((item) => sectionName(item.section, sections)))} too. Undo puts it back.`
+      : `Brought ${layer.name} into ${sectionList(add.map((item) => sectionName(item.section, sections)))} too. Undo puts it back.`
   } else {
     layer.gain = Math.round(Math.min(1, (layer.gain ?? 0.5) * 1.3) * 100) / 100
     if (layer.mute) layer.mute = false
