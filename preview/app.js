@@ -1206,7 +1206,7 @@ function restore(entry) {
       refreshMaster()
     }
   }
-  if (!state.layers.some((layer) => layer.id === state.selected)) state.selected = state.layers[0]?.id ?? null
+  if (!state.layers.some((layer) => layer.id === state.selected)) state.selected = null
   if (audio) {
     for (const [id, buf] of Object.entries(audio)) buffers.set(id + ":audio", buf)
   }
@@ -3090,8 +3090,8 @@ function openSong(id) {
         if (state.song?.id !== song.id || state.buildingExample !== song.id) return
         state.buildingExample = null
         state.heard = useExample(made)
-        const voice = state.layers.find((layer) => layer.sound === "Voice")
-        state.selected = voice?.id ?? state.layers[0]?.id ?? null
+        // A song opens with nothing picked: tap a layer to work on it.
+        state.selected = null
         renderPlanNote()
         renderRuler()
         renderTracks()
@@ -3104,8 +3104,10 @@ function openSong(id) {
   } else {
     state.layers = song.layers ?? []
   }
-  const voice = state.layers.find((layer) => layer.sound === "Voice")
-  state.selected = voice?.id ?? state.layers[0]?.id ?? null
+  // A song opens with nothing picked: tap a layer to work on it.
+  state.selected = null
+  state.section = null
+  state.magicScope = "song"
   if (!song.demo) {
     state.lengthSec = song.lengthSec || null
     state.shape = song.shape || null
@@ -6331,7 +6333,7 @@ document.body.addEventListener("click", (event) => {
     if (!layer) return
     snapshot()
     state.layers = state.layers.filter((item) => item.id !== layer.id)
-    if (!state.layers.some((item) => item.id === state.selected)) state.selected = state.layers[0]?.id ?? null
+    if (!state.layers.some((item) => item.id === state.selected)) state.selected = null
     rememberSong()
     renderTracks()
     renderInspector()
