@@ -384,7 +384,7 @@ async function finishPad() {
     }
   }
   $("save-status").textContent = made
-    ? `Got it! Your ${info.name.toLowerCase()} part is playing.${info.family === "drums" ? "" : " To fix a note, tap the note button in Sounds."} Add another, or make it magic.`
+    ? `Got it! Your ${info.name.toLowerCase()} part is playing.${info.family === "drums" ? "" : " To fix a note, tap the layer, then Check the notes."} Add another, or make it magic.`
     : reply.text
   renderInspector()
 }

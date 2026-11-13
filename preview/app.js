@@ -1086,6 +1086,7 @@ function capture() {
     section: state.section,
     sectionMode: state.sectionMode,
     sections: state.sections,
+    master: state.master,
   })
 }
 
@@ -1116,6 +1117,10 @@ function restore(entry) {
     if ("section" in data) state.section = data.section
     if (data.sectionMode) state.sectionMode = data.sectionMode
     if ("sections" in data) state.sections = data.sections
+    if ("master" in data) {
+      state.master = data.master
+      refreshMaster()
+    }
   }
   if (!state.layers.some((layer) => layer.id === state.selected)) state.selected = state.layers[0]?.id ?? null
   if (audio) {
@@ -1914,7 +1919,8 @@ function renderRuler() {
     context = `<span class="bar-title">${ms("check_circle")}${esc(pickedLayer.name)}</span>
         ${vocal ? outlinedButton(`${ms("record_voice_over")}Make my vocal shine`, `data-vocal-open="${pickedLayer.id}"`) : ""}
         ${pickedLayer.make ? outlinedButton(`${ms("tune")}Fix this layer`, `data-fix-open="${pickedLayer.id}"`) : ""}
-        ${outlinedButton(`${ms("instant_mix")}Volume and echo`, `data-action="panel" data-panel="mix"`)}
+        ${hasNotes(pickedLayer) ? outlinedButton(`${ms("music_note")}Check the notes`, `data-notes-open="${pickedLayer.id}"`) : ""}
+        ${outlinedButton(`${ms("instant_mix")}Mixer`, `data-action="panel" data-panel="mix"`)}
         ${outlinedButton(`${ms("wand_stars")}Magic on this`, `data-action="panel" data-panel="transform"`)}
         ${outlinedButton(`${ms("swap_horiz")}Change the sound`, `data-browse-open="${pickedLayer.id}"`)}
         ${outlinedButton(`${ms("timeline")}Length and fades`, `data-action="panel" data-panel="build"`)}
@@ -2231,26 +2237,31 @@ function mixBox(id, name, line) {
 
 function renderMix(head, layer) {
   if (!state.layers.length) {
-    return `${head("Mix")}<p class="empty">Record a layer, then pick a mix.</p>`
+    return `${head("Mixer")}<p class="empty">Record a layer, then come back to make the song sound finished.</p>`
   }
   const current = layer || state.layers[0]
-  const low = current.low ?? 0
-  const high = current.high ?? 0
-  const space = current.space ?? 0
   const soloing = state.layers.some((item) => item.solo)
+  const busy = state.transforming ? "disabled" : ""
+  const vocal = typeof leadVocal === "function" ? leadVocal() : null
+  const master = state.master || {}
+  const hissy = state.layers.some((item) => isRecording(item))
+  const quick = [
+    ["mix-balance", "balance", "Balance everything", vocal ? "Your voice in front, the band right under it" : "Every sound at the right level"],
+    hissy ? ["mix-hiss", "graphic_eq", "Remove hiss", "Takes the steady hiss out of your recordings"] : null,
+    ["fix-timing", "timer", "Tighten timing", "Moves slightly early or late notes onto the beat"],
+    vocal ? ["mix-room", "spatial_audio", "Make room for my voice", "The band steps back while you sing"] : null,
+    ["master-polish", "compress", master.polish ? "Polish is on" : "Polish", master.polish ? "Tap to turn off" : "Holds it together and makes it louder, without clipping"],
+  ].filter(Boolean)
   const channels = state.layers.map((item) => {
     const hear = hearingMark(item)
+    const toneOpen = state.toneFor === item.id
     return `<div class="mix-channel ${item.id === current.id ? "on" : ""} ${hear.className}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
       <div class="mix-channel-top">
         <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
-        <button class="mini" data-browse-open="${item.id}" aria-label="Change ${esc(item.name)} to another sound" title="Change sound">${ms("swap_horiz")}</button>
-        ${isRecording(item) && changesOn(item).length ? `<button class="mini" data-original="${item.id}" aria-label="Put ${esc(item.name)} back to just as you recorded it" title="Back to original">${ms("history")}</button>` : ""}
-        ${typeof vocalTakes === "function" && vocalTakes().includes(item) ? `<button class="mini" data-vocal-open="${item.id}" aria-label="Make ${esc(item.name)} shine: timing, studio sound, background singers" title="Vocal">${ms("record_voice_over")}</button>` : ""}
-        ${item.make ? `<button class="mini" data-fix-open="${item.id}" aria-label="Fix ${esc(item.name)}: another take, less or more of it" title="Fix this layer">${ms("tune")}</button>` : ""}
-        ${hasNotes(item) ? `<button class="mini" data-notes-open="${item.id}" aria-label="Check the notes in ${esc(item.name)}" title="Notes">${ms("music_note")}</button>` : ""}
-        <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms("volume_off")}</button>
-        <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}" title="Solo">${ms("hearing")}</button>
-        <button class="mini danger" data-action="delete-layer" data-id="${item.id}" aria-label="Delete ${esc(item.name)}" title="Delete">${ms("delete")}</button>
+        <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms(item.mute ? "volume_off" : "volume_up")}</button>
+        <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Hear only ${esc(item.name)}" title="Hear only this">${ms("hearing")}</button>
+        <button class="mini ${toneOpen ? "on" : ""}" data-action="strip-tone" data-id="${item.id}" aria-pressed="${toneOpen}" aria-label="Tone for ${esc(item.name)}" title="Tone">${ms("tune")}</button>
+        <button class="mini" data-action="strip-more" data-id="${item.id}" aria-label="More for ${esc(item.name)}: fix, vocal, sound, delete" title="More">${ms("more_horiz")}</button>
       </div>
       ${hear.label ? `<span class="hear-state">${hear.label}</span>` : ""}
       <label class="field">Volume
@@ -2259,42 +2270,114 @@ function renderMix(head, layer) {
       <label class="field">Left and right
         <input class="slider" type="range" min="-1" max="1" step="0.01" value="${item.pan ?? 0}" data-mix="1" data-action="set-pan" data-id="${item.id}" aria-label="${esc(item.name)} pan" />
       </label>
+      ${toneOpen ? `<div class="strip-tone">
+        ${slider("Bass", "low", -6, 6, 1, item.low ?? 0, item.id, mixReadout("low", item.low ?? 0))}
+        ${slider("Treble", "high", -6, 6, 1, item.high ?? 0, item.id, mixReadout("high", item.high ?? 0))}
+        ${slider("Space", "space", 0, 1, 0.01, item.space ?? 0, item.id, mixReadout("space", item.space ?? 0))}
+      </div>` : ""}
     </div>`
   }).join("")
-  const fine = state.fine ? `<div class="fine-body">
-      <p class="hint">${esc(current.name)} · ${esc(current.sound || "Layer")}</p>
-      ${slider("Bass", "low", -6, 6, 1, low, current.id, mixReadout("low", low))}
-      ${slider("Treble", "high", -6, 6, 1, high, current.id, mixReadout("high", high))}
-      ${slider("Space", "space", 0, 1, 0.01, space, current.id, mixReadout("space", space))}
-      <p class="hint">Bass and treble are tone. Space is room around the sound.</p>
-    </div>` : ""
   const slack = state.timingSlack || 0.18
   const canRevertTiming = state.layers.some((item) => buffers.get(item.id + ":timing"))
-  return `${head("Your sounds")}
-    <p class="ask">Every sound</p>
-    <p class="hint">${soloing ? "Only the sounds with the ear on are playing. Tap the ear again to hear everything." : "Make each sound louder or softer. The speaker turns a sound off. The ear plays only that sound."}</p>
-    <p class="ask">Fix timing</p>
-    <p class="hint">Moves notes that are a little early or late onto the beat.</p>
-    <label class="field">How strict
-      <input id="timing-slack" class="slider" type="range" min="0.08" max="0.4" step="0.01" value="${slack}" aria-label="How far off still counts as a slip" />
-      <span data-timing-readout>${timingSlackLabel(slack)}</span>
-    </label>
-    <div class="magic-actions">
-      ${filledButton(`${ms("check")}Fix timing`, `data-action="fix-timing"`)}
+  const tone = master.tone || "natural"
+  return `${head("Mixer")}
+    <p class="hint mixer-intro">Make the whole song sound finished: one tap first, then fine-tune any sound.</p>
+
+    <section class="mixer-block">
+      ${filledButton(`${ms("auto_awesome")}${state.transforming ? "Working…" : "Make it studio quality"}`, `data-action="studio-finish" ${busy}`)}
+      <p class="hint">Takes out hiss, balances every sound${vocal ? ", puts your voice on top" : ""}, and polishes the whole song. One Undo takes it back.</p>
+      <div class="quick-grid">
+        ${quick.map(([action, icon, name, line]) => `<button class="quick-card ${action === "master-polish" && master.polish ? "on" : ""}" data-action="${action}" ${busy}>${ms(icon)}<b>${name}</b><small>${line}</small></button>`).join("")}
+      </div>
+    </section>
+
+    <section class="mixer-block">
+      <h3 class="magic-h">The whole song's sound</h3>
+      <p class="hint">Like the tone knobs on a stereo, for everything at once.</p>
+      <div class="choices" role="group" aria-label="Song tone">
+        ${Object.entries(MASTER_TONES).map(([id, item]) => filterChip(item.name, `data-action="master-tone" data-tone="${id}" title="${esc(item.line)}"`, tone === id)).join("")}
+      </div>
+      <p class="hint">${esc(MASTER_TONES[tone].line)}.</p>
+      <label class="field">Low end
+        <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.low || 0}" data-master="low" aria-label="Whole song low end" />
+      </label>
+      <label class="field">Top end
+        <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.high || 0}" data-master="high" aria-label="Whole song top end" />
+      </label>
+    </section>
+
+    <section class="mixer-block">
+      <h3 class="magic-h">Each sound</h3>
+      <p class="hint">${soloing ? "Only the sounds with the ear on are playing. Tap the ear again to hear everything." : "Slide to set each sound's level and side. The speaker turns it off, the ear plays only it, the dial opens its tone, and ⋯ shows everything else you can do with it."}</p>
+      <div class="mix-channels">${channels}</div>
+    </section>
+
+    <section class="mixer-block">
+      <h3 class="magic-h">One kind of sound</h3>
+      <div class="mix-boxes parts">${Object.entries(MIX_PARTS).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
+      <h3 class="magic-h">Whole-song looks</h3>
+      <div class="mix-boxes">${Object.entries(SONG_MIXES).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
+    </section>
+
+    <details class="mixer-block mixer-more">
+      <summary>Timing settings</summary>
+      <label class="field">How strict
+        <input id="timing-slack" class="slider" type="range" min="0.08" max="0.4" step="0.01" value="${slack}" aria-label="How far off still counts as a slip" />
+        <span data-timing-readout>${timingSlackLabel(slack)}</span>
+      </label>
       ${outlinedButton(`${ms("undo")}Put timing back`, `data-action="revert-timing" ${canRevertTiming ? "" : "disabled"}`)}
-    </div>
-    <div class="mix-channels">${channels}</div>
-    <label class="field">Name this sound
-      <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" autocomplete="off" autocorrect="off" spellcheck="false" />
-    </label>
-    ${dangerButton(`${ms("delete")}Delete this sound`, `data-action="delete-layer" data-id="${current.id}"`)}
-    ${outlinedButton(state.fine ? "Hide tone" : "Tone: deeper, brighter, roomier", `data-action="toggle-fine"`)}
-    ${fine}
-    <p class="ask">One tap for the whole song</p>
-    <div class="mix-boxes">${Object.entries(SONG_MIXES).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
-    <p class="ask">One tap for one kind of sound</p>
-    <div class="mix-boxes parts">${Object.entries(MIX_PARTS).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
+    </details>
     ${magicLog()}`
+}
+
+// One tap: hiss out, every sound balanced, room for the voice, polish on.
+async function studioFinish() {
+  if (state.transforming) return
+  const mark = undoStack.length
+  snapshot()
+  const vocal = typeof leadVocal === "function" ? leadVocal() : null
+  const said = []
+  if (state.layers.some((layer) => isRecording(layer)) && typeof cleanNoise === "function") {
+    const scope = state.magicScope
+    state.magicScope = "song"
+    const reply = await cleanNoise().catch(() => null)
+    state.magicScope = scope
+    if (reply?.text && !/no hiss|nothing/i.test(reply.text)) said.push("hiss out")
+  }
+  applyMix(vocal ? "clear" : "big")
+  said.push("every sound balanced")
+  if (vocal && typeof makeRoom === "function") {
+    await makeRoom(vocal).catch(() => null)
+    said.push("your voice on top")
+  }
+  state.master = { ...(state.master || {}), polish: true, tone: state.master?.tone || "natural" }
+  refreshMaster()
+  said.push("polished")
+  undoStack.splice(mark + 1)
+  rememberSong()
+  renderTracks()
+  renderInspector()
+  play(0)
+  $("save-status").textContent = `Studio quality: ${said.join(", ")}. One Undo takes it back.`
+}
+
+function setMasterTone(tone) {
+  snapshot()
+  state.master = { ...(state.master || {}), tone }
+  refreshMaster()
+  rememberSong()
+  renderInspector()
+  $("save-status").textContent = `The whole song sounds ${MASTER_TONES[tone].name.toLowerCase()} now: ${MASTER_TONES[tone].line.toLowerCase()}.`
+}
+
+function togglePolish() {
+  snapshot()
+  const on = !state.master?.polish
+  state.master = { ...(state.master || {}), polish: on }
+  refreshMaster()
+  rememberSong()
+  renderInspector()
+  $("save-status").textContent = on ? "Polish on: the song holds together and plays louder, without clipping." : "Polish off."
 }
 
 function timingSlackLabel(slack) {
@@ -2851,6 +2934,8 @@ function openSong(id) {
     state.fadeOut = song.fadeOut || 0
     state.era = song.era || "today"
     state.songKey = song.songKey ?? null
+    state.master = song.master || null
+    refreshMaster()
     state.magicChat = []
     $("bpm").value = state.bpm
   }
@@ -2945,6 +3030,7 @@ function rememberSong() {
   state.song.fadeOut = state.fadeOut || 0
   state.song.era = state.era
   state.song.songKey = state.songKey ?? null
+  state.song.master = state.master || null
   state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine, idea, choruses, firstEdit }) => ({
     id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine, idea, choruses, firstEdit,
   }))
@@ -5028,11 +5114,81 @@ function syncListen(on) {
 
 let fadeNode = null
 
+// The song's sound: tone for the whole mix, and Polish (gentle glue that
+// holds the sounds together, then a ceiling so it's loud without clipping).
+const MASTER_TONES = {
+  natural: { name: "Natural", line: "As mixed", low: 0, mid: 0, high: 0 },
+  warm: { name: "Warm", line: "Rounder and softer on top", low: 2.5, mid: -1, high: -2 },
+  bright: { name: "Bright", line: "Clearer and more sparkle", low: -0.5, mid: 1.5, high: 3 },
+  punchy: { name: "Punchy", line: "More thump and bite", low: 3, mid: 1.5, high: 1 },
+  airy: { name: "Airy", line: "Light and open", low: -1.5, mid: 0, high: 3.5 },
+}
+var masterNodes = null
+
+function masterSettings() {
+  const master = state.master || {}
+  const tone = MASTER_TONES[master.tone] || MASTER_TONES.natural
+  return {
+    low: tone.low + (master.low || 0),
+    mid: tone.mid,
+    high: tone.high + (master.high || 0),
+    polish: !!master.polish,
+  }
+}
+
+function masterChain(ctx, out) {
+  const low = ctx.createBiquadFilter()
+  low.type = "lowshelf"
+  low.frequency.value = 110
+  const mid = ctx.createBiquadFilter()
+  mid.type = "peaking"
+  mid.frequency.value = 2800
+  mid.Q.value = 0.8
+  const high = ctx.createBiquadFilter()
+  high.type = "highshelf"
+  high.frequency.value = 9000
+  const glue = ctx.createDynamicsCompressor()
+  glue.attack.value = 0.02
+  glue.release.value = 0.25
+  glue.knee.value = 8
+  const makeup = ctx.createGain()
+  const ceiling = ctx.createDynamicsCompressor()
+  ceiling.threshold.value = -1.5
+  ceiling.knee.value = 0
+  ceiling.ratio.value = 20
+  ceiling.attack.value = 0.002
+  ceiling.release.value = 0.08
+  low.connect(mid)
+  mid.connect(high)
+  high.connect(glue)
+  glue.connect(makeup)
+  makeup.connect(ceiling)
+  ceiling.connect(out)
+  const nodes = { low, mid, high, glue, makeup, ceiling }
+  setMaster(nodes, ctx.currentTime)
+  return nodes
+}
+
+function setMaster(nodes, at) {
+  const m = masterSettings()
+  nodes.low.gain.setValueAtTime(m.low, at)
+  nodes.mid.gain.setValueAtTime(m.mid, at)
+  nodes.high.gain.setValueAtTime(m.high, at)
+  nodes.glue.threshold.setValueAtTime(m.polish ? -20 : 0, at)
+  nodes.glue.ratio.setValueAtTime(m.polish ? 2.5 : 1, at)
+  nodes.makeup.gain.setValueAtTime(m.polish ? 1.6 : 1, at)
+}
+
+function refreshMaster() {
+  if (masterNodes && busNode) setMaster(masterNodes, busNode.context.currentTime)
+}
+
 function songBus(ctx) {
   if (!busNode || busNode.context !== ctx) {
     busNode = ctx.createGain()
     fadeNode = ctx.createGain()
-    busNode.connect(fadeNode)
+    masterNodes = masterChain(ctx, fadeNode)
+    busNode.connect(masterNodes.low)
     fadeNode.connect(ctx.destination)
   }
   setGuideLevel()
@@ -5363,7 +5519,7 @@ async function downloadMix() {
   if (note) note.textContent = "Making the song file…"
   const offline = new OfflineAudioContext(2, Math.max(1, Math.ceil(span * rate)), rate)
   const master = offline.createGain()
-  master.connect(offline.destination)
+  master.connect(masterChain(offline, offline.destination).low)
   if (typeof scheduleFades === "function") scheduleFades(master.gain, 0, span, 0)
   for (const layer of live) scheduleLayer(offline, layer, buffers.get(layer.id + ":audio"), 0, span, master, 0)
   const rendered = await offline.startRendering()
@@ -5906,6 +6062,33 @@ document.body.addEventListener("click", (event) => {
   if (action === "preview-genre") previewGenrePackage()
   if (action === "apply-genre") applyGenrePackage()
   if (action === "apply-mix") applyMix(node.dataset.preset)
+  if (action === "studio-finish") void studioFinish()
+  if (action === "mix-balance") applyMix(typeof leadVocal === "function" && leadVocal() ? "clear" : "big")
+  if (action === "mix-hiss" && typeof cleanNoise === "function") {
+    const scope = state.magicScope
+    state.magicScope = "song"
+    void cleanNoise().then((reply) => {
+      state.magicScope = scope
+      if (reply?.text) $("save-status").textContent = reply.text
+      renderInspector()
+    })
+  }
+  if (action === "mix-room" && typeof runVocal === "function") void runVocal("room")
+  if (action === "master-tone") setMasterTone(node.dataset.tone)
+  if (action === "master-polish") togglePolish()
+  if (action === "strip-tone") {
+    state.toneFor = state.toneFor === node.dataset.id ? null : node.dataset.id
+    renderInspector()
+  }
+  if (action === "strip-more") {
+    // Everything else for this sound shows above the song.
+    state.selected = node.dataset.id
+    state.section = null
+    state.partPick = null
+    closePanel()
+    renderTracks()
+    renderRuler()
+  }
   if (action === "toggle-fine") {
     state.fine = !state.fine
     renderInspector()
@@ -6165,4 +6348,15 @@ document.body.addEventListener("click", (event) => {
   if (!node || node.disabled) return
   event.preventDefault()
   backToOriginal(node.dataset.original)
+})
+
+// The whole song's low and top end.
+document.body.addEventListener("input", (event) => {
+  const node = event.target.closest?.("[data-master]")
+  if (!node) return
+  state.master = { ...(state.master || {}), [node.dataset.master]: Number(node.value) }
+  refreshMaster()
+})
+document.body.addEventListener("change", (event) => {
+  if (event.target.closest?.("[data-master]")) rememberSong()
 })
