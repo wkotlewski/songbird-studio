@@ -1048,3 +1048,14 @@ body.file-over::after {
 .done-tag { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; font-size: 13px; font-weight: 600; color: var(--md-primary); vertical-align: middle; }
 .done-tag .ms { font-size: 16px; }
 .vocal-note:empty { display: none; }
+.vocal-heard { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 12px; padding: 12px 14px; border-radius: 16px; background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+.vocal-heard p { margin: 0; line-height: 1.4; }
+.idea-list { display: grid; gap: 8px; margin: 8px 0; }
+.idea-card { display: grid; gap: 4px; text-align: left; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(255, 251, 242, 0.16); background: rgba(255, 251, 242, 0.04); color: inherit; font: inherit; cursor: pointer; min-height: 48px; }
+.idea-card.on { border-color: var(--md-primary); background: rgba(52, 211, 153, 0.12); }
+.idea-card:disabled { opacity: 0.6; }
+.idea-card small { opacity: 0.8; line-height: 1.35; }
+.idea-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.idea-tag { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255, 251, 242, 0.12); display: inline-flex; align-items: center; gap: 2px; }
+.idea-tag.on { background: var(--md-primary); color: var(--md-on-primary, #00382a); }
+.idea-tag .ms { font-size: 14px; }
