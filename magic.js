@@ -945,7 +945,7 @@ async function runRequest(raw) {
 
   // “Make it a full song”, “verse chorus bridge”: the song builder, which
   // reads the whole request itself.
-  if (/(full|whole|complete|finished|real) song|make (it|this) (a|into a) song|a song i can|arrange|song structure|verse.*(chorus|bridge)|chorus.*(verse|bridge)|finish (it|my song|the song)|turn (it|this) into a song|build (it|the song|my song) out/.test(text)) {
+  if (/(full|whole|complete|finished|real) song|make (it|this) (a|into a) song|a song i can|arrange|song structure|verse.*(chorus|bridge)|chorus.*(verse|bridge)|finish (it|my song|the song)|turn (it|this) into a song|build (it|the song|my song) out|build (a|the|my) (whole |full )?song|make (a|the) song/.test(text)) {
     openArrange(raw)
     return { text: "Here's a plan for the whole song. Change anything you like, then tap Build my song." }
   }
@@ -1121,18 +1121,27 @@ function magicPanel(head) {
   const made = sources.filter((layer) => layer.make)
   const changed = sources.find((layer) => isRecording(layer) && typeof changesOn === "function" && changesOn(layer).length)
   const open = state.magicOpen || ""
-  // Everything Magic can do, so nothing is hidden: tap to do it, or to open it.
-  const cards = [
+  // What Magic can do, split by what it changes: the whole song, or just
+  // the picked layer. The cards say which.
+  const recorded = target && isRecording(target)
+  const songCards = [
     sources.length ? ["arrange", "auto_awesome", "Make it a full song", "Verse, chorus, fills, and the instruments it's missing", "data-arrange-open"] : null,
     ["add", "add_circle", "Add an instrument", "Drums, bass, piano, guitar, horns, strings, choir…", `data-browse-open=""`],
-    vocal ? ["vocal", "record_voice_over", "Make my vocal shine", "On the beat, studio sound, harmonies in your voice", `data-vocal-open="${vocal.id}"`] : null,
-    made.length ? ["fix", "tune", "Fix a layer", "Wrong notes, an odd riff, too much of it", `data-fix-open="${target?.make ? target.id : ""}"`] : null,
-    sources.length ? ["change", "swap_horiz", "Change a sound", "Turn any layer into another instrument", `data-magic-open="change"`] : null,
-    sources.some((layer) => isRecording(layer)) ? ["clean", "graphic_eq", "Clean up a recording", "Hiss out, brighter, warmer, smoother", `data-magic-open="clean"`] : null,
-    sources.some((layer) => isRecording(layer)) ? ["voice", "mic", "Tune my voice", "Pitch correction, autotune, background vocal", `data-magic-open="voice"`] : null,
     ["style", "album", "Music style", "Soul, pop, gospel, lo-fi, and more", `data-magic-open="style"`],
-    changed ? ["original", "history", "Back to original", `${changed.name}, just as you recorded it`, `data-original="${changed.id}"`] : null,
+    sources.some((layer) => isRecording(layer)) ? ["clean", "graphic_eq", "Clean up every recording", "Hiss out, brighter, warmer, smoother", `data-magic-open="clean"`] : null,
+    ["studio", "instant_mix", "Make it studio quality", "In the Mixer: hiss, balance, tone, polish", `data-action="panel" data-panel="mix"`],
+    vocal ? ["vocal", "record_voice_over", "Make my vocal shine", "On the beat, studio sound, harmonies in your voice", `data-vocal-open="${vocal.id}"`] : null,
   ].filter(Boolean)
+  const layerCards = target ? [
+    target.make ? ["fix", "tune", "Fix this layer", "Wrong notes, an odd riff, too much of it", `data-fix-open="${target.id}"`] : null,
+    ["change", "swap_horiz", "Change its sound", `Turn ${target.name} into another instrument`, `data-browse-open="${target.id}"`],
+    vocal && vocal.id === target.id ? ["vocal", "record_voice_over", "Make my vocal shine", "On the beat, studio sound, harmonies in your voice", `data-vocal-open="${target.id}"`] : null,
+    recorded ? ["voice", "mic", "Tune it", "Pitch correction, autotune, background vocal", `data-magic-open="voice"`] : null,
+    recorded ? ["clean", "graphic_eq", "Clean it up", "Hiss out, brighter, warmer, smoother", `data-magic-open="clean"`] : null,
+    recorded && typeof changesOn === "function" && changesOn(target).length ? ["original", "history", "Back to original", "Just as you recorded it", `data-original="${target.id}"`] : null,
+    ["mix", "instant_mix", "Its volume and echo", "In the Mixer", `data-action="panel" data-panel="mix"`],
+  ].filter(Boolean) : []
+  const cards = scopeLayer ? layerCards : songCards
   const openPart = open === "change"
     ? `<div class="magic-open"><p class="ask">Which layer?</p><div class="choices">${sources.map((layer) => `<button class="chip" data-browse-open="${layer.id}" ${busy}>${ms("swap_horiz")}${esc(layer.name)}</button>`).join("")}</div></div>`
     : open === "clean"
@@ -1161,24 +1170,24 @@ function magicPanel(head) {
           : ""
   return `${head("Magic")}
     <p class="hint">Say what you want, or tap one of the things Magic can do. Every change is one Undo.</p>
-    ${target ? `<div class="magic-scope">
-      <p class="ask">What should Magic change?</p>
+    <div class="magic-scope">
+      <p class="ask">Magic works on</p>
       <div class="choices scope-row" role="group" aria-label="What Magic changes">
         ${filterChip(`${ms("layers")}The whole song`, `data-magic-scope="song"`, !scopeLayer)}
-        ${filterChip(`Just ${esc(target.name)}`, `data-magic-scope="layer"`, !!scopeLayer)}
+        ${target ? filterChip(`Just ${esc(target.name)}`, `data-magic-scope="layer"`, !!scopeLayer) : ""}
       </div>
-      <p class="hint">${scopeLayer ? `Echo, room, volume, and clean-ups change only ${esc(target.name)}.` : "Echo, room, volume, and clean-ups change every layer."}</p>
-    </div>` : ""}
+      <p class="hint">${scopeLayer ? `Everything below, and what you ask for, changes only ${esc(target.name)}. The rest of the song stays as it is.` : target ? `Everything below changes the whole song. To change only ${esc(target.name)}, tap Just ${esc(target.name)}.` : "Everything below changes the whole song. Tap a layer in the song to work on just that one."}</p>
+    </div>
     <form class="magic-ask" data-magic-form>
       <label class="sr" for="magic-say">Tell Songbird what you want</label>
-      <textarea id="magic-say" rows="2" placeholder="Add a horn section and make it tight" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
+      <textarea id="magic-say" rows="2" placeholder="${scopeLayer ? `Make ${esc(target.name)} softer, add echo to it…` : "Add a horn section and make it tight"}" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
       <button class="btn btn-primary magic-go" type="submit" ${busy}>${state.transforming ? "Working…" : `${ms("wand_stars")}Do it`}</button>
     </form>
     <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your keyboard to say it out loud. Or try one:"}</p>
     <div class="choices magic-suggest">${SUGGESTIONS.map((line) => `<button class="chip" data-magic-say="${esc(line)}" ${busy}>${esc(line)}</button>`).join("")}</div>
     ${chatMarkup()}
 
-    <h3 class="magic-h">What Magic can do</h3>
+    <h3 class="magic-h">${scopeLayer ? `What Magic can do with ${esc(target.name)}` : "What Magic can do with the whole song"}</h3>
     <div class="quick-grid magic-cards">
       ${cards.map(([id, icon, name, line, attrs]) => `<button class="quick-card ${open === id ? "on" : ""}" ${attrs} ${busy}>${ms(icon)}<b>${name}</b><small>${esc(line)}</small></button>`).join("")}
     </div>
