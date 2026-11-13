@@ -822,12 +822,31 @@ function waveFor(id) {
 // browser restyle everything.
 function setPulse(level) {
   const step = Math.round(level * 40) / 40
-  if (setPulse.last === step) return
-  setPulse.last = step
-  const value = String(step)
-  for (const id of ["playhead", "play-btn", "rec-btn"]) $(id)?.style.setProperty("--pulse", value)
-  const mic = document.querySelector(".mic")
-  if (mic) mic.style.setProperty("--pulse", value)
+  if (setPulse.last !== step) {
+    setPulse.last = step
+    const value = String(step)
+    $("rec-btn")?.style.setProperty("--pulse", value)
+    const mic = document.querySelector(".mic")
+    if (mic) mic.style.setProperty("--pulse", value)
+  }
+  setBeat()
+}
+
+// The play line and Play button glow on the beat: a soft flash that fades
+// before the next one, a little brighter on the first beat of each bar.
+function setBeat() {
+  let beat = 0
+  if (playing && !sky.reduced) {
+    const length = 60 / Math.max(40, state.bpm || 92)
+    const at = Math.max(0, state.playAt || 0) / length
+    const count = Math.floor(at + 1e-6)
+    const fade = 1 - (at - count)
+    beat = (count % 4 === 0 ? 1 : 0.55) * fade * fade * fade
+  }
+  const step = Math.round(beat * 20) / 20
+  if (setBeat.last === step) return
+  setBeat.last = step
+  for (const id of ["playhead", "play-btn"]) $(id)?.style.setProperty("--beat", String(step))
 }
 
 function drawSky(now) {
@@ -2451,7 +2470,7 @@ function renderMix(head, layer) {
 
     <section class="mixer-block studio-block">
       <h3 class="magic-h">Make it studio quality</h3>
-      <p class="hint">Songbird does these ${steps.length} steps, in this order. Turn off any you don't want, or do just one.</p>
+      <p class="hint">Songbird does the steps that are switched on, in this order. Switch off any you don't want.</p>
       <ol class="studio-steps">
         ${steps.map((step, index) => {
           const on = !skip.has(step.id)
@@ -2479,7 +2498,7 @@ function renderMix(head, layer) {
             </div>` : ""}
             <span class="step-actions">
               <button class="switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" data-action="studio-skip" data-step="${step.id}" aria-label="${on ? "Included" : "Skipped"}: ${step.name}" ${busy}><span></span></button>
-              <button class="step-just" data-action="${step.id === "polish" && master.polish ? "master-polish" : step.action}" ${busy}>${step.id === "polish" && master.polish ? "Turn off" : "Just this"}</button>
+              ${step.id === "polish" && master.polish ? `<button class="step-just" data-action="master-polish" ${busy}>Turn off polish</button>` : ""}
             </span>
           </li>`
         }).join("")}
@@ -2812,21 +2831,39 @@ function panelScope() {
   if (panel === "record") return { kind: "song", line: "Adds a new layer to the song" }
   if (panel === "arrange" || panel === "finish") return { kind: "song", line: "Every layer" }
   const layer = pickedLayer()
-  return layer ? { kind: "layer", layer, canSwitch: true } : { kind: "song", line: state.layers.length ? "Every layer. Tap a layer in the song to change just that one." : "Every layer", canSwitch: false }
+  return layer ? { kind: "layer", layer, canSwitch: true } : { kind: "song", line: "Every layer", canSwitch: true }
 }
 
 function scopeBar() {
   const scope = panelScope()
   if (!scope) return ""
+  if (scope.canSwitch !== undefined && state.layers.length) {
+    // Panels that can do both: Songbird picks from where you started, and
+    // you can always switch.
+    const layer = scope.kind === "layer" ? scope.layer : null
+    const choosing = !layer && state.scopeChoosing
+    const icon = (item) => ms(isRecording(item) ? "mic" : "wand_stars")
+    return `<div class="scope-bar ${layer ? "layer" : "song"}">
+      <div class="scope-seg" role="group" aria-label="What this changes">
+        <button class="scope-opt ${layer ? "" : "on"}" data-action="edit-whole-song" aria-pressed="${!layer}">${ms("album")}Whole song</button>
+        <button class="scope-opt ${layer || choosing ? "on" : ""}" data-action="edit-one-layer" aria-pressed="${!!layer}">${layer ? icon(layer) : ms("layers")}${layer ? `Only ${esc(layer.name)}` : "One layer"}</button>
+      </div>
+      <small>${layer ? `The rest of the song stays as it is.${state.layers.length > 1 ? " Pick another layer below to switch." : ""}` : choosing ? "Which layer?" : "Every layer changes together."}</small>
+      ${choosing ? `<div class="scope-pick">${state.layers.map((item) => `<button class="chip" data-action="scope-layer" data-id="${item.id}">${icon(item)}${esc(item.name)}</button>`).join("")}</div>` : ""}
+      ${layer && state.layers.length > 1 ? `<div class="scope-pick">${state.layers.map((item) => `<button class="chip ${item.id === layer.id ? "on" : ""}" data-action="scope-layer" data-id="${item.id}" aria-pressed="${item.id === layer.id}">${icon(item)}${esc(item.name)}</button>`).join("")}</div>` : ""}
+    </div>`
+  }
   if (scope.kind === "song" || !scope.layer) {
-    return `<div class="scope-bar song" role="note">${ms("album")}<span><b>Whole song</b><small>${esc(scope.line || "Every layer")}</small></span></div>`
+    return `<div class="scope-bar song" role="note"><div class="scope-line">${ms("album")}<span><b>Whole song</b><small>${esc(scope.line || "Every layer")}</small></span></div></div>`
   }
   const layer = scope.layer
-  return `<div class="scope-bar layer" role="note">${ms(isRecording(layer) ? "mic" : "wand_stars")}<span><b>Only ${esc(layer.name)}</b><small>The rest of the song stays as it is</small></span>${scope.canSwitch ? `<button class="scope-switch" data-action="edit-whole-song">${ms("album")}Whole song</button>` : ""}</div>`
+  return `<div class="scope-bar layer" role="note"><div class="scope-line">${ms(isRecording(layer) ? "mic" : "wand_stars")}<span><b>Only ${esc(layer.name)}</b><small>The rest of the song stays as it is</small></span></div></div>`
 }
 
 function unpickLayer() {
+  state.scopeChoosing = false
   if (!state.selected) return
+  state.lastPicked = state.selected
   state.selected = null
   state.magicScope = "song"
   state.lengthScope = "song"
@@ -2865,6 +2902,7 @@ function renderInspector() {
       ${state.looper ? loopClockMarkup() : ""}
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to add another sound" : "Tap the button, then hum, sing, or clap") : "00:00"}</p>
       ${!state.recording && !state.counting && songHasSound() ? `<button class="listen-btn ${playing ? "on" : ""}" data-action="play" id="listen-btn" aria-label="${playing ? "Stop" : "Play what you have"}">${ms(playing ? "stop" : "play_arrow")}${playing ? "Stop" : "Listen to what you have"}</button>` : ""}
+      ${beatBox()}
       ${looperBox()}
       ${micLevelBox()}
       ${headphonesBox()}
@@ -3719,6 +3757,19 @@ function runLoopClock() {
     loopClock.raf = requestAnimationFrame(frame)
   }
   loopClock.raf = requestAnimationFrame(frame)
+}
+
+// The beat you hear while you record, to keep time. It's never in the take.
+function beatBox() {
+  return `<div class="looper ${state.click ? "on" : ""}">
+    <div class="looper-head">
+      <div>
+        <p class="ask">Beat while I record</p>
+        <p class="hint">${state.click ? "A soft tick on every beat helps you keep time. It isn't recorded." : "Off. No tick while you record."}</p>
+      </div>
+      <button class="switch ${state.click ? "on" : ""}" data-action="toggle-click" role="switch" aria-checked="${state.click ? "true" : "false"}" aria-label="Beat while I record"><span></span></button>
+    </div>
+  </div>`
 }
 
 function looperBox() {
@@ -6039,7 +6090,30 @@ document.body.addEventListener("click", (event) => {
     setPanel(node.dataset.panel)
   }
   if (action === "edit-whole-song") {
+    state.scopeChoosing = false
     unpickLayer()
+    renderInspector()
+  }
+  if (action === "edit-one-layer") {
+    // One layer: the one picked before, or the only one; otherwise ask which.
+    const last = state.layers.find((item) => item.id === state.lastPicked)
+    const only = state.layers.length === 1 ? state.layers[0] : null
+    const pick = pickedLayer() || last || only
+    if (pick) {
+      state.selected = pick.id
+      state.scopeChoosing = false
+      renderTracks()
+      renderRuler()
+    } else state.scopeChoosing = !state.scopeChoosing
+    renderInspector()
+  }
+  if (action === "scope-layer") {
+    state.selected = node.dataset.id
+    state.lastPicked = node.dataset.id
+    state.scopeChoosing = false
+    syncPlaying(state.layers.find((item) => item.id === state.selected))
+    renderTracks()
+    renderRuler()
     renderInspector()
   }
   if (action === "zoom") {
@@ -6064,12 +6138,7 @@ document.body.addEventListener("click", (event) => {
     state.click = !state.click
     if (!state.click) stopClick()
     else if (state.recording) startClick()
-    const clickButton = $("click-btn")
-    if (clickButton) {
-      clickButton.classList.toggle("on", state.click)
-      clickButton.setAttribute("aria-pressed", state.click ? "true" : "false")
-      clickButton.textContent = state.click ? "Beat" : "Beat off"
-    }
+    if (state.panel === "record") renderInspector()
   }
   if (action === "pick-section") {
     const section = songSections().find((item) => item.id === node.dataset.id)
