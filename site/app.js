@@ -1096,9 +1096,92 @@ function snapshot(layerIds) {
     const buf = buffers.get(id + ":audio")
     if (buf) audio[id] = buf
   }
-  undoStack.push({ raw: capture(), audio })
-  if (undoStack.length > 30) undoStack.shift()
+  undoStack.push({ raw: capture(), audio, time: Date.now(), label: null })
+  if (undoStack.length > 80) undoStack.shift()
   redoStack = []
+}
+
+// Every change made while the app is open, newest first, named by what the
+// app said it did, so you can step back to any point.
+function labelLatest(text) {
+  const top = undoStack[undoStack.length - 1]
+  if (!top || top.label || !text || Date.now() - (top.time || 0) > 20000) return
+  if (/^(Undid|Redid|Went back|Went forward|Working|Listening|Packing|Opening|Saved|Saving)/.test(text) || /…$/.test(text)) return
+  top.label = text
+    .replace(/\s*(One )?Undo (puts|takes|brings)[^.]*\.?/gi, "")
+    .replace(/\s*(Listen, and )?tap another[^.]*\.?/gi, "")
+    .replace(/\s*Try again, or Undo[^.]*\.?/gi, "")
+    .trim()
+    .replace(/\.$/, "")
+    .slice(0, 120)
+}
+
+function labelTop(text) {
+  const top = undoStack[undoStack.length - 1]
+  if (top) top.label = text
+}
+
+function stepBack() {
+  const back = undoStack.pop()
+  if (!back) return null
+  const ids = back && typeof back === "object" && back.audio ? Object.keys(back.audio) : []
+  const audio = {}
+  for (const id of ids) {
+    const buf = buffers.get(id + ":audio")
+    if (buf) audio[id] = buf
+  }
+  redoStack.push({ raw: capture(), audio, time: back.time, label: back.label })
+  restore(back)
+  return back
+}
+
+function stepForward() {
+  const forward = redoStack.pop()
+  if (!forward) return null
+  const ids = forward && typeof forward === "object" && forward.audio ? Object.keys(forward.audio) : []
+  const audio = {}
+  for (const id of ids) {
+    const buf = buffers.get(id + ":audio")
+    if (buf) audio[id] = buf
+  }
+  undoStack.push({ raw: capture(), audio, time: forward.time, label: forward.label })
+  restore(forward)
+  return forward
+}
+
+// Jump to a point in History: undo or redo as many steps as it takes.
+function goToVersion(where, count) {
+  let last = null
+  for (let i = 0; i < count; i++) last = where === "back" ? stepBack() : stepForward()
+  rememberSong()
+  renderInspector()
+  const n = count === 1 ? "1 change" : `${count} changes`
+  $("save-status").textContent = where === "back"
+    ? `Went back ${n}, to before “${last?.label || "that change"}”. Redo comes forward again.`
+    : `Went forward ${n}, through “${last?.label || "that change"}”.`
+}
+
+function timeLabel(time) {
+  if (!time) return ""
+  return new Date(time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+}
+
+function historyPanel(head) {
+  const done = undoStack.map((entry, index) => ({ entry, index })).reverse()
+  // Newest first: the oldest undone change is the one right above Now.
+  const undone = redoStack.map((entry, index) => ({ entry, index }))
+  const row = (entry, button) => `<li class="version">
+      <span class="version-time">${esc(timeLabel(entry.time))}</span>
+      <span class="version-what">${esc(entry.label || "A change")}</span>
+      ${button}
+    </li>`
+  return `${head("History")}
+    <p class="hint">Every change you've made to this song since you opened it, newest first. Go back to any point; nothing is lost, and Redo comes forward again.</p>
+    ${undone.length ? `<p class="ask">Undone (you can bring these back)</p>
+    <ol class="versions undone">${undone.map(({ entry, index }) => row(entry, `<button class="version-go" data-version="forward" data-count="${redoStack.length - index}">Bring back up to here</button>`)).join("")}</ol>` : ""}
+    <p class="ask">${ms("radio_button_checked")} Now</p>
+    ${done.length ? `<ol class="versions">${done.map(({ entry }, i) => row(entry, `<button class="version-go" data-version="back" data-count="${i + 1}">Go back to before this</button>`)).join("")}</ol>` : `<p class="empty">No changes yet. As you work, each change shows up here.</p>`}
+    <p class="hint">History lasts while the app is open. Your saved song keeps its latest version.</p>`
 }
 
 function restore(entry) {
@@ -1222,24 +1305,58 @@ function renderShareBox(song) {
   </div>`
 }
 
+// A little picture of the song: its sound as a wave, from its layers.
+function songWave(song) {
+  const layers = (song.layers || []).filter((layer) => Array.isArray(layer.peaks) && layer.peaks.length)
+  const bars = 18
+  if (!layers.length) return `<span class="song-icon" aria-hidden="true">${ms(song.demo ? "music_note" : "graphic_eq")}</span>`
+  const values = []
+  for (let i = 0; i < bars; i++) {
+    let top = 0
+    for (const layer of layers) {
+      const peaks = layer.peaks
+      const from = Math.floor((i / bars) * peaks.length)
+      const to = Math.max(from + 1, Math.floor(((i + 1) / bars) * peaks.length))
+      for (let k = from; k < to; k++) top = Math.max(top, Math.abs(Number(peaks[k]) || 0))
+    }
+    values.push(top)
+  }
+  const loud = Math.max(0.05, ...values)
+  const rects = values.map((value, i) => {
+    const h = Math.max(2, Math.round((value / loud) * 26))
+    return `<rect x="${i * 3 + 1}" y="${16 - h / 2}" width="2" height="${h}" rx="1" />`
+  }).join("")
+  return `<span class="song-icon" aria-hidden="true"><svg viewBox="0 0 56 32" width="56" height="32">${rects}</svg></span>`
+}
+
+function songLength(song) {
+  const sec = Math.round(song.lengthSec || 0)
+  return sec ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : ""
+}
+
 function songCard(song) {
-  const meta = song.demo ? song.line || "Press play" : song.received && !songEmails(song).length ? "Your own copy. Changes stay on this device." : shareDetail(song)
-  const badge = song.demo ? "Example" : song.received ? "Sent to you" : songEmails(song).length ? "Shared" : "Yours"
+  const count = (song.layers || []).length
+  const facts = song.demo
+    ? [song.author, song.line || "Press play"]
+    : [song.received ? song.author : "", songLength(song), count ? `${count} ${count === 1 ? "layer" : "layers"}` : "Empty", songEmails(song).length ? `Shared with ${songEmails(song).join(", ")}` : ""]
+  const tag = song.demo ? "Example" : song.received ? "Sent to you" : ""
   const manage = song.demo
     ? ""
-    : `<div class="song-actions">
-        ${outlinedButton("Share", `data-action="share-song" data-id="${song.id}"`)}
-        ${dangerButton("Delete", `data-action="ask-delete" data-id="${song.id}"`)}
+    : `<div class="song-tools">
+        <button class="icon-btn small" data-action="share-song" data-id="${song.id}" aria-label="Share ${esc(song.title)}" title="Share">${ms("ios_share")}</button>
+        <button class="icon-btn small danger" data-action="ask-delete" data-id="${song.id}" aria-label="Delete ${esc(song.title)}" title="Delete">${ms("delete")}</button>
       </div>`
-  const byline = song.author ? (song.demo ? `${song.author} · Original` : song.author) : ""
   return `<article class="song">
-        <button class="song-open" data-action="open-song" data-id="${song.id}">
-          <span class="swatch" style="background:linear-gradient(135deg,#34D399,#F9A8D4)"></span>
-          <span class="song-copy"><b>${esc(song.title)}</b><span class="meta">${esc(meta)}</span></span>
-          <span class="badge">${badge}</span>
-          ${byline ? `<span class="byline">${esc(byline)}</span>` : ""}
-        </button>
-        ${manage}
+        <div class="song-row">
+          <button class="song-open" data-action="open-song" data-id="${song.id}">
+            ${songWave(song)}
+            <span class="song-copy">
+              <b class="song-title">${esc(song.title)}</b>
+              <span class="meta">${tag ? `<span class="song-tag">${tag}</span>` : ""}${esc(facts.filter(Boolean).join(" · "))}</span>
+            </span>
+          </button>
+          ${manage}
+        </div>
         ${renderShareBox(song)}
       </article>`
 }
@@ -1585,6 +1702,25 @@ function layersInSection(section) {
   return state.layers.filter((layer) => buffers.get(layer.id + ":audio") && (typeof restingIn === "function" ? restingIn(layer, box) < 0.5 : true))
 }
 
+// What you can do with a picked layer, shown right under it.
+function layerActions(layer) {
+  const vocal = typeof vocalTakes === "function" && vocalTakes().includes(layer)
+  const chips = [
+    vocal ? outlinedButton(`${ms("record_voice_over")}Make my vocal shine`, `data-vocal-open="${layer.id}"`) : "",
+    layer.make ? outlinedButton(`${ms("tune")}Fix this layer`, `data-fix-open="${layer.id}"`) : "",
+    hasNotes(layer) ? outlinedButton(`${ms("music_note")}Check the notes`, `data-notes-open="${layer.id}"`) : "",
+    outlinedButton(`${ms("instant_mix")}Mixer`, `data-action="panel" data-panel="mix"`),
+    outlinedButton(`${ms("wand_stars")}Magic on this`, `data-action="panel" data-panel="transform"`),
+    outlinedButton(`${ms("swap_horiz")}Change the sound`, `data-browse-open="${layer.id}"`),
+    outlinedButton(`${ms("timeline")}Length and fades`, `data-action="panel" data-panel="build"`),
+    isRecording(layer) && typeof changesOn === "function" && changesOn(layer).length ? outlinedButton(`${ms("history")}Back to original`, `data-original="${layer.id}"`) : "",
+    outlinedButton(`${ms("delete")}Delete`, `data-action="delete-layer" data-id="${layer.id}"`),
+    outlinedButton(`${ms("close")}Done`, `data-action="unpick-layer"`),
+  ].filter(Boolean)
+  const width = Math.max(240, ($("timeline")?.clientWidth || 360) - 24)
+  return `<div class="layer-actions" role="group" aria-label="What you can do with ${esc(layer.name)}" style="width:${width}px">${chips.join("")}</div>`
+}
+
 function partPicked(layer) {
   return !!(state.section && state.partPick && state.partPick.has(layer.id))
 }
@@ -1788,8 +1924,11 @@ function paintSelection() {
   }
   const box = laneBox()
   band.hidden = false
-  band.style.left = `${box.left + section.start * box.width}px`
-  band.style.width = `${Math.max(8, (section.end - section.start) * box.width)}px`
+  // Never past the end of the song, so the timeline doesn't scroll into nothing.
+  const start = Math.max(0, Math.min(1, section.start))
+  const end = Math.max(start, Math.min(1, section.end))
+  band.style.left = `${box.left + start * box.width}px`
+  band.style.width = `${Math.max(8, (end - start) * box.width)}px`
 }
 
 function fillLayerWithSection() {
@@ -1914,19 +2053,6 @@ function renderRuler() {
         <input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Rename this part" autocomplete="off" autocorrect="off" spellcheck="false" />
         ${outlinedButton(`${ms("delete")}Delete part`, `data-action="remove-section" data-id="${esc(current.id)}"`)}
         ${outlinedButton(`${ms("close")}Done`, `data-action="whole-song"`)}`
-  } else if (pickedLayer) {
-    const vocal = typeof vocalTakes === "function" && vocalTakes().includes(pickedLayer)
-    context = `<span class="bar-title">${ms("check_circle")}${esc(pickedLayer.name)}</span>
-        ${vocal ? outlinedButton(`${ms("record_voice_over")}Make my vocal shine`, `data-vocal-open="${pickedLayer.id}"`) : ""}
-        ${pickedLayer.make ? outlinedButton(`${ms("tune")}Fix this layer`, `data-fix-open="${pickedLayer.id}"`) : ""}
-        ${hasNotes(pickedLayer) ? outlinedButton(`${ms("music_note")}Check the notes`, `data-notes-open="${pickedLayer.id}"`) : ""}
-        ${outlinedButton(`${ms("instant_mix")}Mixer`, `data-action="panel" data-panel="mix"`)}
-        ${outlinedButton(`${ms("wand_stars")}Magic on this`, `data-action="panel" data-panel="transform"`)}
-        ${outlinedButton(`${ms("swap_horiz")}Change the sound`, `data-browse-open="${pickedLayer.id}"`)}
-        ${outlinedButton(`${ms("timeline")}Length and fades`, `data-action="panel" data-panel="build"`)}
-        ${isRecording(pickedLayer) && typeof changesOn === "function" && changesOn(pickedLayer).length ? outlinedButton(`${ms("history")}Back to original`, `data-original="${pickedLayer.id}"`) : ""}
-        ${outlinedButton(`${ms("delete")}Delete`, `data-action="delete-layer" data-id="${pickedLayer.id}"`)}
-        ${outlinedButton(`${ms("close")}Done`, `data-action="unpick-layer"`)}`
   } else {
     context = `<p class="hint section-guide">Tap a part (like Chorus) or a layer to see what you can do.</p>
         ${outlinedButton(`${ms("add")}Add a part`, `data-action="add-section"`)}`
@@ -1939,7 +2065,7 @@ function renderRuler() {
   for (let t = 0; t <= total + 0.01; t += beat * 4) ticks.push(`<i style="left:${(t / total) * 100}%"></i>`)
   const zoomLevels = [1, 1.5, 2]
   const zoomAt = Math.max(0, zoomLevels.indexOf(state.zoom || 1))
-  const zoom = `<button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.max(0, zoomAt - 1)]}" aria-label="Zoom out" title="Zoom out" ${zoomAt === 0 ? "disabled" : ""}>${ms("zoom_out")}</button><button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.min(2, zoomAt + 1)]}" aria-label="Zoom in" title="Zoom in" ${zoomAt === 2 ? "disabled" : ""}>${ms("zoom_in")}</button>`
+  const zoom = `<button class="icon-btn zoom-btn" data-action="history" aria-label="History: every change this session" title="History">${ms("history")}</button><button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.max(0, zoomAt - 1)]}" aria-label="Zoom out" title="Zoom out" ${zoomAt === 0 ? "disabled" : ""}>${ms("zoom_out")}</button><button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.min(2, zoomAt + 1)]}" aria-label="Zoom in" title="Zoom in" ${zoomAt === 2 ? "disabled" : ""}>${ms("zoom_in")}</button>`
   $("ruler").innerHTML = `<div class="ruler-layout"><div class="ruler-gutter">Parts</div><div class="ruler-main">${bands}<div class="ruler-tools"><div class="beats" aria-hidden="true">${ticks.join("")}</div></div><div class="ruler-marks">${marks.join("")}</div></div></div>`
   const bar = $("section-bar")
   if (bar) bar.innerHTML = `${tools.replace('<div class="section-tools">', '<div class="section-tools">').replace(/<\/div>$/, "")}<div class="zoom" role="group" aria-label="Timeline zoom">${zoom}</div></div>`
@@ -2117,7 +2243,7 @@ function renderTracks() {
           </div>
         </div>
         <div class="lane">${gaps}${wave(shapedPeaks(layer), waveColor, layer.id, boxStyle)}</div>
-      </div>`
+      </div>${layer.id === state.selected && !state.section ? layerActions(layer) : ""}`
     })
     .join("") + guideRow
   placePlayhead(state.playAt || 0)
@@ -2245,13 +2371,13 @@ function renderMix(head, layer) {
   const vocal = typeof leadVocal === "function" ? leadVocal() : null
   const master = state.master || {}
   const hissy = state.layers.some((item) => isRecording(item))
-  const quick = [
-    ["mix-balance", "balance", "Balance everything", vocal ? "Your voice in front, the band right under it" : "Every sound at the right level"],
-    hissy ? ["mix-hiss", "graphic_eq", "Remove hiss", "Takes the steady hiss out of your recordings"] : null,
-    ["fix-timing", "timer", "Tighten timing", "Moves slightly early or late notes onto the beat"],
-    vocal ? ["mix-room", "spatial_audio", "Make room for my voice", "The band steps back while you sing"] : null,
-    ["master-polish", "compress", master.polish ? "Polish is on" : "Polish", master.polish ? "Tap to turn off" : "Holds it together and makes it louder, without clipping"],
-  ].filter(Boolean)
+  const steps = studioSteps()
+  const skip = state.studioSkip || new Set()
+  const doing = steps.filter((step) => !skip.has(step.id))
+  const done = new Set(state.studioDone || [])
+  if (master.polish) done.add("polish")
+  if (master.tone) done.add("tone")
+  if (vocal?.lead) done.add("room")
   const channels = state.layers.map((item) => {
     const hear = hearingMark(item)
     const toneOpen = state.toneFor === item.id
@@ -2281,30 +2407,44 @@ function renderMix(head, layer) {
   const canRevertTiming = state.layers.some((item) => buffers.get(item.id + ":timing"))
   const tone = master.tone || "natural"
   return `${head("Mixer")}
-    <p class="hint mixer-intro">Make the whole song sound finished: one tap first, then fine-tune any sound.</p>
+    <p class="hint mixer-intro">Make the whole song sound finished. Start at the top, then fine-tune any sound.</p>
 
-    <section class="mixer-block">
-      ${filledButton(`${ms("auto_awesome")}${state.transforming ? "Working…" : "Make it studio quality"}`, `data-action="studio-finish" ${busy}`)}
-      <p class="hint">Takes out hiss, balances every sound${vocal ? ", puts your voice on top" : ""}, and polishes the whole song. One Undo takes it back.</p>
+    <section class="mixer-block studio-block">
+      <h3 class="magic-h">Make it studio quality</h3>
+      <p class="hint">Songbird does these ${steps.length} steps, in this order. Turn off any you don't want, or do just one.</p>
+      <ol class="studio-steps">
+        ${steps.map((step, index) => {
+          const on = !skip.has(step.id)
+          return `<li class="studio-step ${on ? "" : "skipped"} ${done.has(step.id) ? "done" : ""}">
+            <span class="step-num">${done.has(step.id) ? ms("check") : index + 1}</span>
+            <span class="step-copy"><b>${ms(step.icon)}${step.name}</b><small>${step.line}</small></span>
+            ${step.id === "tone" ? `<div class="step-extra">
+              <div class="choices" role="group" aria-label="Final tone">
+                ${Object.entries(MASTER_TONES).map(([id, item]) => filterChip(`${item.name}${id === suggestedTone() && !master.tone ? " · suggested" : ""}`, `data-action="master-tone" data-tone="${id}" title="${esc(item.line)}"`, (master.tone || suggestedTone()) === id && (done.has("tone") || !!master.tone))).join("")}
+              </div>
+              <details class="tone-fine"><summary>Fine-tune low and top end</summary>
+                <label class="field">Low end
+                  <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.low || 0}" data-master="low" aria-label="Whole song low end" />
+                </label>
+                <label class="field">Top end
+                  <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.high || 0}" data-master="high" aria-label="Whole song top end" />
+                </label>
+              </details>
+            </div>` : ""}
+            <span class="step-actions">
+              <button class="switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" data-action="studio-skip" data-step="${step.id}" aria-label="${on ? "Included" : "Skipped"}: ${step.name}" ${busy}><span></span></button>
+              <button class="step-just" data-action="${step.id === "polish" && master.polish ? "master-polish" : step.action}" ${busy}>${step.id === "polish" && master.polish ? "Turn off" : "Just this"}</button>
+            </span>
+          </li>`
+        }).join("")}
+      </ol>
+      ${filledButton(`${ms("auto_awesome")}${state.transforming ? "Working…" : doing.length === steps.length ? `Do all ${steps.length} steps` : doing.length ? `Do these ${doing.length} steps` : "Turn on a step first"}`, `data-action="studio-finish" ${busy || (doing.length ? "" : "disabled")}`)}
+      <p class="hint">One Undo takes it all back.</p>
       <div class="quick-grid">
-        ${quick.map(([action, icon, name, line]) => `<button class="quick-card ${action === "master-polish" && master.polish ? "on" : ""}" data-action="${action}" ${busy}>${ms(icon)}<b>${name}</b><small>${line}</small></button>`).join("")}
+        <button class="quick-card" data-action="fix-timing" ${busy}>${ms("timer")}<b>Also: tighten timing</b><small>Not part of studio quality, since it changes your takes. Moves slightly early or late notes onto the beat.</small></button>
       </div>
     </section>
 
-    <section class="mixer-block">
-      <h3 class="magic-h">The whole song's sound</h3>
-      <p class="hint">Like the tone knobs on a stereo, for everything at once.</p>
-      <div class="choices" role="group" aria-label="Song tone">
-        ${Object.entries(MASTER_TONES).map(([id, item]) => filterChip(item.name, `data-action="master-tone" data-tone="${id}" title="${esc(item.line)}"`, tone === id)).join("")}
-      </div>
-      <p class="hint">${esc(MASTER_TONES[tone].line)}.</p>
-      <label class="field">Low end
-        <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.low || 0}" data-master="low" aria-label="Whole song low end" />
-      </label>
-      <label class="field">Top end
-        <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.high || 0}" data-master="high" aria-label="Whole song top end" />
-      </label>
-    </section>
 
     <section class="mixer-block">
       <h3 class="magic-h">Each sound</h3>
@@ -2330,30 +2470,69 @@ function renderMix(head, layer) {
     ${magicLog()}`
 }
 
-// One tap: hiss out, every sound balanced, room for the voice, polish on.
+// What Make it studio quality does, step by step. The Mixer shows exactly
+// these, so nothing it does is hidden.
+function studioSteps() {
+  const vocal = typeof leadVocal === "function" ? leadVocal() : null
+  return [
+    state.layers.some((layer) => isRecording(layer)) ? { id: "hiss", icon: "graphic_eq", name: "Remove hiss", line: "Takes the steady hiss out of your recordings.", action: "mix-hiss" } : null,
+    { id: "balance", icon: "balance", name: "Balance everything", line: vocal ? "Your voice in front, the band right under it, each sound in its own spot." : "Every sound at the right level, in its own spot.", action: "mix-balance" },
+    vocal ? { id: "room", icon: "spatial_audio", name: "Make room for my voice", line: "The band steps back a little while you sing.", action: "mix-room" } : null,
+    { id: "tone", icon: "tune", name: "Final tone", line: "The sound of the whole song at once, like the tone knobs on a stereo. Tap one to hear it.", action: "master-tone-apply" },
+    { id: "polish", icon: "compress", name: "Polish", line: "Holds the song together and makes it louder, without clipping.", action: "master-polish-on" },
+  ].filter(Boolean)
+}
+
+// A soulful song with a voice sounds best a little warm; a band on its own,
+// a little punchy.
+function suggestedTone() {
+  return typeof leadVocal === "function" && leadVocal() ? "warm" : "punchy"
+}
+
+function markStudio(id) {
+  state.studioDone = state.studioDone || new Set()
+  state.studioDone.add(id)
+}
+
 async function studioFinish() {
   if (state.transforming) return
+  const skip = state.studioSkip || new Set()
+  const steps = studioSteps().filter((step) => !skip.has(step.id))
+  if (!steps.length) return
   const mark = undoStack.length
   snapshot()
   const vocal = typeof leadVocal === "function" ? leadVocal() : null
   const said = []
-  if (state.layers.some((layer) => isRecording(layer)) && typeof cleanNoise === "function") {
-    const scope = state.magicScope
-    state.magicScope = "song"
-    const reply = await cleanNoise().catch(() => null)
-    state.magicScope = scope
-    if (reply?.text && !/no hiss|nothing/i.test(reply.text)) said.push("hiss out")
+  for (const step of steps) {
+    if (step.id === "hiss" && typeof cleanNoise === "function") {
+      const scope = state.magicScope
+      state.magicScope = "song"
+      await cleanNoise().catch(() => null)
+      state.magicScope = scope
+      said.push("hiss out")
+    }
+    if (step.id === "balance") {
+      applyMix(vocal ? "clear" : "big")
+      said.push("every sound balanced")
+    }
+    if (step.id === "room" && vocal && typeof makeRoom === "function") {
+      await makeRoom(vocal).catch(() => null)
+      said.push("your voice on top")
+    }
+    if (step.id === "tone") {
+      state.master = { ...(state.master || {}), tone: state.master?.tone || suggestedTone() }
+      refreshMaster()
+      said.push(`${MASTER_TONES[state.master.tone].name.toLowerCase()} tone`)
+    }
+    if (step.id === "polish") {
+      state.master = { ...(state.master || {}), polish: true }
+      refreshMaster()
+      said.push("polished")
+    }
+    markStudio(step.id)
   }
-  applyMix(vocal ? "clear" : "big")
-  said.push("every sound balanced")
-  if (vocal && typeof makeRoom === "function") {
-    await makeRoom(vocal).catch(() => null)
-    said.push("your voice on top")
-  }
-  state.master = { ...(state.master || {}), polish: true, tone: state.master?.tone || "natural" }
-  refreshMaster()
-  said.push("polished")
   undoStack.splice(mark + 1)
+  labelTop("Make it studio quality")
   rememberSong()
   renderTracks()
   renderInspector()
@@ -2367,7 +2546,9 @@ function setMasterTone(tone) {
   refreshMaster()
   rememberSong()
   renderInspector()
-  $("save-status").textContent = `The whole song sounds ${MASTER_TONES[tone].name.toLowerCase()} now: ${MASTER_TONES[tone].line.toLowerCase()}.`
+  markStudio("tone")
+  if (!playing) play(state.playAt || 0)
+  $("save-status").textContent = `The whole song sounds ${MASTER_TONES[tone].name.toLowerCase()} now: ${MASTER_TONES[tone].line.toLowerCase()}. Listen, and tap another to compare.`
 }
 
 function togglePolish() {
@@ -2633,6 +2814,8 @@ function renderInspector() {
     body = soundsPanel(head)
   } else if (state.panel === "notes") {
     body = noteCheckPanel(head)
+  } else if (state.panel === "history") {
+    body = historyPanel(head)
   } else if (state.panel === "fix") {
     body = fixPanel(head)
   } else if (state.panel === "vocal") {
@@ -2935,6 +3118,7 @@ function openSong(id) {
     state.era = song.era || "today"
     state.songKey = song.songKey ?? null
     state.master = song.master || null
+    state.studioDone = new Set()
     refreshMaster()
     state.magicChat = []
     $("bpm").value = state.bpm
@@ -5118,10 +5302,10 @@ let fadeNode = null
 // holds the sounds together, then a ceiling so it's loud without clipping).
 const MASTER_TONES = {
   natural: { name: "Natural", line: "As mixed", low: 0, mid: 0, high: 0 },
-  warm: { name: "Warm", line: "Rounder and softer on top", low: 2.5, mid: -1, high: -2 },
-  bright: { name: "Bright", line: "Clearer and more sparkle", low: -0.5, mid: 1.5, high: 3 },
-  punchy: { name: "Punchy", line: "More thump and bite", low: 3, mid: 1.5, high: 1 },
-  airy: { name: "Airy", line: "Light and open", low: -1.5, mid: 0, high: 3.5 },
+  warm: { name: "Warm", line: "Rounder and softer on top", low: 4, mid: -1.5, high: -3.5 },
+  bright: { name: "Bright", line: "Clearer, with more sparkle", low: -1, mid: 2, high: 5 },
+  punchy: { name: "Punchy", line: "More thump and bite", low: 4.5, mid: 2.5, high: 1.5 },
+  airy: { name: "Airy", line: "Light and open", low: -2.5, mid: 0, high: 5.5 },
 }
 var masterNodes = null
 
@@ -5766,29 +5950,16 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "close-panel") closePanel()
   if (action === "undo" && undoStack.length) {
-    const back = undoStack.pop()
-    const ids = back && typeof back === "object" && back.audio ? Object.keys(back.audio) : []
-    const audio = {}
-    for (const id of ids) {
-      const buf = buffers.get(id + ":audio")
-      if (buf) audio[id] = buf
-    }
-    redoStack.push({ raw: capture(), audio })
-    restore(back)
+    const back = stepBack()
     rememberSong()
+    $("save-status").textContent = `Undid ${back?.label ? `“${back.label}”` : "the last change"}. Hold Undo to see all your changes.`
   }
   if (action === "redo" && redoStack.length) {
-    const forward = redoStack.pop()
-    const ids = forward && typeof forward === "object" && forward.audio ? Object.keys(forward.audio) : []
-    const audio = {}
-    for (const id of ids) {
-      const buf = buffers.get(id + ":audio")
-      if (buf) audio[id] = buf
-    }
-    undoStack.push({ raw: capture(), audio })
-    restore(forward)
+    const forward = stepForward()
     rememberSong()
+    $("save-status").textContent = `Redid ${forward?.label ? `“${forward.label}”` : "that change"}.`
   }
+  if (action === "history") setPanel("history")
   if (action === "toggle-click") {
     state.click = !state.click
     if (!state.click) stopClick()
@@ -5832,6 +6003,7 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "unpick-layer") {
     state.selected = null
+    state.magicScope = "song"
     renderTracks()
     renderRuler()
   }
@@ -5876,6 +6048,8 @@ document.body.addEventListener("click", (event) => {
     renderTracks()
     renderRuler()
     if (sheetOpen || wide) renderInspector()
+    // Bring the picked layer's actions into view.
+    requestAnimationFrame(() => document.querySelector(".layer-actions")?.scrollIntoView({ block: "nearest", inline: "nearest" }))
   }
   if (action === "pick-transform-layer") {
     state.selected = node.dataset.id
@@ -6063,19 +6237,40 @@ document.body.addEventListener("click", (event) => {
   if (action === "apply-genre") applyGenrePackage()
   if (action === "apply-mix") applyMix(node.dataset.preset)
   if (action === "studio-finish") void studioFinish()
-  if (action === "mix-balance") applyMix(typeof leadVocal === "function" && leadVocal() ? "clear" : "big")
+  if (action === "mix-balance") {
+    applyMix(typeof leadVocal === "function" && leadVocal() ? "clear" : "big")
+    markStudio("balance")
+    renderInspector()
+  }
   if (action === "mix-hiss" && typeof cleanNoise === "function") {
     const scope = state.magicScope
     state.magicScope = "song"
     void cleanNoise().then((reply) => {
       state.magicScope = scope
       if (reply?.text) $("save-status").textContent = reply.text
+      markStudio("hiss")
       renderInspector()
     })
   }
-  if (action === "mix-room" && typeof runVocal === "function") void runVocal("room")
+  if (action === "mix-room" && typeof runVocal === "function") void runVocal("room").then(() => {
+    markStudio("room")
+    renderInspector()
+  })
   if (action === "master-tone") setMasterTone(node.dataset.tone)
   if (action === "master-polish") togglePolish()
+  if (action === "master-tone-apply") setMasterTone(state.master?.tone || suggestedTone())
+  if (action === "master-polish-on") {
+    if (!state.master?.polish) togglePolish()
+    markStudio("polish")
+    renderInspector()
+  }
+  if (action === "studio-skip") {
+    state.studioSkip = state.studioSkip || new Set()
+    const id = node.dataset.step
+    if (state.studioSkip.has(id)) state.studioSkip.delete(id)
+    else state.studioSkip.add(id)
+    renderInspector()
+  }
   if (action === "strip-tone") {
     state.toneFor = state.toneFor === node.dataset.id ? null : node.dataset.id
     renderInspector()
@@ -6360,3 +6555,42 @@ document.body.addEventListener("input", (event) => {
 document.body.addEventListener("change", (event) => {
   if (event.target.closest?.("[data-master]")) rememberSong()
 })
+
+// Name each change by what the app said it did.
+;(() => {
+  const status = $("save-status")
+  if (!status || typeof MutationObserver === "undefined") return
+  new MutationObserver(() => labelLatest(status.textContent.trim())).observe(status, { childList: true, characterData: true, subtree: true })
+})()
+
+document.body.addEventListener("click", (event) => {
+  const node = event.target.closest?.("[data-version]")
+  if (!node) return
+  goToVersion(node.dataset.version, Number(node.dataset.count) || 1)
+})
+
+// Hold Undo (or Redo) to see every change.
+;(() => {
+  let timer = 0
+  let held = false
+  const start = (event) => {
+    const button = event.target.closest?.('[data-action="undo"], [data-action="redo"]')
+    if (!button) return
+    held = false
+    timer = setTimeout(() => {
+      held = true
+      setPanel("history")
+    }, 550)
+  }
+  const stop = () => clearTimeout(timer)
+  document.addEventListener("pointerdown", start)
+  document.addEventListener("pointerup", stop)
+  document.addEventListener("pointercancel", stop)
+  document.addEventListener("click", (event) => {
+    if (held && event.target.closest?.('[data-action="undo"], [data-action="redo"]')) {
+      event.stopPropagation()
+      event.preventDefault()
+      held = false
+    }
+  }, true)
+})()
