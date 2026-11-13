@@ -1655,3 +1655,9 @@ html, body { touch-action: manipulation; }
 .mixer-more summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
 .mixer-block > .btn-primary { width: 100%; justify-content: center; min-height: 52px; }
 .mixer-block .choices + .hint { margin-bottom: 8px; }
+
+/* Made with Magic or recorded by you: a small symbol, not a word. */
+.track-label .role { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: none; letter-spacing: 0; }
+.track-label .role .ms { font-size: 17px; }
+.track-label .role.magic { color: #f9a8d4; }
+.track-label .role.you { color: var(--md-primary, #34d399); }
