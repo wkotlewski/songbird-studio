@@ -962,6 +962,9 @@ async function runRequest(raw) {
     document.querySelector('#studio [data-action="undo"]')?.click()
     return { text: "Undone." }
   }
+  // Your vocal: “enhance my vocals”, “add background singers”, “fit my vocal to the beat”.
+  const sung = typeof vocalRequest === "function" ? await vocalRequest(text) : null
+  if (sung) return sung
   // “The guitar riff is weird”, “less congas”, “more strings”.
   const fixed = typeof fixRequest === "function" ? await fixRequest(text) : null
   if (fixed) return fixed
@@ -1116,6 +1119,7 @@ function magicPanel(head) {
       ${filterChip(`${ms("layers")}Whole song`, `data-magic-scope="song"`, state.magicScope !== "layer")}
       ${filterChip(`Just ${esc(target.name)}`, `data-magic-scope="layer"`, state.magicScope === "layer")}
     </div>` : ""}
+    ${typeof vocalCard === "function" ? vocalCard() : ""}
     ${typeof fixCard === "function" ? fixCard(state.layers.find((layer) => layer.id === state.selected)) : ""}
     <form class="magic-ask" data-magic-form>
       <label class="sr" for="magic-say">Tell Songbird what you want</label>
