@@ -2153,6 +2153,8 @@ function renderMix(head, layer) {
       <div class="mix-channel-top">
         <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
         <button class="mini" data-browse-open="${item.id}" aria-label="Change ${esc(item.name)} to another sound" title="Change sound">${ms("swap_horiz")}</button>
+        ${typeof vocalTakes === "function" && vocalTakes().includes(item) ? `<button class="mini" data-vocal-open="${item.id}" aria-label="Make ${esc(item.name)} shine: timing, studio sound, background singers" title="Vocal">${ms("record_voice_over")}</button>` : ""}
+        ${item.make ? `<button class="mini" data-fix-open="${item.id}" aria-label="Fix ${esc(item.name)}: another take, less or more of it" title="Fix this part">${ms("tune")}</button>` : ""}
         ${hasNotes(item) ? `<button class="mini" data-notes-open="${item.id}" aria-label="Check the notes in ${esc(item.name)}" title="Notes">${ms("music_note")}</button>` : ""}
         <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms("volume_off")}</button>
         <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}" title="Solo">${ms("hearing")}</button>
@@ -2452,6 +2454,10 @@ function renderInspector() {
     body = soundsPanel(head)
   } else if (state.panel === "notes") {
     body = noteCheckPanel(head)
+  } else if (state.panel === "fix") {
+    body = fixPanel(head)
+  } else if (state.panel === "vocal") {
+    body = vocalPanel(head)
   } else if (state.panel === "arrange") {
     body = arrangeMarkup(head)
   } else if (state.panel === "build") {
@@ -2843,8 +2849,8 @@ function rememberSong() {
   state.song.fadeOut = state.fadeOut || 0
   state.song.era = state.era
   state.song.songKey = state.songKey ?? null
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine,
   }))
   state.song.audioKept = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
   const stored = saveSongs()
@@ -4959,6 +4965,23 @@ function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
   const gate = ctx.createGain()
   gate.gain.value = audible(layer) ? 1 : 0
   const hole = ctx.createGain()
+  // Room for the vocal: a little less of this part where the words are, and
+  // the part steps back while someone sings.
+  const carve = ctx.createBiquadFilter()
+  carve.type = "peaking"
+  carve.frequency.value = 2800
+  carve.Q.value = 0.9
+  carve.gain.value = -(layer.carve || 0)
+  const duck = ctx.createGain()
+  if ((layer.duck || 0) > 0 && !layer.lead && !layer.singer) {
+    const low = 10 ** (-(layer.duck * 5) / 20)
+    const phrases = state.layers.filter((item) => item.lead && item.id !== layer.id && audible(item) && item.phrases).flatMap((item) => item.phrases).sort((a, b) => a.start - b.start)
+    for (const phrase of phrases) {
+      if (phrase.end + 0.2 <= from) continue
+      duck.gain.setTargetAtTime(low, when + Math.max(0, phrase.start - 0.08 - from), 0.04)
+      duck.gain.setTargetAtTime(1, when + Math.max(0, phrase.end + 0.2 - from), 0.12)
+    }
+  }
   const pan = ctx.createStereoPanner()
   pan.pan.value = layer.pan || 0
   const dry = ctx.createGain()
@@ -4994,7 +5017,9 @@ function scheduleLayer(ctx, layer, buffer, from, span, destination, when) {
     gate.connect(fade)
     fade.connect(hole)
   } else gate.connect(hole)
-  hole.connect(pan)
+  hole.connect(carve)
+  carve.connect(duck)
+  duck.connect(pan)
   pan.connect(dry)
   dry.connect(destination)
   pan.connect(wet)
@@ -5902,3 +5927,40 @@ document.addEventListener("input", (event) => {
   const label = $("mic-gain-value")
   if (label) label.textContent = `${micLevel.db > 0 ? "+" : ""}${micLevel.db} dB`
 })
+
+// One direction per swipe on the timeline: a sideways swipe moves along the
+// song and a swipe up or down moves between parts, never both at once, so
+// the parts don't slide out of place.
+;(() => {
+  const box = $("timeline")
+  if (!box) return
+  let start = null
+  let locked = ""
+  let release = 0
+  const unlock = () => {
+    box.style.overflowX = ""
+    box.style.overflowY = ""
+    locked = ""
+  }
+  box.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 1) return
+    clearTimeout(release)
+    unlock()
+    start = { x: event.touches[0].clientX, y: event.touches[0].clientY }
+  }, { passive: true })
+  box.addEventListener("touchmove", (event) => {
+    if (!start || locked || event.touches.length !== 1) return
+    const dx = Math.abs(event.touches[0].clientX - start.x)
+    const dy = Math.abs(event.touches[0].clientY - start.y)
+    if (Math.max(dx, dy) < 8) return
+    locked = dx > dy ? "x" : "y"
+    if (locked === "x") box.style.overflowY = "hidden"
+    else box.style.overflowX = "hidden"
+  }, { passive: true })
+  box.addEventListener("touchend", () => {
+    start = null
+    // Let the glide finish in the same direction, then free both again.
+    clearTimeout(release)
+    release = setTimeout(unlock, 900)
+  }, { passive: true })
+})()
