@@ -285,9 +285,51 @@ const arrange = {
   working: "",
 }
 
+// Each feel has a few sounds for each job, so building a song doesn't bring
+// in the same band every time. A build picks one of each, never the same
+// set as this song's last build; Shuffle the sounds picks again.
+const BAND_POOLS = {
+  plain: { chords: ["grand-piano", "electric-piano", "steel-guitar", "clean-guitar"], solo: ["clean-guitar", "alto-sax", "flute", "vibraphone"], kit: ["standard", "room"], bass: ["bass", "upright-bass"] },
+  chill: { chords: ["electric-piano", "nylon-guitar", "vibraphone"], solo: ["flute", "alto-sax", "vibraphone"], kit: ["brush", "jazz", "room"], bass: ["bass", "upright-bass"] },
+  upbeat: { chords: ["steel-guitar", "clean-guitar", "grand-piano", "electric-piano"], solo: ["trumpet", "alto-sax", "synth-lead"], kit: ["standard", "power"], bass: ["bass", "synth-bass"] },
+  dreamy: { chords: ["warm-pad", "electric-piano", "harp"], solo: ["vibraphone", "flute", "bells"], kit: ["electronic", "brush"], bass: ["synth-bass", "bass"] },
+  warm: { chords: ["grand-piano", "electric-piano", "organ"], solo: ["clean-guitar", "tenor-sax", "flute"], kit: ["room", "standard", "jazz"], bass: ["bass", "upright-bass"] },
+  soulful: { chords: ["organ", "grand-piano", "electric-piano"], solo: ["tenor-sax", "alto-sax", "trumpet", "clean-guitar"], kit: ["room", "standard"], bass: ["bass"] },
+  funky: { chords: ["clean-guitar", "electric-piano", "organ"], solo: ["alto-sax", "trumpet", "synth-lead"], kit: ["standard", "room"], bass: ["bass", "synth-bass"] },
+  rock: { chords: ["rock-guitar", "steel-guitar", "organ"], solo: ["rock-guitar", "synth-lead"], kit: ["power", "standard"], bass: ["bass"] },
+  epic: { chords: ["strings", "grand-piano", "warm-pad"], solo: ["french-horn", "cello", "trumpet"], kit: ["power", "room"], bass: ["bass", "synth-bass"] },
+  party: { chords: ["warm-pad", "electric-piano", "steel-guitar"], solo: ["synth-lead", "trumpet"], kit: ["808", "electronic"], bass: ["synth-bass"] },
+  jazzy: { chords: ["electric-piano", "grand-piano", "jazz-guitar"], solo: ["tenor-sax", "trumpet", "vibraphone", "clarinet"], kit: ["jazz", "brush"], bass: ["upright-bass"] },
+  gentle: { chords: ["nylon-guitar", "grand-piano", "steel-guitar", "harp"], solo: ["flute", "violin", "clarinet"], kit: ["brush"], bass: ["upright-bass", "bass"] },
+  sad: { chords: ["grand-piano", "nylon-guitar", "strings"], solo: ["cello", "violin", "flute"], kit: ["brush", "room"], bass: ["bass", "upright-bass"] },
+  dark: { chords: ["warm-pad", "grand-piano", "strings"], solo: ["cello", "synth-lead"], kit: ["electronic", "power"], bass: ["synth-bass"] },
+}
+const BAND_EXTRAS = { vocals: ["choir-aahs", "voice-oohs"], guitar: ["clean-guitar", "steel-guitar", "nylon-guitar", "jazz-guitar"] }
+
+function rollBand() {
+  const pool = BAND_POOLS[arrange.vibes[0]] || BAND_POOLS.plain
+  const last = state.song?.lastBand || {}
+  const real = (list, role) => list.filter((id) => (role === "kit" ? KITS.some((kit) => kit.id === id) : instrumentInfo(id)))
+  const pick = (list, role, avoid = []) => {
+    const ok = real(list, role)
+    const fresh = ok.filter((id) => id !== last[role] && id !== arrange.band?.[role] && !avoid.includes(id))
+    const from = fresh.length ? fresh : ok.filter((id) => !avoid.includes(id)).length ? ok.filter((id) => !avoid.includes(id)) : ok
+    return from[Math.floor(Math.random() * from.length)]
+  }
+  const band = {}
+  for (const role of ["chords", "solo", "kit", "bass"]) band[role] = pick(pool[role] || BAND_POOLS.plain[role], role)
+  band.vocals = pick(BAND_EXTRAS.vocals, "vocals")
+  // Guitar picking is a different guitar from the chords.
+  band.guitar = pick(BAND_EXTRAS.guitar, "guitar", [band.chords, band.solo])
+  arrange.band = band
+  arrange.bandFor = arrange.vibes.join(",")
+  return band
+}
+
 function vibeOf() {
   const first = VIBES.find((vibe) => vibe.id === arrange.vibes[0])
-  return { ...PLAIN, ...(first || {}) }
+  if (!arrange.band || arrange.bandFor !== arrange.vibes.join(",")) rollBand()
+  return { ...PLAIN, ...(first || {}), ...arrange.band }
 }
 
 function songPlan() {
@@ -323,11 +365,11 @@ function addLabel(id) {
   if (id === "drums") return `Drums · ${KITS.find((kit) => kit.id === vibe.kit)?.name || "Studio kit"}`
   if (id === "bass") return `Bass · ${name(vibe.bass)}`
   if (id === "chords") return `Chords · ${name(vibe.chords)}`
-  if (id === "vocals") return "Background vocals · Choir"
+  if (id === "vocals") return `Background vocals · ${vibe.vocals === "voice-oohs" ? "Oohs" : "Choir"}`
   if (id === "solo") return `A solo · ${name(vibe.solo)}`
   if (id === "strings") return "Strings · String section"
   if (id === "horns") return "Horns · Horn section"
-  if (id === "guitar") return "Guitar picking · Clean electric"
+  if (id === "guitar") return `Guitar picking · ${name(vibe.guitar || "clean-guitar")}`
   if (id === "color") return `Color · ${colorPalette().map((key) => COLORS[key].name.toLowerCase()).join(", ")}`
   return "Fills into big parts"
 }
@@ -424,7 +466,8 @@ function arrangeMarkup(head) {
     <div class="choices">${VIBES.map((vibe) => filterChip(vibe.name, `data-arrange-vibe="${vibe.id}" ${busy}`, arrange.vibes.includes(vibe.id))).join("")}</div>
     <p class="ask">I'll add</p>
     <div class="choices">${ADDS.map((item) => filterChip(esc(item.id === "solo" && arrange.soloPick ? `A solo · ${instrumentInfo(arrange.soloPick)?.name}` : addLabel(item.id)), `data-arrange-add="${item.id}" ${busy}`, adds.has(item.id))).join("")}</div>
-    <p class="hint">${facts.hasDrums ? "" : "No drums yet. "}${facts.hasBass ? "" : "No bass yet. "}${facts.hasChords ? "" : "No chords yet. "}${facts.hasDrums && facts.hasBass && facts.hasChords ? "You have drums, bass, and chords already. " : ""}I picked what fits. Tap to change.</p>
+    <p class="hint">${facts.hasDrums ? "" : "No drums yet. "}${facts.hasBass ? "" : "No bass yet. "}${facts.hasChords ? "" : "No chords yet. "}${facts.hasDrums && facts.hasBass && facts.hasChords ? "You have drums, bass, and chords already. " : ""}I picked sounds that fit the feel, different from last time. Tap to change, or shuffle for another band.</p>
+    <div class="choices">${filterChip(`${ms("shuffle")}Shuffle the sounds`, `data-arrange="shuffle" ${busy}`)}</div>
     <p class="ask">The plan</p>
     <ol class="song-map">${sections.map((section) => `<li><b>${esc(section.name)}</b><span>${formatClock(section.start)}</span><small>${esc(sectionWho(section, adds, sections))}</small></li>`).join("")}</ol>
     <p class="hint">${formatClock(total)} long · ${order.join(", ")}. ${fadeIn ? `Fades in over ${fadeIn} seconds and out` : "Fades out"} over the last ${fadeOut} seconds.</p>
@@ -598,10 +641,13 @@ async function buildSong() {
         const info = instrumentInfo(vibe.chords)
         await make("chords", { family: info.family, instrument: vibe.chords, play: info.plays.includes("chords") ? "chords" : info.plays[0], rhythm: info.strum ? "strum" : "played", era: state.era || "today" })
       }
-      if (item.id === "vocals") await make("vocals", { family: "voices", instrument: "choir-aahs", play: "section", rhythm: "played", era: state.era || "today" })
+      if (item.id === "vocals") await make("vocals", { family: "voices", instrument: vibe.vocals || "choir-aahs", play: "section", rhythm: "played", era: state.era || "today" })
       if (item.id === "strings") await make("strings", { family: "strings", instrument: "strings", play: "section", rhythm: "played", era: state.era || "today" })
       if (item.id === "horns") await make("horns", { family: "horns", instrument: "brass-section", play: "section", rhythm: "played", era: state.era || "today" })
-      if (item.id === "guitar") await make("guitar", { family: "guitar", instrument: "clean-guitar", play: "chords", rhythm: "strum", era: state.era || "today" }, { name: "Guitar picking" })
+      if (item.id === "guitar") {
+        const guitar = vibe.guitar || "clean-guitar"
+        await make("guitar", { family: "guitar", instrument: guitar, play: "chords", rhythm: instrumentInfo(guitar)?.strum ? "strum" : "played", era: state.era || "today" }, { name: "Guitar picking" })
+      }
       if (item.id === "solo") {
         const id = arrange.soloPick || vibe.solo
         const info = instrumentInfo(id)
@@ -665,6 +711,9 @@ async function buildSong() {
     // One Undo for the whole build. Your selection stays where it was.
     undoStack.splice(mark + 1)
     labelTop("Make it a full song")
+    // Next build picks a different band.
+    if (state.song && arrange.band) state.song.lastBand = { ...arrange.band }
+    arrange.band = null
     if (state.layers.some((layer) => layer.id === wasSelected)) state.selected = wasSelected
     rememberSong()
     renderRuler()
@@ -722,6 +771,10 @@ document.body.addEventListener("click", (event) => {
     arrange.touched = true
   }
   if (d.arrange === "short") arrange.short = !arrange.short
+  if (d.arrange === "shuffle") {
+    rollBand()
+    arrange.soloPick = null
+  }
   if (d.arrange === "read") {
     arrange.said = $("song-wish")?.value || ""
     if (!arrange.said.trim()) {
