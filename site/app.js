@@ -1714,10 +1714,10 @@ function layerActions(layer) {
     vocal ? outlinedButton(`${ms("record_voice_over")}Make my vocal shine`, `data-vocal-open="${layer.id}"`) : "",
     layer.make ? outlinedButton(`${ms("tune")}Fix this layer`, `data-fix-open="${layer.id}"`) : "",
     hasNotes(layer) ? outlinedButton(`${ms("music_note")}Check the notes`, `data-notes-open="${layer.id}"`) : "",
-    outlinedButton(`${ms("instant_mix")}Mixer`, `data-action="panel" data-panel="mix"`),
     outlinedButton(`${ms("wand_stars")}Magic on this`, `data-action="panel" data-panel="transform"`),
-    outlinedButton(`${ms("swap_horiz")}Change the sound`, `data-browse-open="${layer.id}"`),
-    outlinedButton(`${ms("timeline")}Length and fades`, `data-action="panel" data-panel="build"`),
+    outlinedButton(`${ms("swap_horiz")}Change its sound`, `data-browse-open="${layer.id}"`),
+    outlinedButton(`${ms("instant_mix")}Volume and tone`, `data-action="panel" data-panel="mix"`),
+    outlinedButton(`${ms("timeline")}Its length and fades`, `data-action="panel" data-panel="build"`),
     isRecording(layer) && typeof changesOn === "function" && changesOn(layer).length ? outlinedButton(`${ms("history")}Back to original`, `data-original="${layer.id}"`) : "",
     outlinedButton(`${ms("delete")}Delete`, `data-action="delete-layer" data-id="${layer.id}"`),
     outlinedButton(`${ms("close")}Done`, `data-action="unpick-layer"`),
@@ -2366,10 +2366,46 @@ function mixBox(id, name, line) {
   return planButton(name, line, `data-action="apply-mix" data-preset="${id}"`, state.mix === id)
 }
 
+function suggestedMix() {
+  return typeof leadVocal === "function" && leadVocal() ? "clear" : "big"
+}
+
+// The Mixer with one layer picked: only that layer's level, side and tone.
+function layerMix(head, item) {
+  const kind = MIX_PARTS[mixFamily(item)] || MIX_PARTS.instrument
+  return `${head("Volume and tone")}
+    <section class="mixer-block">
+      <div class="mix-channel on solo-view">
+        <div class="mix-channel-top">
+          <span class="strip-name">${esc(item.name)}</span>
+          <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms(item.mute ? "volume_off" : "volume_up")}</button>
+          <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Hear only ${esc(item.name)}" title="Hear only this">${ms("hearing")}</button>
+        </div>
+        <label class="field">Volume
+          <input class="slider" type="range" min="0" max="1" step="0.01" value="${item.gain ?? 0.8}" data-mix="1" data-action="set-gain" data-id="${item.id}" aria-label="${esc(item.name)} volume" />
+        </label>
+        <label class="field">Left and right
+          <input class="slider" type="range" min="-1" max="1" step="0.01" value="${item.pan ?? 0}" data-mix="1" data-action="set-pan" data-id="${item.id}" aria-label="${esc(item.name)} pan" />
+        </label>
+        <div class="strip-tone">
+          ${slider("Bass", "low", -6, 6, 1, item.low ?? 0, item.id, mixReadout("low", item.low ?? 0))}
+          ${slider("Treble", "high", -6, 6, 1, item.high ?? 0, item.id, mixReadout("high", item.high ?? 0))}
+          ${slider("Echo and room", "space", 0, 1, 0.01, item.space ?? 0, item.id, mixReadout("space", item.space ?? 0))}
+        </div>
+      </div>
+      <p class="hint">The speaker turns it off. The ear plays only it, so you can hear it on its own.</p>
+      <div class="quick-grid">
+        <button class="quick-card" data-action="layer-preset" data-id="${item.id}">${ms("auto_awesome")}<b>${esc(kind.name)}</b><small>${esc(kind.line)} A good start for this kind of sound.</small></button>
+      </div>
+    </section>`
+}
+
 function renderMix(head, layer) {
   if (!state.layers.length) {
     return `${head("Mixer")}<p class="empty">Record a layer, then come back to make the song sound finished.</p>`
   }
+  const only = pickedLayer()
+  if (only) return layerMix(head, only)
   const current = layer || state.layers[0]
   const soloing = state.layers.some((item) => item.solo)
   const busy = state.transforming ? "disabled" : ""
@@ -2412,7 +2448,6 @@ function renderMix(head, layer) {
   const canRevertTiming = state.layers.some((item) => buffers.get(item.id + ":timing"))
   const tone = master.tone || "natural"
   return `${head("Mixer")}
-    <p class="hint mixer-intro">Make the whole song sound finished. Start at the top, then fine-tune any sound.</p>
 
     <section class="mixer-block studio-block">
       <h3 class="magic-h">Make it studio quality</h3>
@@ -2423,6 +2458,12 @@ function renderMix(head, layer) {
           return `<li class="studio-step ${on ? "" : "skipped"} ${done.has(step.id) ? "done" : ""}">
             <span class="step-num">${done.has(step.id) ? ms("check") : index + 1}</span>
             <span class="step-copy"><b>${ms(step.icon)}${step.name}</b><small>${step.line}</small></span>
+            ${step.id === "balance" ? `<div class="step-extra">
+              <div class="choices" role="group" aria-label="How to balance">
+                ${Object.entries(SONG_MIXES).map(([id, item]) => filterChip(`${item.name}${id === suggestedMix() && !SONG_MIXES[state.mix] ? " · suggested" : ""}`, `data-action="apply-mix" data-preset="${id}" title="${esc(item.line)}" ${busy}`, (SONG_MIXES[state.mix] ? state.mix : "") === id)).join("")}
+              </div>
+              ${SONG_MIXES[state.mix] ? `<small class="step-pick">${esc(SONG_MIXES[state.mix].line)}</small>` : ""}
+            </div>` : ""}
             ${step.id === "tone" ? `<div class="step-extra">
               <div class="choices" role="group" aria-label="Final tone">
                 ${Object.entries(MASTER_TONES).map(([id, item]) => filterChip(`${item.name}${id === suggestedTone() && !master.tone ? " · suggested" : ""}`, `data-action="master-tone" data-tone="${id}" title="${esc(item.line)}"`, (master.tone || suggestedTone()) === id && (done.has("tone") || !!master.tone))).join("")}
@@ -2455,13 +2496,6 @@ function renderMix(head, layer) {
       <h3 class="magic-h">Each sound</h3>
       <p class="hint">${soloing ? "Only the sounds with the ear on are playing. Tap the ear again to hear everything." : "Slide to set each sound's level and side. The speaker turns it off, the ear plays only it, the dial opens its tone, and ⋯ shows everything else you can do with it."}</p>
       <div class="mix-channels">${channels}</div>
-    </section>
-
-    <section class="mixer-block">
-      <h3 class="magic-h">One kind of sound</h3>
-      <div class="mix-boxes parts">${Object.entries(MIX_PARTS).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
-      <h3 class="magic-h">Whole-song looks</h3>
-      <div class="mix-boxes">${Object.entries(SONG_MIXES).map(([id, item]) => mixBox(id, item.name, item.line)).join("")}</div>
     </section>
 
     <details class="mixer-block mixer-more">
@@ -2517,7 +2551,7 @@ async function studioFinish() {
       said.push("hiss out")
     }
     if (step.id === "balance") {
-      applyMix(vocal ? "clear" : "big")
+      applyMix(SONG_MIXES[state.mix] ? state.mix : suggestedMix())
       said.push("every sound balanced")
     }
     if (step.id === "room" && vocal && typeof makeRoom === "function") {
@@ -2759,9 +2793,57 @@ function genrePanel() {
   </section>`
 }
 
+// Every panel says what it changes: the whole song, or one layer.
+// A picked layer means "just this one"; nothing picked means the whole song.
+function pickedLayer() {
+  return state.layers.find((layer) => layer.id === state.selected) || null
+}
+
+function panelScope() {
+  const panel = state.panel
+  if (panel === "history") return null
+  if (panel === "fix") return { kind: "layer", layer: state.layers.find((item) => item.id === (typeof fix !== "undefined" && fix.layerId)) || pickedLayer() }
+  if (panel === "vocal") return { kind: "layer", layer: typeof leadVocal === "function" ? leadVocal() : pickedLayer() }
+  if (panel === "notes") return { kind: "layer", layer: state.layers.find((item) => item.id === (typeof check !== "undefined" && check.id)) || pickedLayer() }
+  if (panel === "sounds") {
+    const target = typeof browse !== "undefined" && browse.mode === "change" ? state.layers.find((item) => item.id === browse.target) : null
+    return target ? { kind: "layer", layer: target } : { kind: "song", line: "Adds a new layer to the song" }
+  }
+  if (panel === "record") return { kind: "song", line: "Adds a new layer to the song" }
+  if (panel === "arrange" || panel === "finish") return { kind: "song", line: "Every layer" }
+  const layer = pickedLayer()
+  return layer ? { kind: "layer", layer, canSwitch: true } : { kind: "song", line: state.layers.length ? "Every layer. Tap a layer in the song to change just that one." : "Every layer", canSwitch: false }
+}
+
+function scopeBar() {
+  const scope = panelScope()
+  if (!scope) return ""
+  if (scope.kind === "song" || !scope.layer) {
+    return `<div class="scope-bar song" role="note">${ms("album")}<span><b>Whole song</b><small>${esc(scope.line || "Every layer")}</small></span></div>`
+  }
+  const layer = scope.layer
+  return `<div class="scope-bar layer" role="note">${ms(isRecording(layer) ? "mic" : "wand_stars")}<span><b>Only ${esc(layer.name)}</b><small>The rest of the song stays as it is</small></span>${scope.canSwitch ? `<button class="scope-switch" data-action="edit-whole-song">${ms("album")}Whole song</button>` : ""}</div>`
+}
+
+function unpickLayer() {
+  if (!state.selected) return
+  state.selected = null
+  state.magicScope = "song"
+  state.lengthScope = "song"
+  state.toneFor = null
+  renderTracks()
+  renderRuler()
+}
+
 function renderInspector() {
+  // What Magic and Length change follows the pick.
+  if (!state.transforming) {
+    const picked = !!pickedLayer()
+    state.magicScope = picked ? "layer" : "song"
+    state.lengthScope = picked ? "layer" : "song"
+  }
   const layer = selectedLayer()
-  const head = (title) => `<div class="sheet-head"><h2>${title}</h2><div class="sheet-transport">${state.layers.length ? `${iconButton("skip_previous", `data-action="jump" data-jump="-1" aria-label="Back" title="Back"`)}<button class="icon-btn sheet-play ${playing ? "is-on" : ""}" id="sheet-play" data-action="play" aria-label="${playing ? "Stop" : "Play"}" title="${playing ? "Stop" : "Play"}">${ms(playing ? "stop" : "play_arrow", "glyph")}</button>` : ""}${iconButton("close", `data-action="close-panel" aria-label="Close" title="Close"`)}</div></div>`
+  const head = (title) => `<div class="sheet-head"><h2>${title}</h2><div class="sheet-transport">${state.layers.length ? `${iconButton("skip_previous", `data-action="jump" data-jump="-1" aria-label="Back" title="Back"`)}<button class="icon-btn sheet-play ${playing ? "is-on" : ""}" id="sheet-play" data-action="play" aria-label="${playing ? "Stop" : "Play"}" title="${playing ? "Stop" : "Play"}">${ms(playing ? "stop" : "play_arrow", "glyph")}</button>` : ""}${iconButton("close", `data-action="close-panel" aria-label="Close" title="Close"`)}</div>${scopeBar()}</div>`
   let body = ""
   if (state.panel === "record") {
     const micMode = state.recordMode === "mic"
@@ -2838,16 +2920,12 @@ function renderInspector() {
     const secs = shapingLength ? String(shapingLength % 60).padStart(2, "0") : ""
     const suggestions = INTENTS.find((item) => item.id === state.intent)
     body = `${head("How long, and how it builds")}
-      ${picked ? `<div class="choices scope-row" role="group" aria-label="What to change">
-        ${filterChip(`${ms("layers")}Whole song`, `data-action="length-scope" data-scope="song"`, songWide)}
-        ${filterChip(`Just ${esc(picked.name)}`, `data-action="length-scope" data-scope="layer"`, !songWide)}
-      </div>` : ""}
-      <p class="hint">${!state.layers.length ? "Record a sound first. " : songWide ? "Changes the whole song: every layer loops or stops to fit. " : `Changes only ${esc(shaping.name)}. `}Pick how long it is, how it fades, and whether it builds up.</p>
-      <label class="field">Say what you want
+      <p class="hint">${!state.layers.length ? "Record a sound first. " : songWide ? "Every layer loops or stops to fit. " : `How long ${esc(shaping.name)} plays, how it fades, and how it builds. `}${songWide ? "Pick how long it is, how it fades, and whether it builds up." : ""}</p>
+      ${songWide ? `<label class="field">Say what you want
         <textarea id="wish" rows="3" placeholder="3 minutes, soft intro, build up, then soften at the end">${esc(state.wish)}</textarea>
       </label>
       ${filledButton("Use what I said", `data-action="read-wish"`)}
-      ${state.heard ? `<p class="hint">${esc(state.heard)}</p>` : ""}
+      ${state.heard ? `<p class="hint">${esc(state.heard)}</p>` : ""}` : ""}
       <p class="ask">How long?</p>
       <div class="choices">${LENGTHS.map(([seconds, label, tag]) => filterChip(`${label}${tag ? ` ${tag}` : ""}`, `data-action="apply-length" data-seconds="${seconds}"`, shapingLength === seconds)).join("")}</div>
       <div class="length-entry">
@@ -2866,9 +2944,8 @@ function renderInspector() {
         const shape = SHAPES[id]
         return planButton(shape.name, shape.line, `data-action="apply-shape" data-shape="${id}"`, (shaping?.shape || state.shape) === id, curve(id))
       }).join("")}` : ""}
-      ${filledButton(`${ms("wand_stars")}Next: Magic`, `data-action="next-transform"`)}
-      
-      ${outlinedButton(`${ms("mic")}Record another sound`, `data-action="add-and-record" data-input="hum"`)}`
+      ${songWide ? `${filledButton(`${ms("wand_stars")}Next: Magic`, `data-action="next-transform"`)}
+      ${outlinedButton(`${ms("mic")}Record another sound`, `data-action="add-and-record" data-input="hum"`)}` : ""}`
   } else if (state.panel === "finish") {
     body = `${head("Save your song")}
       <div class="seg">${filterChip("Audio", "", true)}${outlinedButton("Video", `data-action="video-note"`)}</div>
@@ -5956,7 +6033,15 @@ document.body.addEventListener("click", (event) => {
     if (!state.recording) state.tempoPass = false
     void toggleRecord()
   }
-  if (action === "panel") setPanel(node.dataset.panel)
+  if (action === "panel") {
+    // The buttons along the bottom are for the whole song.
+    if (node.closest(".dock")) unpickLayer()
+    setPanel(node.dataset.panel)
+  }
+  if (action === "edit-whole-song") {
+    unpickLayer()
+    renderInspector()
+  }
   if (action === "zoom") {
     const level = Number(node.dataset.zoom)
     state.zoom = level === 1.5 || level === 2 ? level : 1
@@ -6017,10 +6102,8 @@ document.body.addEventListener("click", (event) => {
     if (section) play(section.start * spanSeconds())
   }
   if (action === "unpick-layer") {
-    state.selected = null
-    state.magicScope = "song"
-    renderTracks()
-    renderRuler()
+    unpickLayer()
+    if (document.body.classList.contains("sheet-open")) renderInspector()
   }
   if (action === "whole-song") {
     state.section = null
@@ -6250,10 +6333,29 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "preview-genre") previewGenrePackage()
   if (action === "apply-genre") applyGenrePackage()
-  if (action === "apply-mix") applyMix(node.dataset.preset)
+  if (action === "apply-mix") {
+    applyMix(node.dataset.preset)
+    if (SONG_MIXES[node.dataset.preset]) {
+      markStudio("balance")
+      renderInspector()
+    }
+  }
+  if (action === "layer-preset") {
+    const item = state.layers.find((entry) => entry.id === node.dataset.id)
+    const kind = item && (MIX_PARTS[mixFamily(item)] || MIX_PARTS.instrument)
+    if (item && kind) {
+      snapshot()
+      applyMixSettings(item, [kind.gain, kind.pan === "spread" ? 0 : kind.pan, kind.low, kind.high, kind.space], 0)
+      rememberSong()
+      refreshMix(item)
+      renderTracks()
+      renderInspector()
+      $("save-status").textContent = `${kind.name}: ${item.name}.`
+    }
+  }
   if (action === "studio-finish") void studioFinish()
   if (action === "mix-balance") {
-    applyMix(typeof leadVocal === "function" && leadVocal() ? "clear" : "big")
+    applyMix(SONG_MIXES[state.mix] ? state.mix : suggestedMix())
     markStudio("balance")
     renderInspector()
   }
