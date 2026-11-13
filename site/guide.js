@@ -106,6 +106,7 @@ function ideasFor(step, facts) {
     return picks
   }
   if (step === "polish") {
+    go("Make it studio quality", "auto_awesome", "studio")
     go("Balance it for me", "tune", "balance")
     if (!facts.tight) say("Fix my timing & notes", "check", "make it tight")
     if (typeof vocalTakes === "function" && vocalTakes().length) say("Make my vocal shine", "record_voice_over", "make my vocal shine")
@@ -143,8 +144,8 @@ function guideText(step, facts) {
       }
     case "polish":
       return {
-        title: "Make it sound great",
-        hint: "One tap balances everything so every sound can be heard. Or open the Mixer for studio quality in one tap.",
+        title: "Make the whole song sound great",
+        hint: "These change the whole song, not one layer. Make it studio quality does it all in one tap; the Mixer has more.",
       }
     default:
       return {
@@ -208,6 +209,18 @@ async function guideDo(action) {
     setPanel("record")
     return
   }
+  if (action === "studio") {
+    guide.working = "Making it studio quality…"
+    renderGuide()
+    await studioFinish()
+    guide.working = ""
+    guide.mixed = true
+    guide.pick = null
+    guide.reply = $("save-status").textContent
+    guide.replyWarn = false
+    renderGuide()
+    return
+  }
   if (action === "balance") {
     applyMix("clear")
     guide.mixed = true
@@ -268,7 +281,11 @@ document.body.addEventListener("click", (event) => {
     guide.working = node.textContent.trim()
     guide.reply = ""
     renderGuide()
+    // The guide's ideas are for the whole song, even with a layer picked.
+    const scope = state.magicScope
+    state.magicScope = "song"
     void runAndShow(d.guideSay).then(() => {
+      state.magicScope = scope
       const last = state.magicChat[state.magicChat.length - 1]
       guide.working = ""
       guide.reply = last ? last.did : ""

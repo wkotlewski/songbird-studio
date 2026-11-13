@@ -1115,63 +1115,84 @@ function chatMarkup() {
 function magicPanel(head) {
   const sources = state.layers.filter((layer) => buffers.get(layer.id + ":audio"))
   const busy = state.transforming ? "disabled" : ""
-  const fam = FAMILIES.find((item) => item.id === pick.family) || FAMILIES[0]
-  const familyInstruments = INSTRUMENTS.filter((item) => item.family === pick.family)
-  const info = instrumentInfo(pick.instrument)
-  const plays = info ? info.plays : []
-  const target = sources.find((layer) => layer.id === state.selected) || sources[0]
+  const target = sources.find((layer) => layer.id === state.selected) || null
+  const scopeLayer = state.magicScope === "layer" && target
+  const vocal = typeof leadVocal === "function" ? leadVocal() : null
+  const made = sources.filter((layer) => layer.make)
+  const changed = sources.find((layer) => isRecording(layer) && typeof changesOn === "function" && changesOn(layer).length)
+  const open = state.magicOpen || ""
+  // Everything Magic can do, so nothing is hidden: tap to do it, or to open it.
+  const cards = [
+    sources.length ? ["arrange", "auto_awesome", "Make it a full song", "Verse, chorus, fills, and the instruments it's missing", "data-arrange-open"] : null,
+    ["add", "add_circle", "Add an instrument", "Drums, bass, piano, guitar, horns, strings, choir…", `data-browse-open=""`],
+    vocal ? ["vocal", "record_voice_over", "Make my vocal shine", "On the beat, studio sound, harmonies in your voice", `data-vocal-open="${vocal.id}"`] : null,
+    made.length ? ["fix", "tune", "Fix a layer", "Wrong notes, an odd riff, too much of it", `data-fix-open="${target?.make ? target.id : ""}"`] : null,
+    sources.length ? ["change", "swap_horiz", "Change a sound", "Turn any layer into another instrument", `data-magic-open="change"`] : null,
+    sources.some((layer) => isRecording(layer)) ? ["clean", "graphic_eq", "Clean up a recording", "Hiss out, brighter, warmer, smoother", `data-magic-open="clean"`] : null,
+    sources.some((layer) => isRecording(layer)) ? ["voice", "mic", "Tune my voice", "Pitch correction, autotune, background vocal", `data-magic-open="voice"`] : null,
+    ["style", "album", "Music style", "Soul, pop, gospel, lo-fi, and more", `data-magic-open="style"`],
+    changed ? ["original", "history", "Back to original", `${changed.name}, just as you recorded it`, `data-original="${changed.id}"`] : null,
+  ].filter(Boolean)
+  const openPart = open === "change"
+    ? `<div class="magic-open"><p class="ask">Which layer?</p><div class="choices">${sources.map((layer) => `<button class="chip" data-browse-open="${layer.id}" ${busy}>${ms("swap_horiz")}${esc(layer.name)}</button>`).join("")}</div></div>`
+    : open === "clean"
+      ? `<div class="magic-open"><p class="ask">Clean up ${scopeLayer ? esc(target.name) : "every recording"}</p>
+        <label class="field">How much
+          <input id="enhance-amount" class="slider" type="range" min="0.25" max="1" step="0.05" value="${state.enhanceAmount || 0.65}" aria-label="How much to enhance" />
+          <span data-enhance-readout>${enhanceLabel(state.enhanceAmount || 0.65)}</span>
+        </label>
+        <div class="choices">
+          ${filterChip("Studio clear", `data-action="enhance" data-mode="clear" ${busy}`)}
+          ${filterChip("Take out hiss", `data-action="enhance" data-mode="hiss" ${busy}`)}
+          ${filterChip("Brighten", `data-action="enhance" data-mode="bright" ${busy}`)}
+          ${filterChip("Warm", `data-action="enhance" data-mode="warm" ${busy}`)}
+          ${filterChip("Smooth", `data-action="enhance" data-mode="smooth" ${busy}`)}
+        </div></div>`
+      : open === "voice"
+        ? `<div class="magic-open"><p class="ask">Your voice${target && isRecording(target) ? `: ${esc(target.name)}` : ""}</p>
+          <div class="choices">
+            ${filterChip("As sung", `data-action="pick-pitch" data-pitch="none" ${busy}`, state.pitch === "none")}
+            ${filterChip("Pitch correction", `data-action="pick-pitch" data-pitch="correct" ${busy}`, state.pitch === "correct")}
+            ${filterChip("Autotune", `data-action="pick-pitch" data-pitch="autotune" ${busy}`, state.pitch === "autotune")}
+            ${filterChip("Background vocal", `data-action="pick-vocal" data-vocal="background" ${busy}`, state.vocalType === "background")}
+          </div></div>`
+        : open === "style"
+          ? `<div class="magic-open">${genrePanel()}</div>`
+          : ""
   return `${head("Magic")}
-    <p class="hint">Say what you want, like “add drums” or “make it higher”. Undo takes it back.</p>
-    ${target ? `<div class="choices scope-row" role="group" aria-label="What echo, room sound, and volume change">
-      ${filterChip(`${ms("layers")}Whole song`, `data-magic-scope="song"`, state.magicScope !== "layer")}
-      ${filterChip(`Just ${esc(target.name)}`, `data-magic-scope="layer"`, state.magicScope === "layer")}
+    <p class="hint">Say what you want, or tap one of the things Magic can do. Every change is one Undo.</p>
+    ${target ? `<div class="magic-scope">
+      <p class="ask">What should Magic change?</p>
+      <div class="choices scope-row" role="group" aria-label="What Magic changes">
+        ${filterChip(`${ms("layers")}The whole song`, `data-magic-scope="song"`, !scopeLayer)}
+        ${filterChip(`Just ${esc(target.name)}`, `data-magic-scope="layer"`, !!scopeLayer)}
+      </div>
+      <p class="hint">${scopeLayer ? `Echo, room, volume, and clean-ups change only ${esc(target.name)}.` : "Echo, room, volume, and clean-ups change every layer."}</p>
     </div>` : ""}
-    ${typeof vocalCard === "function" ? vocalCard() : ""}
-    ${typeof fixCard === "function" ? fixCard(state.layers.find((layer) => layer.id === state.selected)) : ""}
     <form class="magic-ask" data-magic-form>
       <label class="sr" for="magic-say">Tell Songbird what you want</label>
       <textarea id="magic-say" rows="2" placeholder="Add a horn section and make it tight" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
       <button class="btn btn-primary magic-go" type="submit" ${busy}>${state.transforming ? "Working…" : `${ms("wand_stars")}Do it`}</button>
     </form>
-    ${sources.length ? `<button class="song-card" data-arrange-open>${ms("auto_awesome")}<span><b>Make it a full song</b><small>Pick a vibe. I'll add what's missing, lay out verse and chorus, fills, a climax, and fades.</small></span>${ms("arrow_forward")}</button>` : ""}
-    ${chatMarkup()}
     <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your keyboard to say it out loud. Or try one:"}</p>
     <div class="choices magic-suggest">${SUGGESTIONS.map((line) => `<button class="chip" data-magic-say="${esc(line)}" ${busy}>${esc(line)}</button>`).join("")}</div>
+    ${chatMarkup()}
 
-    <section class="browse-card">
-      <h3 class="magic-h">Pick from every sound</h3>
-      <p class="hint">40 instruments, drum kits, and voices. Pick how they play and what time they're from.</p>
-      ${filledButton(`${ms("library_music")}Browse all sounds`, `data-browse-open="" ${busy}`)}
-      ${sources.length ? `<p class="ask">Or change a sound in your song</p>
-      <div class="choices">${sources.map((layer) => `<button class="chip" data-browse-open="${layer.id}" ${busy}>${ms("swap_horiz")}${esc(layer.name)}</button>`).join("")}</div>` : ""}
-    </section>
-
-    <details class="package-more">
-      <summary>More: clean up, your voice, music styles</summary>
-      <p class="ask">Clean up a recording</p>
-      <label class="field">How much
-        <input id="enhance-amount" class="slider" type="range" min="0.25" max="1" step="0.05" value="${state.enhanceAmount || 0.65}" aria-label="How much to enhance" />
-        <span data-enhance-readout>${enhanceLabel(state.enhanceAmount || 0.65)}</span>
-      </label>
-      <div class="choices">
-        ${filterChip("Magic clear", `data-action="enhance" data-mode="clear" ${busy}`)}
-        ${filterChip("Clear hiss", `data-action="enhance" data-mode="hiss" ${busy}`)}
-        ${filterChip("Brighten", `data-action="enhance" data-mode="bright" ${busy}`)}
-        ${filterChip("Warm", `data-action="enhance" data-mode="warm" ${busy}`)}
-        ${filterChip("Smooth", `data-action="enhance" data-mode="smooth" ${busy}`)}
-      </div>
-      <p class="ask">Your own voice</p>
-      <div class="choices">
-        ${filterChip("As sung", `data-action="pick-pitch" data-pitch="none" ${busy}`, state.pitch === "none")}
-        ${filterChip("Pitch correction", `data-action="pick-pitch" data-pitch="correct" ${busy}`, state.pitch === "correct")}
-        ${filterChip("Autotune", `data-action="pick-pitch" data-pitch="autotune" ${busy}`, state.pitch === "autotune")}
-        ${filterChip("Background vocal", `data-action="pick-vocal" data-vocal="background" ${busy}`, state.vocalType === "background")}
-      </div>
-      ${outlinedButton(`${ms("history")}Back to original`, `data-action="revert-original" ${busy}`)}
-      ${genrePanel()}
-    </details>
+    <h3 class="magic-h">What Magic can do</h3>
+    <div class="quick-grid magic-cards">
+      ${cards.map(([id, icon, name, line, attrs]) => `<button class="quick-card ${open === id ? "on" : ""}" ${attrs} ${busy}>${ms(icon)}<b>${name}</b><small>${esc(line)}</small></button>`).join("")}
+    </div>
+    ${openPart}
     ${magicLog()}`
 }
+
+document.body.addEventListener("click", (event) => {
+  const node = event.target.closest?.("[data-magic-open]")
+  if (!node || node.disabled) return
+  state.magicOpen = state.magicOpen === node.dataset.magicOpen ? "" : node.dataset.magicOpen
+  renderInspector()
+  requestAnimationFrame(() => document.querySelector(".magic-open")?.scrollIntoView({ block: "nearest", behavior: "smooth" }))
+})
 
 async function runAndShow(text) {
   const entry = { you: text, did: "" }
