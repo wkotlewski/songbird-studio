@@ -1153,8 +1153,25 @@ function syncDock() {
 function showInspector() {
   document.body.classList.remove("inspector-closed")
   document.body.classList.add("sheet-open")
+  placeSheet()
   syncDock()
 }
+
+// On a phone a panel fills the screen between the player controls and the
+// bottom buttons, so play, stop, record and undo always stay in reach.
+function placeSheet() {
+  const root = document.documentElement
+  const transport = document.querySelector(".studio-bar .transport")
+  const dock = document.querySelector("#studio .dock")
+  if (!transport || !window.matchMedia("(max-width: 759px)").matches) return
+  const top = Math.max(0, Math.round(transport.getBoundingClientRect().bottom + 8))
+  const dockBox = dock?.getBoundingClientRect()
+  const dockTop = dockBox && dockBox.height > 0 ? dockBox.top : window.innerHeight
+  const bottom = Math.max(0, Math.round(window.innerHeight - dockTop))
+  root.style.setProperty("--sheet-top", `${top}px`)
+  root.style.setProperty("--sheet-bottom", `${bottom}px`)
+}
+window.addEventListener("resize", () => placeSheet())
 
 function setPanel(panel) {
   if (state.panel !== panel && $("inspector")) $("inspector").scrollTop = 0
@@ -1551,6 +1568,54 @@ function removeSection(id) {
     : `${sections.find((item) => item.id === state.section)?.name || "That part"} now covers the space.`
 }
 
+// A part of the song in seconds.
+function sectionSpan(section) {
+  const span = spanSeconds()
+  return { name: section.name, start: section.start * span, end: section.end * span }
+}
+
+// The layers you hear in a part of the song.
+function layersInSection(section) {
+  const box = sectionSpan(section)
+  return state.layers.filter((layer) => buffers.get(layer.id + ":audio") && (typeof restingIn === "function" ? restingIn(layer, box) < 0.5 : true))
+}
+
+function partPicked(layer) {
+  return !!(state.section && state.partPick && state.partPick.has(layer.id))
+}
+
+function partPickLine() {
+  const section = activeSection()
+  if (!section) return ""
+  const picked = state.layers.filter((layer) => partPicked(layer))
+  if (!picked.length) return `${section.name}: no layers picked. Tap a layer to pick it.`
+  return `${section.name}: ${picked.length === state.layers.length ? "every layer" : picked.map((layer) => layer.name).join(", ")}. Tap a layer to leave it out or bring it in.`
+}
+
+// Take the picked layers out of the picked part, or bring them back.
+function partLayers(out) {
+  const section = activeSection()
+  const picked = state.layers.filter((layer) => partPicked(layer))
+  if (!section || !picked.length) {
+    $("save-status").textContent = "Pick a part of the song, and the layers to change in it."
+    return
+  }
+  const box = sectionSpan(section)
+  snapshot()
+  for (const layer of picked) {
+    let gaps = (layer.gaps || []).map((gap) => ({ ...gap }))
+    if (out) gaps = mergeGaps([...gaps, { start: box.start, end: box.end }])
+    else gaps = typeof withoutGap === "function" ? withoutGap(gaps, box.start, box.end) : gaps.filter((gap) => gap.end <= box.start || gap.start >= box.end)
+    layer.gaps = gaps
+  }
+  rememberSong()
+  renderTracks()
+  renderRuler()
+  play(box.start)
+  const names = picked.length === 1 ? picked[0].name : `${picked.length} layers`
+  $("save-status").textContent = out ? `${names} ${picked.length === 1 ? "sits" : "sit"} out ${section.name} now. Undo puts ${picked.length === 1 ? "it" : "them"} back.` : `${names} ${picked.length === 1 ? "plays" : "play"} in ${section.name} now. Undo takes ${picked.length === 1 ? "it" : "them"} out again.`
+}
+
 function activeSection() {
   if (!state.section) return null
   return songSections().find((section) => section.id === state.section) || null
@@ -1827,15 +1892,41 @@ function renderRuler() {
     .join("")}</div>`
   // The section tools and zoom live in a bar above the song that doesn't
   // scroll sideways with it, so no button ever slides off the screen.
-  const tools = `<div class="section-tools">
-        ${current ? "" : `<p class="hint section-guide">Tap a part above the song to change just that part.</p>`}
-        ${current ? `<input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Section name" autocomplete="off" autocorrect="off" spellcheck="false" />` : ""}
-        ${outlinedButton(`${ms("add")}Add a part`, `data-action="add-section"`)}
-        ${current ? outlinedButton(`${ms("delete")}Delete part`, `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
-        ${current ? `${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
+  // What you can do with what you picked: a part of the song (and the
+  // layers in it), or one layer. Everything you can do with it, right here.
+  const pickedLayer = state.layers.find((layer) => layer.id === state.selected)
+  let context
+  if (current) {
+    const inPart = state.layers.filter((layer) => partPicked(layer)).length
+    context = `<span class="bar-title">${ms("check_circle")}${esc(current.name)} · ${inPart} of ${state.layers.length} ${state.layers.length === 1 ? "layer" : "layers"}</span>
+        ${outlinedButton(`${ms("play_arrow")}Play this part`, `data-action="play-section"`)}
+        ${outlinedButton(`${ms("volume_off")}Take out here`, `data-action="part-out" ${inPart ? "" : "disabled"}`)}
+        ${outlinedButton(`${ms("volume_up")}Bring back here`, `data-action="part-in" ${inPart ? "" : "disabled"}`)}
+        ${outlinedButton(`${ms("mic")}Record in this part`, `data-action="panel" data-panel="record"`)}
+        ${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
         ${filterChip("Change this part", `data-action="section-mode" data-mode="replace"`, state.sectionMode === "replace")}
         ${outlinedButton("Repeat this part", `data-action="fill-section"`)}
-        ${outlinedButton("Whole song", `data-action="whole-song"`)}` : ""}
+        <input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Rename this part" autocomplete="off" autocorrect="off" spellcheck="false" />
+        ${outlinedButton(`${ms("delete")}Delete part`, `data-action="remove-section" data-id="${esc(current.id)}"`)}
+        ${outlinedButton(`${ms("close")}Done`, `data-action="whole-song"`)}`
+  } else if (pickedLayer) {
+    const vocal = typeof vocalTakes === "function" && vocalTakes().includes(pickedLayer)
+    context = `<span class="bar-title">${ms("check_circle")}${esc(pickedLayer.name)}</span>
+        ${vocal ? outlinedButton(`${ms("record_voice_over")}Make my vocal shine`, `data-vocal-open="${pickedLayer.id}"`) : ""}
+        ${pickedLayer.make ? outlinedButton(`${ms("tune")}Fix this layer`, `data-fix-open="${pickedLayer.id}"`) : ""}
+        ${outlinedButton(`${ms("instant_mix")}Volume and echo`, `data-action="panel" data-panel="mix"`)}
+        ${outlinedButton(`${ms("wand_stars")}Magic on this`, `data-action="panel" data-panel="transform"`)}
+        ${outlinedButton(`${ms("swap_horiz")}Change the sound`, `data-browse-open="${pickedLayer.id}"`)}
+        ${outlinedButton(`${ms("timeline")}Length and fades`, `data-action="panel" data-panel="build"`)}
+        ${isRecording(pickedLayer) && typeof changesOn === "function" && changesOn(pickedLayer).length ? outlinedButton(`${ms("history")}Back to original`, `data-original="${pickedLayer.id}"`) : ""}
+        ${outlinedButton(`${ms("delete")}Delete`, `data-action="delete-layer" data-id="${pickedLayer.id}"`)}
+        ${outlinedButton(`${ms("close")}Done`, `data-action="unpick-layer"`)}`
+  } else {
+    context = `<p class="hint section-guide">Tap a part (like Chorus) or a layer to see what you can do.</p>
+        ${outlinedButton(`${ms("add")}Add a part`, `data-action="add-section"`)}`
+  }
+  const tools = `<div class="section-tools">
+        ${context}
       </div>`
   const beat = 60 / (state.bpm || 92)
   const ticks = []
@@ -2005,19 +2096,19 @@ function renderTracks() {
       const waveColor = !hear.className || hear.className === "hearing"
         ? (layer.id === state.selected ? "#F9A8D4" : "#34D399")
         : "rgba(255,251,242,0.28)"
-      return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""} ${hear.className} ${edited ? "edited" : "original"}" data-id="${layer.id}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
+      const inPart = partPicked(layer)
+      return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${inPart ? "in-part" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""} ${hear.className} ${edited ? "edited" : "original"}" data-id="${layer.id}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
         <div class="track-label">
-          <div class="label-top">
-            <button type="button" class="layer-name" data-action="select-layer" data-id="${layer.id}" title="${esc(layer.name)}">${esc(layer.name)}</button>
+          <button type="button" class="layer-name" data-action="select-layer" data-id="${layer.id}" title="${esc(layer.name)}">${inPart || layer.id === state.selected ? ms("check_circle") : ""}${esc(layer.name)}</button>
+          <div class="label-row">
+            <button class="track-meta" data-action="select-layer" data-id="${layer.id}">
+              <small class="role">${edited ? "Magic" : "You"}</small>
+              <small class="track-from">${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
+              ${hear.label ? `<small class="hear-state">${hear.label}</small>` : ""}
+            </button>
             <button type="button" class="layer-mute ${layer.mute ? "on" : ""}" data-action="toggle-mute" data-id="${layer.id}" data-keep-selection aria-pressed="${layer.mute ? "true" : "false"}" aria-label="${layer.mute ? "Unmute" : "Mute"} ${esc(layer.name)}" title="${layer.mute ? "Unmute" : "Mute"}">${ms(layer.mute ? "volume_off" : "volume_up")}</button>
             <button type="button" class="layer-delete" data-action="delete-layer" data-id="${layer.id}" aria-label="Delete ${esc(layer.name)}">${ms("close_small")}</button>
           </div>
-          <button class="track-meta" data-action="select-layer" data-id="${layer.id}">
-            ${layer.id === state.selected ? `<small class="picked">${ms("check")}Selected</small>` : ""}
-            <small class="role">${edited ? "Magic" : "You"}</small>
-            <small class="track-from">${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
-            ${hear.label ? `<small class="hear-state">${hear.label}</small>` : ""}
-          </button>
         </div>
         <div class="lane">${gaps}${wave(shapedPeaks(layer), waveColor, layer.id, boxStyle)}</div>
       </div>`
@@ -2155,7 +2246,7 @@ function renderMix(head, layer) {
         <button class="mini" data-browse-open="${item.id}" aria-label="Change ${esc(item.name)} to another sound" title="Change sound">${ms("swap_horiz")}</button>
         ${isRecording(item) && changesOn(item).length ? `<button class="mini" data-original="${item.id}" aria-label="Put ${esc(item.name)} back to just as you recorded it" title="Back to original">${ms("history")}</button>` : ""}
         ${typeof vocalTakes === "function" && vocalTakes().includes(item) ? `<button class="mini" data-vocal-open="${item.id}" aria-label="Make ${esc(item.name)} shine: timing, studio sound, background singers" title="Vocal">${ms("record_voice_over")}</button>` : ""}
-        ${item.make ? `<button class="mini" data-fix-open="${item.id}" aria-label="Fix ${esc(item.name)}: another take, less or more of it" title="Fix this part">${ms("tune")}</button>` : ""}
+        ${item.make ? `<button class="mini" data-fix-open="${item.id}" aria-label="Fix ${esc(item.name)}: another take, less or more of it" title="Fix this layer">${ms("tune")}</button>` : ""}
         ${hasNotes(item) ? `<button class="mini" data-notes-open="${item.id}" aria-label="Check the notes in ${esc(item.name)}" title="Notes">${ms("music_note")}</button>` : ""}
         <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms("volume_off")}</button>
         <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}" title="Solo">${ms("hearing")}</button>
@@ -5558,6 +5649,9 @@ document.body.addEventListener("click", (event) => {
     if (section) {
       const same = state.section === section.id
       state.section = same ? null : section.id
+      // Picking a part picks every layer playing in it; tap a layer to
+      // leave it out (or bring it in) before changing the part.
+      state.partPick = same ? null : new Set(layersInSection(section).map((layer) => layer.id))
       if (!same) placePlayhead(section.start * spanSeconds())
       if (playing) play(state.playAt)
       renderRuler()
@@ -5574,11 +5668,41 @@ document.body.addEventListener("click", (event) => {
     $("save-status").textContent = sectionWorkLine()
   }
   if (action === "fill-section") fillLayerWithSection()
+  if (action === "part-out") partLayers(true)
+  if (action === "part-in") partLayers(false)
+  if (action === "play-section") {
+    const section = activeSection()
+    if (section) play(section.start * spanSeconds())
+  }
+  if (action === "unpick-layer") {
+    state.selected = null
+    renderTracks()
+    renderRuler()
+  }
   if (action === "whole-song") {
     state.section = null
+    state.partPick = null
     renderRuler()
     renderInspector()
     $("save-status").textContent = "The whole song is selected. New layers cover all of it."
+  }
+  if (action === "select-layer" && state.section && state.partPick) {
+    // With a part of the song picked, a tap adds or leaves out a layer.
+    const id = node.dataset.id
+    if (state.partPick.has(id)) state.partPick.delete(id)
+    else state.partPick.add(id)
+    state.selected = id
+    renderTracks()
+    renderRuler()
+    $("save-status").textContent = partPickLine()
+    return
+  }
+  if (action === "select-layer" && node.dataset.id === state.selected && node.classList.contains("layer-name") && !document.body.classList.contains("sheet-open")) {
+    // Tap the picked layer's name again to unpick it.
+    state.selected = null
+    renderTracks()
+    renderRuler()
+    return
   }
   if (action === "select-layer") {
     state.selected = node.dataset.id
@@ -5588,14 +5712,14 @@ document.body.addEventListener("click", (event) => {
     state.magicScope = "layer"
     state.lengthScope = "layer"
     syncPlaying(state.layers.find((item) => item.id === state.selected))
-    if (state.panel !== "transform" && state.panel !== "build" && state.panel !== "record") {
-      state.panel = "mix"
-      showInspector()
-    }
+    // A tap picks the layer; what you can do with it shows above the song.
+    // A panel that's already open follows the new pick.
+    const sheetOpen = document.body.classList.contains("sheet-open")
+    const wide = window.matchMedia("(min-width: 1100px)").matches
+    if ((sheetOpen || wide) && state.panel !== "transform" && state.panel !== "build" && state.panel !== "record" && state.panel !== "vocal" && state.panel !== "fix") state.panel = "mix"
     renderTracks()
     renderRuler()
-    if (state.panel === "mix" && !window.matchMedia("(min-width: 1100px)").matches) setPanel("mix")
-    else renderInspector()
+    if (sheetOpen || wide) renderInspector()
   }
   if (action === "pick-transform-layer") {
     state.selected = node.dataset.id
