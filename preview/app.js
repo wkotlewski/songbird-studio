@@ -2108,7 +2108,7 @@ function renderTracks() {
           <button type="button" class="layer-name" data-action="select-layer" data-id="${layer.id}" title="${esc(layer.name)}">${inPart || layer.id === state.selected ? ms("check_circle") : ""}${esc(layer.name)}</button>
           <div class="label-row">
             <button class="track-meta" data-action="select-layer" data-id="${layer.id}">
-              <small class="role">${edited ? "Magic" : "You"}</small>
+              <span class="role ${edited ? "magic" : "you"}" title="${edited ? "Made with Magic" : "Your recording"}" aria-label="${edited ? "Made with Magic" : "Your recording"}">${ms(edited ? "wand_stars" : "mic")}</span>
               <small class="track-from">${esc(layer.sound || "Layer")}${layer.from ? ` · ${esc(layer.from)}` : ""}${layer.live ? "" : " · layout"}</small>
               ${hear.label ? `<small class="hear-state">${hear.label}</small>` : ""}
             </button>
