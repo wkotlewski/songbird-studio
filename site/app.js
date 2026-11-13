@@ -309,6 +309,7 @@ const state = {
   query: "",
   shareFor: null,
   deleteFor: null,
+  songMenu: null,
   era: "today",
   figure: "solo",
   touch: "hold",
@@ -1341,12 +1342,16 @@ function songCard(song) {
     : [song.received ? song.author : "", songLength(song), count ? `${count} ${count === 1 ? "layer" : "layers"}` : "Empty", songEmails(song).length ? `Shared with ${songEmails(song).join(", ")}` : ""]
   const tag = song.demo ? "Example" : song.received ? "Sent to you" : ""
   const manage = song.demo
-    ? ""
+    ? `<div class="song-tools" aria-hidden="true"></div>`
     : `<div class="song-tools">
         <button class="icon-btn small" data-action="share-song" data-id="${song.id}" aria-label="Share ${esc(song.title)}" title="Share">${ms("ios_share")}</button>
-        <button class="icon-btn small danger" data-action="ask-delete" data-id="${song.id}" aria-label="Delete ${esc(song.title)}" title="Delete">${ms("delete")}</button>
+        <button class="icon-btn small" data-action="song-menu" data-id="${song.id}" aria-label="More for ${esc(song.title)}" aria-expanded="${state.songMenu === song.id}" title="More">${ms("more_vert")}</button>
+        ${state.songMenu === song.id ? `<div class="song-menu" role="menu">
+          <button class="song-menu-item" role="menuitem" data-action="share-song" data-id="${song.id}">${ms("ios_share")}Share</button>
+          <button class="song-menu-item danger" role="menuitem" data-action="ask-delete" data-id="${song.id}">${ms("delete")}Delete song…</button>
+        </div>` : ""}
       </div>`
-  return `<article class="song">
+  return `<article class="song${state.songMenu === song.id ? " menu-open" : ""}">
         <div class="song-row">
           <button class="song-open" data-action="open-song" data-id="${song.id}">
             ${songWave(song)}
@@ -5796,6 +5801,14 @@ document.body.addEventListener("click", (event) => {
   const node = fromControl(event)
   if (!node?.dataset?.action) return
   const action = node.dataset.action
+  if (state.songMenu && action !== "song-menu") {
+    state.songMenu = null
+    if (!["share-song", "ask-delete", "open-song"].includes(action)) renderSongs()
+  }
+  if (action === "song-menu") {
+    state.songMenu = state.songMenu === node.dataset.id ? null : node.dataset.id
+    renderSongs()
+  }
   if (action === "show-library") {
     setScreen("library")
     closePanel()
@@ -6594,3 +6607,10 @@ document.body.addEventListener("click", (event) => {
     }
   }, true)
 })()
+
+// A tap outside a song's menu closes it.
+document.addEventListener("pointerdown", (event) => {
+  if (!state.songMenu || event.target.closest?.(".song-tools")) return
+  state.songMenu = null
+  renderSongs()
+})
