@@ -127,8 +127,34 @@ function firstVerse(sections) {
   return i < 0 ? 0 : i
 }
 
+// Color is a couple of sounds, picked fresh each build from the feel's
+// set (and a few that suit any song), never the same pair as last time.
+const COLOR_ANY = ["shaker", "congas", "vibes", "bells", "flute", "pizz", "harp"]
+
+function rollColor(last, using = []) {
+  // Not a sound the band already plays.
+  const free = (id) => !using.includes(COLORS[id]?.instrument)
+  const own = (COLOR_SETS[arrange.vibes[0]] || COLOR_SETS.plain).filter(free)
+  const pool = [...new Set([...own, ...own, ...COLOR_ANY])]
+  const lastKey = (last || []).slice().sort().join(",")
+  for (let tries = 0; tries < 12; tries++) {
+    const bag = [...own, ...own, ...COLOR_ANY.filter((id) => !own.includes(id) && free(id))]
+    const picked = []
+    while (picked.length < 2 && bag.length) {
+      const id = bag.splice(Math.floor(Math.random() * bag.length), 1)[0]
+      if (!picked.includes(id)) picked.push(id)
+    }
+    // At most one shaker-like hit sound, so it isn't all percussion.
+    const hits = picked.filter((id) => COLORS[id]?.kind === "hits")
+    if (hits.length > 1 && tries < 11) continue
+    if (picked.slice().sort().join(",") !== lastKey || pool.length <= 2) return picked
+  }
+  return own.slice(0, 2)
+}
+
 function colorPalette() {
-  return COLOR_SETS[arrange.vibes[0]] || COLOR_SETS.plain
+  if (!arrange.band || arrange.bandFor !== arrange.vibes.join(",")) rollBand()
+  return arrange.band.color?.length ? arrange.band.color : (COLOR_SETS[arrange.vibes[0]] || COLOR_SETS.plain).slice(0, 2)
 }
 
 // The song's chords over its whole length, so color parts fit the harmony.
@@ -317,10 +343,11 @@ function rollBand() {
     return from[Math.floor(Math.random() * from.length)]
   }
   const band = {}
-  for (const role of ["chords", "solo", "kit", "bass"]) band[role] = pick(pool[role] || BAND_POOLS.plain[role], role)
+  for (const role of ["chords", "solo", "kit", "bass"]) band[role] = pick(pool[role] || BAND_POOLS.plain[role], role, role === "solo" ? [band.chords] : [])
   band.vocals = pick(BAND_EXTRAS.vocals, "vocals")
   // Guitar picking is a different guitar from the chords.
   band.guitar = pick(BAND_EXTRAS.guitar, "guitar", [band.chords, band.solo])
+  band.color = rollColor(last.color || arrange.band?.color, [band.chords, band.solo])
   arrange.band = band
   arrange.bandFor = arrange.vibes.join(",")
   return band
