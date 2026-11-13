@@ -958,13 +958,6 @@ async function runRequest(raw) {
     return { text: replies.filter(Boolean).join(" ") }
   }
 
-  // “Back to the original”, “undo all the effects”, “remove the effects”.
-  if (/(back to (the |my )?original|original (recording|take|version|sound)|(undo|remove|take off|clear|reset|strip) (all )?(the |my )?(effects|processing|changes|fx)|as (i )?recorded|start over with my (take|recording|vocal))/.test(text)) {
-    const target = state.layers.find((layer) => layer.id === state.selected && isRecording(layer)) || (typeof leadVocal === "function" && leadVocal()) || state.layers.find((layer) => isRecording(layer) && changesOn(layer).length)
-    if (!target) return { text: "There's no recording of yours to put back.", warn: true }
-    backToOriginal(target.id)
-    return { text: state.transformNote }
-  }
   if (/^\s*(undo|take (that|it) back|go back|never ?mind)\b/.test(text)) {
     document.querySelector('#studio [data-action="undo"]')?.click()
     return { text: "Undone." }
@@ -1167,7 +1160,7 @@ function magicPanel(head) {
         ${filterChip("Autotune", `data-action="pick-pitch" data-pitch="autotune" ${busy}`, state.pitch === "autotune")}
         ${filterChip("Background vocal", `data-action="pick-vocal" data-vocal="background" ${busy}`, state.vocalType === "background")}
       </div>
-      ${outlinedButton(`${ms("history")}Back to original`, `data-action="revert-original" ${busy}`)}
+      ${outlinedButton(`${ms("undo")}Revert to original`, `data-action="revert-original" ${busy}`)}
       ${genrePanel()}
     </details>
     ${magicLog()}`

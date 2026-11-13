@@ -1546,3 +1546,23 @@ button.layer-delete {
 
 /* The page itself doesn't bounce either. */
 html, body { overscroll-behavior: none; }
+
+/* No surprise zooming on iPhone: a quick double tap doesn't zoom, and
+   typing in a box doesn't zoom in (iPhone zooms on text under 16px). */
+html, body { touch-action: manipulation; }
+@media (pointer: coarse) {
+  input:not([type="range"]):not([type="checkbox"]), textarea, select { font-size: max(16px, 1em) !important; }
+}
+/* A layer's name is a tap target that picks the layer, not a text box. */
+.track-label button.layer-name {
+  display: block;
+  min-width: 0;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}

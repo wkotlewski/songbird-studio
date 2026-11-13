@@ -84,7 +84,7 @@ async function vocalStep(label, run) {
 
 // One pass of a looped take, or the whole take.
 function takeAudio(layer, kind = "audio") {
-  const audio = (kind === "original" ? rawTake(layer) : buffers.get(`${layer.id}:${kind}`)) || buffers.get(layer.id + ":audio")
+  const audio = buffers.get(`${layer.id}:${kind}`) || buffers.get(layer.id + ":audio")
   const loop = audio.loopSamples || 0
   const all = samplesOf(audio)
   return { audio, rate: audio.sampleRate, loop, pass: loop ? all.slice(0, loop) : all, length: all.length }
@@ -592,7 +592,6 @@ function vocalPanel(head) {
     ${takes.length > 1 ? `<div class="choices" role="group" aria-label="Which vocal">${takes.map((item) => filterChip(esc(item.name), `data-vocal-pick="${item.id}" ${busy}`, item.id === lead.id)).join("")}</div>` : ""}
     <div class="vocal-heard">${ms("hearing")}<p>${study ? esc(heardLine(study)) : "Listening to your singing…"}</p></div>
     ${filledButton(`${ms("auto_awesome")}${vocal.working ? esc(vocal.working) : "Do it all"}`, `data-vocal-do="all" ${busy}`)}
-    ${changesOn(lead).length ? outlinedButton(`${ms("history")}Back to original`, `data-original="${lead.id}" ${busy}`) : ""}
     <p class="hint">Slides your lines into place, gives your voice a studio sound, makes room in the music, and brings in the singers that fit you best. One Undo takes it all back.</p>
     <p class="hint vocal-note" id="vocal-note" role="status">${esc(vocal.said)}</p>
 
