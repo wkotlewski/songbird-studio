@@ -1737,7 +1737,7 @@ html, body { touch-action: manipulation; }
 .song .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; opacity: 0.75; }
 .song-tag { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: rgba(249, 168, 212, 0.18); color: #f9a8d4; font-size: 12px; font-weight: 600; opacity: 1; }
 .song-row { flex: 1 0 100%; width: 100%; min-width: 0; }
-.song-tools { display: flex; gap: 2px; flex: none; width: 92px; justify-content: flex-end; margin-left: auto; position: relative; }
+.song-tools { display: flex; gap: 2px; flex: none; width: 44px; justify-content: flex-end; margin-left: auto; position: relative; }
 .song.menu-open { position: relative; z-index: 20; overflow: visible; }
 .song-menu {
   position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; min-width: 190px; padding: 6px;

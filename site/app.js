@@ -1363,7 +1363,6 @@ function songCard(song) {
   const manage = song.demo
     ? `<div class="song-tools" aria-hidden="true"></div>`
     : `<div class="song-tools">
-        <button class="icon-btn small" data-action="share-song" data-id="${song.id}" aria-label="Share ${esc(song.title)}" title="Share">${ms("ios_share")}</button>
         <button class="icon-btn small" data-action="song-menu" data-id="${song.id}" aria-label="More for ${esc(song.title)}" aria-expanded="${state.songMenu === song.id}" title="More">${ms("more_vert")}</button>
         ${state.songMenu === song.id ? `<div class="song-menu" role="menu">
           <button class="song-menu-item" role="menuitem" data-action="share-song" data-id="${song.id}">${ms("ios_share")}Share</button>
