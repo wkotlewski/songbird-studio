@@ -2153,6 +2153,7 @@ function renderMix(head, layer) {
       <div class="mix-channel-top">
         <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
         <button class="mini" data-browse-open="${item.id}" aria-label="Change ${esc(item.name)} to another sound" title="Change sound">${ms("swap_horiz")}</button>
+        ${isRecording(item) && changesOn(item).length ? `<button class="mini" data-original="${item.id}" aria-label="Put ${esc(item.name)} back to just as you recorded it" title="Back to original">${ms("history")}</button>` : ""}
         ${typeof vocalTakes === "function" && vocalTakes().includes(item) ? `<button class="mini" data-vocal-open="${item.id}" aria-label="Make ${esc(item.name)} shine: timing, studio sound, background singers" title="Vocal">${ms("record_voice_over")}</button>` : ""}
         ${item.make ? `<button class="mini" data-fix-open="${item.id}" aria-label="Fix ${esc(item.name)}: another take, less or more of it" title="Fix this part">${ms("tune")}</button>` : ""}
         ${hasNotes(item) ? `<button class="mini" data-notes-open="${item.id}" aria-label="Check the notes in ${esc(item.name)}" title="Notes">${ms("music_note")}</button>` : ""}
@@ -2253,7 +2254,11 @@ function fixTiming() {
 function keepTiming(live, fixed) {
   snapshot(live.map((layer) => layer.id))
   for (const layer of live) {
-    if (!buffers.get(layer.id + ":timing")) buffers.set(layer.id + ":timing", buffers.get(layer.id + ":audio"))
+    if (!buffers.get(layer.id + ":timing")) {
+      buffers.set(layer.id + ":timing", buffers.get(layer.id + ":audio"))
+      // Timing came first, so this is the take as recorded.
+      if (!buffers.get(layer.id + ":original")) layer.firstEdit = "timing"
+    }
   }
   let moved = 0
   let pockets = 0
@@ -2849,8 +2854,8 @@ function rememberSong() {
   state.song.fadeOut = state.fadeOut || 0
   state.song.era = state.era
   state.song.songKey = state.songKey ?? null
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine, idea, choruses }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine, idea, choruses,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine, idea, choruses, firstEdit }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine, idea, choruses, firstEdit,
   }))
   state.song.audioKept = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
   const stored = saveSongs()
@@ -4227,39 +4232,105 @@ function applyMagic() {
   commitTransform()
 }
 
-function revertToOriginal() {
-  const selected = state.layers.find((item) => item.id === state.selected) || state.layers.find((item) => buffers.get(item.id + ":audio"))
+// The take exactly as it was recorded, before anything was done to it.
+function rawTake(layer) {
+  const original = buffers.get(layer.id + ":original")
+  const timing = buffers.get(layer.id + ":timing")
+  if (layer.firstEdit === "timing" && timing) return timing
+  return original || timing || null
+}
+
+function sameAudio(a, b) {
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  const x = a.getChannelData(0)
+  const y = b.getChannelData(0)
+  const step = Math.max(1, Math.floor(x.length / 97))
+  for (let i = 0; i < x.length; i += step) if (Math.abs(x[i] - y[i]) > 1e-4) return false
+  return true
+}
+
+// What's been done to a layer, in words, for Back to original.
+function changesOn(layer) {
+  if (!layer) return []
+  const out = []
+  if (layer.tight) out.push("timing")
+  if (layer.shine) out.push("studio sound")
+  if (layer.transformed || layer.vocalType) out.push("sound changes")
+  const raw = rawTake(layer)
+  if (raw && !out.length && !sameAudio(raw, buffers.get(layer.id + ":audio"))) out.push("clean-up")
+  if ((layer.echo || 0) > 0.02 || (layer.space || 0) > 0.02 || layer.room || layer.reverb) out.push("echo and room")
+  if (layer.low || layer.high) out.push("tone")
+  if (layer.lead) out.push("room in the music")
+  return out
+}
+
+function backToOriginal(id) {
+  const selected = state.layers.find((item) => item.id === id) || state.layers.find((item) => item.id === state.selected) || state.layers.find((item) => buffers.get(item.id + ":audio"))
   if (!selected) {
     $("save-status").textContent = "Record a layer first."
     return
   }
-  const original = buffers.get(selected.id + ":original")
-  if (!original) {
-    state.transformNote = `${selected.name} is already the original recording.`
+  const changes = changesOn(selected)
+  const raw = sameAudio(rawTake(selected), buffers.get(selected.id + ":audio")) ? null : rawTake(selected)
+  if (!raw && !changes.length) {
+    state.transformNote = `${selected.name} is already just as you recorded it.`
     state.transformTone = ""
     $("save-status").textContent = state.transformNote
     renderInspector()
     return
   }
   snapshot([selected.id])
-  buffers.set(selected.id + ":audio", original)
-  selected.peaks = peaksFromSamples(original.getChannelData(0))
+  if (raw) {
+    buffers.set(selected.id + ":audio", raw)
+    // Both keep the take as recorded, so anything done next starts from it.
+    buffers.set(selected.id + ":original", raw)
+    if (buffers.get(selected.id + ":timing")) buffers.set(selected.id + ":timing", raw)
+    selected.peaks = peaksFromSamples(raw.getChannelData(0))
+  }
+  delete selected.firstEdit
   selected.name = selected.baseName || selected.name
   selected.sound = selected.originSound || selected.sound || "Voice"
   selected.transformed = false
   selected.vocalType = ""
-  selected.from = selected.baseName ? `was ${selected.baseName}` : ""
+  selected.pitch = ""
+  selected.tight = false
+  selected.shine = false
+  // No effects: dry, centered, flat.
+  Object.assign(selected, { echo: 0, space: 0, room: 0, reverb: 0, low: 0, high: 0, pan: 0 })
+  if (selected.lead) {
+    selected.lead = false
+    selected.phrases = null
+    if (!state.layers.some((item) => item.lead)) for (const item of state.layers) {
+      item.carve = 0
+      item.duck = 0
+    }
+  }
+  selected.from = selected.baseName ? `was ${selected.baseName}` : "as recorded"
   state.pitch = "none"
   state.role = /drum|guitar|piano|rhodes|horn|bass|clap|snap/i.test(`${selected.sound} ${selected.name}`) ? "instrument" : "vocals"
   state.suggestId = selected.id
   state.arrived = selected.id
-  state.transformNote = `${selected.name} is back to the original.`
+  const singers = state.layers.filter((item) => item.singer && item.sourceId === selected.id)
+  state.transformNote = `${selected.name} is back to just as you recorded it${changes.length ? `: no ${changes.join(", ")}` : ""}.${singers.length ? " Its background singers stay; tap Your vocal to make them again." : ""} Undo brings the changes back.`
   state.transformTone = ""
+  refreshMix(selected)
   rememberSong()
   renderTracks()
   renderInspector()
   $("save-status").textContent = state.transformNote
-  try { play() } catch { /* the original is still on the timeline */ }
+  // Parts that follow this take follow the original now.
+  if (typeof followVocal === "function" && state.layers.some((item) => item.make?.sourceId === selected.id)) {
+    followVocal(selected).then(() => {
+      rememberSong()
+      renderTracks()
+    }).catch(() => {})
+  }
+  try { play(Math.max(0, (selected.range?.start || 0))) } catch { /* the original is still on the timeline */ }
+}
+
+function revertToOriginal() {
+  backToOriginal()
 }
 
 function suggestPackage(id) {
@@ -5964,3 +6035,10 @@ document.addEventListener("input", (event) => {
     release = setTimeout(unlock, 900)
   }, { passive: true })
 })()
+
+document.body.addEventListener("click", (event) => {
+  const node = event.target.closest?.("[data-original]")
+  if (!node || node.disabled) return
+  event.preventDefault()
+  backToOriginal(node.dataset.original)
+})
