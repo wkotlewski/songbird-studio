@@ -454,7 +454,6 @@ function arrangeMarkup(head) {
   const fadeIn = arrange.plan === "background" || arrange.vibes.some((id) => ["chill", "dreamy", "gentle"].includes(id)) ? 3 : 0
   const fadeOut = arrange.plan === "jam" || arrange.vibes.includes("party") ? 4 : 8
   return `${head("Make it a full song")}
-    <p class="hint scope-note">${ms("layers")}This works on the whole song, with every layer${state.selected && state.layers.some((layer) => layer.id === state.selected) ? `, not just ${esc(state.layers.find((layer) => layer.id === state.selected).name)}` : ""}.</p>
     <p class="hint">Tell me what the song is for and how it should feel. I'll add what's missing, lay it out, and bring parts in and out.</p>
     <label class="field">Or just say it
       <textarea id="song-wish" rows="2" placeholder="Steady, with background vocals and a guitar solo" ${busy}>${esc(arrange.said)}</textarea>
@@ -738,6 +737,7 @@ async function buildSong() {
 
 function openArrange(text) {
   // Building a song is always about the whole song.
+  if (typeof unpickLayer === "function") unpickLayer()
   state.magicScope = "song"
   if (text) {
     arrange.said = text

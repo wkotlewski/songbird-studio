@@ -1139,7 +1139,7 @@ function magicPanel(head) {
     recorded ? ["voice", "mic", "Tune it", "Pitch correction, autotune, background vocal", `data-magic-open="voice"`] : null,
     recorded ? ["clean", "graphic_eq", "Clean it up", "Hiss out, brighter, warmer, smoother", `data-magic-open="clean"`] : null,
     recorded && typeof changesOn === "function" && changesOn(target).length ? ["original", "history", "Back to original", "Just as you recorded it", `data-original="${target.id}"`] : null,
-    ["mix", "instant_mix", "Its volume and echo", "In the Mixer", `data-action="panel" data-panel="mix"`],
+    ["mix", "instant_mix", "Volume and tone", "How loud, which side, bass, treble, echo", `data-action="panel" data-panel="mix"`],
   ].filter(Boolean) : []
   const cards = scopeLayer ? layerCards : songCards
   const openPart = open === "change"
@@ -1170,14 +1170,6 @@ function magicPanel(head) {
           : ""
   return `${head("Magic")}
     <p class="hint">Say what you want, or tap one of the things Magic can do. Every change is one Undo.</p>
-    <div class="magic-scope">
-      <p class="ask">Magic works on</p>
-      <div class="choices scope-row" role="group" aria-label="What Magic changes">
-        ${filterChip(`${ms("layers")}The whole song`, `data-magic-scope="song"`, !scopeLayer)}
-        ${target ? filterChip(`Just ${esc(target.name)}`, `data-magic-scope="layer"`, !!scopeLayer) : ""}
-      </div>
-      <p class="hint">${scopeLayer ? `Everything below, and what you ask for, changes only ${esc(target.name)}. The rest of the song stays as it is.` : target ? `Everything below changes the whole song. To change only ${esc(target.name)}, tap Just ${esc(target.name)}.` : "Everything below changes the whole song. Tap a layer in the song to work on just that one."}</p>
-    </div>
     <form class="magic-ask" data-magic-form>
       <label class="sr" for="magic-say">Tell Songbird what you want</label>
       <textarea id="magic-say" rows="2" placeholder="${scopeLayer ? `Make ${esc(target.name)} softer, add echo to it…` : "Add a horn section and make it tight"}" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
@@ -1192,7 +1184,7 @@ function magicPanel(head) {
       ${cards.map(([id, icon, name, line, attrs]) => `<button class="quick-card ${open === id ? "on" : ""}" ${attrs} ${busy}>${ms(icon)}<b>${name}</b><small>${esc(line)}</small></button>`).join("")}
     </div>
     ${openPart}
-    ${magicLog()}`
+    ${scopeLayer ? "" : magicLog()}`
 }
 
 document.body.addEventListener("click", (event) => {
