@@ -648,31 +648,34 @@ body[data-sound="play"] .track:not(.quiet) .wave::after {
   z-index: 3;
   box-shadow: 0 0 8px rgba(52, 211, 153, 0.35);
 }
+/* While playing, the line glows softly on each beat (see setBeat). Only
+   opacity and transform change, so it stays smooth and calm. */
 body[data-sound="play"] .playhead {
-  box-shadow: 0 0 8px #fff, 0 0 16px rgba(52, 211, 153, 0.95);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.7), 0 0 10px rgba(52, 211, 153, 0.6);
   will-change: transform;
 }
 body[data-sound="play"] .playhead::after {
   content: "";
   position: absolute;
   inset: 0;
-  box-shadow: 0 0 46px 4px rgba(236, 72, 153, 0.7);
-  opacity: calc(0.3 + var(--pulse, 0) * 0.7);
+  box-shadow: 0 0 22px 3px rgba(52, 211, 153, 0.8);
+  opacity: calc(var(--beat, 0) * 0.8);
 }
 body[data-sound="play"] .playhead::before {
   content: "";
   position: absolute;
   top: 10px;
-  left: -6px;
-  width: 14px;
-  height: 14px;
+  left: -5px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: white;
-  box-shadow: 0 0 16px 6px rgba(52, 211, 153, 0.9), 0 0 28px 10px rgba(236, 72, 153, 0.45);
+  box-shadow: 0 0 10px 3px rgba(52, 211, 153, 0.7);
+  transform: scale(calc(1 + var(--beat, 0) * 0.3));
 }
 body[data-sound="play"] #play-btn {
   border-color: var(--cyan);
-  box-shadow: 0 0 calc(8px + var(--pulse) * 18px) rgba(52, 211, 153, 0.85);
+  box-shadow: 0 0 calc(6px + var(--beat, 0) * 14px) rgba(52, 211, 153, 0.75);
 }
 body[data-sound="record"] #rec-btn,
 body[data-sound="record"] .mic {

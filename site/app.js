@@ -822,12 +822,31 @@ function waveFor(id) {
 // browser restyle everything.
 function setPulse(level) {
   const step = Math.round(level * 40) / 40
-  if (setPulse.last === step) return
-  setPulse.last = step
-  const value = String(step)
-  for (const id of ["playhead", "play-btn", "rec-btn"]) $(id)?.style.setProperty("--pulse", value)
-  const mic = document.querySelector(".mic")
-  if (mic) mic.style.setProperty("--pulse", value)
+  if (setPulse.last !== step) {
+    setPulse.last = step
+    const value = String(step)
+    $("rec-btn")?.style.setProperty("--pulse", value)
+    const mic = document.querySelector(".mic")
+    if (mic) mic.style.setProperty("--pulse", value)
+  }
+  setBeat()
+}
+
+// The play line and Play button glow on the beat: a soft flash that fades
+// before the next one, a little brighter on the first beat of each bar.
+function setBeat() {
+  let beat = 0
+  if (playing && !sky.reduced) {
+    const length = 60 / Math.max(40, state.bpm || 92)
+    const at = Math.max(0, state.playAt || 0) / length
+    const count = Math.floor(at + 1e-6)
+    const fade = 1 - (at - count)
+    beat = (count % 4 === 0 ? 1 : 0.55) * fade * fade * fade
+  }
+  const step = Math.round(beat * 20) / 20
+  if (setBeat.last === step) return
+  setBeat.last = step
+  for (const id of ["playhead", "play-btn"]) $(id)?.style.setProperty("--beat", String(step))
 }
 
 function drawSky(now) {
