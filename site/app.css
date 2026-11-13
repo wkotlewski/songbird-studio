@@ -1733,7 +1733,41 @@ html, body { touch-action: manipulation; }
 }
 .song .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; opacity: 0.75; }
 .song-tag { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: rgba(249, 168, 212, 0.18); color: #f9a8d4; font-size: 12px; font-weight: 600; opacity: 1; }
-.song-tools { display: flex; gap: 2px; flex: none; }
+.song-row { flex: 1 0 100%; width: 100%; min-width: 0; }
+.song-tools { display: flex; gap: 2px; flex: none; width: 92px; justify-content: flex-end; margin-left: auto; position: relative; }
+.song.menu-open { position: relative; z-index: 20; overflow: visible; }
+.song-menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; min-width: 190px; padding: 6px;
+  display: grid; gap: 2px; border-radius: 16px; background: #10241e; border: 1px solid rgba(255, 251, 242, 0.18);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.song-menu-item {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--text, #fffbf2); font: inherit; font-size: 15px; text-align: left; cursor: pointer;
+}
+.song-menu-item:hover, .song-menu-item:focus-visible { background: rgba(255, 251, 242, 0.08); }
+.song-menu-item .ms { font-size: 20px; }
+.song-menu-item.danger { color: #f0a58a; }
 .song-tools .icon-btn.small { width: 44px; height: 44px; min-height: 44px; border-color: transparent; background: transparent; }
-.song-tools .icon-btn.danger { color: #e8b86b; }
 .scope-note { display: flex; gap: 6px; align-items: center; color: var(--md-primary, #34d399); } .scope-note .ms { font-size: 18px; }
+
+/* What a panel changes: the whole song (green) or one layer (pink, like
+   the picked layer in the song). */
+.sheet-head { flex-wrap: wrap; }
+.scope-bar {
+  flex: 1 0 100%; display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 8px 10px; border-radius: 14px; font-size: 14px;
+}
+.scope-bar > .ms { font-size: 22px; flex: none; }
+.scope-bar > span { display: grid; min-width: 0; flex: 1; }
+.scope-bar b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-bar small { font-size: 12px; opacity: 0.8; line-height: 1.3; }
+.scope-bar.song { background: rgba(52, 211, 153, 0.12); color: #a7f3d0; border: 1px solid rgba(52, 211, 153, 0.3); }
+.scope-bar.layer { background: rgba(249, 168, 212, 0.12); color: #fbcfe8; border: 1px solid rgba(249, 168, 212, 0.4); }
+.scope-switch {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 4px 12px;
+  border-radius: 999px; border: 1px solid rgba(52, 211, 153, 0.5); background: transparent; color: #a7f3d0; font: inherit; font-size: 13px; cursor: pointer;
+}
+.scope-switch .ms { font-size: 18px; }
+.step-pick { display: block; margin-top: 4px; font-size: 12px; opacity: 0.8; }
+.mix-channel.solo-view .strip-name { font-weight: 700; }
