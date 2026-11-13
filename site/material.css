@@ -1059,3 +1059,33 @@ body.file-over::after {
 .idea-tag { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255, 251, 242, 0.12); display: inline-flex; align-items: center; gap: 2px; }
 .idea-tag.on { background: var(--md-primary); color: var(--md-on-primary, #00382a); }
 .idea-tag .ms { font-size: 14px; }
+
+/* What might be off: the note now (pink) and what it could be (green). */
+button.roll-note.maybe { outline: 2px dashed #ffd166; outline-offset: 2px; }
+button.roll-note.maybe.on { outline: 3px solid var(--md-primary); }
+.note-hints { margin: 12px 0; padding: 12px; border-radius: var(--md-shape-large); background: rgba(255, 209, 102, 0.07); border: 1px solid rgba(255, 209, 102, 0.35); }
+.hints-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.hints-top .magic-h { display: flex; align-items: center; gap: 6px; margin: 0; color: #ffe2a3; }
+.hints-top .btn { min-height: 40px; }
+.hint-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
+.hint-row { display: grid; gap: 8px; padding: 10px; border-radius: 14px; background: rgba(8, 20, 18, 0.7); border: 1px solid var(--md-outline-variant); }
+.hint-row.on { border-color: var(--md-primary); }
+.hint-head { display: grid; gap: 2px; text-align: left; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.hint-head b { font-size: 15px; }
+.hint-head span { font-size: 13px; color: var(--md-on-surface-variant); line-height: 1.35; }
+.hint-row .keys { height: 84px; flex: none; }
+.hint-row .keys .key.white { font-size: 11px; padding-bottom: 5px; }
+.hint-row .keys .key.in-key.white::after { bottom: 22px; }
+.keys .key.white.mark-is { background: #F9A8D4; color: #3b0a25; }
+.keys .key.white.mark-could { background: #6ee7b7; color: #052e21; }
+.keys .key.black.mark-is { background: #db2777; }
+.keys .key.black.mark-could { background: #059669; }
+.keys .key.black[class*="mark-"] span { position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); font-size: 10px; font-weight: 700; color: #fff; white-space: nowrap; }
+.keys .key.black[class*="mark-"] sub { display: none; }
+.hint-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--md-on-surface-variant); }
+.hint-legend .dot { width: 10px; height: 10px; border-radius: 3px; }
+.hint-legend .dot + .dot, .hint-legend .dot.could { margin-left: 8px; }
+.hint-legend .dot.is { background: #F9A8D4; }
+.hint-legend .dot.could { background: #6ee7b7; }
+.hint-row .choices .chip { min-height: 40px; }
+.hint-clear { display: flex; align-items: center; gap: 6px; color: #a7f3d0; }

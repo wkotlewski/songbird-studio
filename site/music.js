@@ -612,7 +612,7 @@ function detectNotes(samples, options = {}) {
   let current = null
   const hopSec = hop / down.sampleRate
   const close = (end) => {
-    if (current && end - current.time > 0.11) notes.push({ midi: current.midi, time: current.time, dur: end - current.time })
+    if (current && end - current.time > (options.minDur ?? 0.11)) notes.push({ midi: current.midi, time: current.time, dur: end - current.time })
     current = null
   }
   frames.forEach((midi, index) => {
@@ -2925,7 +2925,7 @@ function planPerformance(samples, sampleRate, options = {}) {
 // instrument plays them. Each note keeps the pitch that was really heard,
 // so changing the key later can fit the notes again from what was sung.
 function notesHeard(audio, pass, bpm, options = {}) {
-  let melody = joinShortGaps(detectNotesOnce(audio)).map((note) => ({ ...note, heard: Math.round(note.midi) }))
+  let melody = joinShortGaps(detectNotesOnce(audio, options.listen || {})).map((note) => ({ ...note, heard: Math.round(note.midi) }))
   if (!melody.length) return { melody, key: { root: 0, minor: false }, beat: 60 / bpm, phase: 0 }
   const key = keyOf(melody)
   if (options.inKey !== false) melody = melody.map((note) => ({ ...note, midi: inKey(Math.round(note.midi), key) }))
@@ -2948,8 +2948,14 @@ function readNotes(samples, sampleRate, options = {}) {
   const audio = toEngineRate(source, rate)
   const pass = audio.length / SR
   const total = samples.length / rate
-  const heard = notesHeard(audio, pass, options.bpm || 92, options)
-  return { ...heard, pass, total, loop }
+  let heard = notesHeard(audio, pass, options.bpm || 92, options)
+  let rough = false
+  if (!heard.melody.length) {
+    // Nothing clear: listen again, closer, and show the best guess.
+    heard = notesHeard(audio, pass, options.bpm || 92, { ...options, listen: { minEnergy: 0.00008, minDur: 0.07, minHz: 60, maxHz: 1100 } })
+    rough = heard.melody.length > 0
+  }
+  return { ...heard, pass, total, loop, rough }
 }
 
 function keyFrom(key) {
