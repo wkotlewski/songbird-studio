@@ -1668,6 +1668,25 @@ function layersInSection(section) {
   return state.layers.filter((layer) => buffers.get(layer.id + ":audio") && (typeof restingIn === "function" ? restingIn(layer, box) < 0.5 : true))
 }
 
+// What you can do with a picked layer, shown right under it.
+function layerActions(layer) {
+  const vocal = typeof vocalTakes === "function" && vocalTakes().includes(layer)
+  const chips = [
+    vocal ? outlinedButton(`${ms("record_voice_over")}Make my vocal shine`, `data-vocal-open="${layer.id}"`) : "",
+    layer.make ? outlinedButton(`${ms("tune")}Fix this layer`, `data-fix-open="${layer.id}"`) : "",
+    hasNotes(layer) ? outlinedButton(`${ms("music_note")}Check the notes`, `data-notes-open="${layer.id}"`) : "",
+    outlinedButton(`${ms("instant_mix")}Mixer`, `data-action="panel" data-panel="mix"`),
+    outlinedButton(`${ms("wand_stars")}Magic on this`, `data-action="panel" data-panel="transform"`),
+    outlinedButton(`${ms("swap_horiz")}Change the sound`, `data-browse-open="${layer.id}"`),
+    outlinedButton(`${ms("timeline")}Length and fades`, `data-action="panel" data-panel="build"`),
+    isRecording(layer) && typeof changesOn === "function" && changesOn(layer).length ? outlinedButton(`${ms("history")}Back to original`, `data-original="${layer.id}"`) : "",
+    outlinedButton(`${ms("delete")}Delete`, `data-action="delete-layer" data-id="${layer.id}"`),
+    outlinedButton(`${ms("close")}Done`, `data-action="unpick-layer"`),
+  ].filter(Boolean)
+  const width = Math.max(240, ($("timeline")?.clientWidth || 360) - 24)
+  return `<div class="layer-actions" role="group" aria-label="What you can do with ${esc(layer.name)}" style="width:${width}px">${chips.join("")}</div>`
+}
+
 function partPicked(layer) {
   return !!(state.section && state.partPick && state.partPick.has(layer.id))
 }
@@ -2000,19 +2019,6 @@ function renderRuler() {
         <input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Rename this part" autocomplete="off" autocorrect="off" spellcheck="false" />
         ${outlinedButton(`${ms("delete")}Delete part`, `data-action="remove-section" data-id="${esc(current.id)}"`)}
         ${outlinedButton(`${ms("close")}Done`, `data-action="whole-song"`)}`
-  } else if (pickedLayer) {
-    const vocal = typeof vocalTakes === "function" && vocalTakes().includes(pickedLayer)
-    context = `<span class="bar-title">${ms("check_circle")}${esc(pickedLayer.name)}</span>
-        ${vocal ? outlinedButton(`${ms("record_voice_over")}Make my vocal shine`, `data-vocal-open="${pickedLayer.id}"`) : ""}
-        ${pickedLayer.make ? outlinedButton(`${ms("tune")}Fix this layer`, `data-fix-open="${pickedLayer.id}"`) : ""}
-        ${hasNotes(pickedLayer) ? outlinedButton(`${ms("music_note")}Check the notes`, `data-notes-open="${pickedLayer.id}"`) : ""}
-        ${outlinedButton(`${ms("instant_mix")}Mixer`, `data-action="panel" data-panel="mix"`)}
-        ${outlinedButton(`${ms("wand_stars")}Magic on this`, `data-action="panel" data-panel="transform"`)}
-        ${outlinedButton(`${ms("swap_horiz")}Change the sound`, `data-browse-open="${pickedLayer.id}"`)}
-        ${outlinedButton(`${ms("timeline")}Length and fades`, `data-action="panel" data-panel="build"`)}
-        ${isRecording(pickedLayer) && typeof changesOn === "function" && changesOn(pickedLayer).length ? outlinedButton(`${ms("history")}Back to original`, `data-original="${pickedLayer.id}"`) : ""}
-        ${outlinedButton(`${ms("delete")}Delete`, `data-action="delete-layer" data-id="${pickedLayer.id}"`)}
-        ${outlinedButton(`${ms("close")}Done`, `data-action="unpick-layer"`)}`
   } else {
     context = `<p class="hint section-guide">Tap a part (like Chorus) or a layer to see what you can do.</p>
         ${outlinedButton(`${ms("add")}Add a part`, `data-action="add-section"`)}`
@@ -2203,7 +2209,7 @@ function renderTracks() {
           </div>
         </div>
         <div class="lane">${gaps}${wave(shapedPeaks(layer), waveColor, layer.id, boxStyle)}</div>
-      </div>`
+      </div>${layer.id === state.selected && !state.section ? layerActions(layer) : ""}`
     })
     .join("") + guideRow
   placePlayhead(state.playAt || 0)
@@ -6007,6 +6013,8 @@ document.body.addEventListener("click", (event) => {
     renderTracks()
     renderRuler()
     if (sheetOpen || wide) renderInspector()
+    // Bring the picked layer's actions into view.
+    requestAnimationFrame(() => document.querySelector(".layer-actions")?.scrollIntoView({ block: "nearest", inline: "nearest" }))
   }
   if (action === "pick-transform-layer") {
     state.selected = node.dataset.id

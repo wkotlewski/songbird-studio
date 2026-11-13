@@ -1704,3 +1704,14 @@ html, body { touch-action: manipulation; }
 
 /* The timeline scrolls to the end of the song and no further. */
 .timeline-inner { overflow-x: clip; }
+
+/* A picked layer's actions sit right under it, and stay in view while the
+   song scrolls sideways. */
+.layer-actions {
+  position: sticky; left: 0; z-index: 4;
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  margin: -2px 0 10px; padding: 8px; border-radius: 16px;
+  background: rgba(10, 18, 22, 0.92); border: 1px solid rgba(52, 211, 153, 0.45);
+}
+.layer-actions::-webkit-scrollbar { display: none; }
+.layer-actions .btn { flex: none; white-space: nowrap; min-height: 40px; }
