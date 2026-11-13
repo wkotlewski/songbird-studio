@@ -1096,9 +1096,92 @@ function snapshot(layerIds) {
     const buf = buffers.get(id + ":audio")
     if (buf) audio[id] = buf
   }
-  undoStack.push({ raw: capture(), audio })
-  if (undoStack.length > 30) undoStack.shift()
+  undoStack.push({ raw: capture(), audio, time: Date.now(), label: null })
+  if (undoStack.length > 80) undoStack.shift()
   redoStack = []
+}
+
+// Every change made while the app is open, newest first, named by what the
+// app said it did, so you can step back to any point.
+function labelLatest(text) {
+  const top = undoStack[undoStack.length - 1]
+  if (!top || top.label || !text || Date.now() - (top.time || 0) > 20000) return
+  if (/^(Undid|Redid|Went back|Went forward|Working|Listening|Packing|Opening|Saved|Saving)/.test(text) || /…$/.test(text)) return
+  top.label = text
+    .replace(/\s*(One )?Undo (puts|takes|brings)[^.]*\.?/gi, "")
+    .replace(/\s*(Listen, and )?tap another[^.]*\.?/gi, "")
+    .replace(/\s*Try again, or Undo[^.]*\.?/gi, "")
+    .trim()
+    .replace(/\.$/, "")
+    .slice(0, 120)
+}
+
+function labelTop(text) {
+  const top = undoStack[undoStack.length - 1]
+  if (top) top.label = text
+}
+
+function stepBack() {
+  const back = undoStack.pop()
+  if (!back) return null
+  const ids = back && typeof back === "object" && back.audio ? Object.keys(back.audio) : []
+  const audio = {}
+  for (const id of ids) {
+    const buf = buffers.get(id + ":audio")
+    if (buf) audio[id] = buf
+  }
+  redoStack.push({ raw: capture(), audio, time: back.time, label: back.label })
+  restore(back)
+  return back
+}
+
+function stepForward() {
+  const forward = redoStack.pop()
+  if (!forward) return null
+  const ids = forward && typeof forward === "object" && forward.audio ? Object.keys(forward.audio) : []
+  const audio = {}
+  for (const id of ids) {
+    const buf = buffers.get(id + ":audio")
+    if (buf) audio[id] = buf
+  }
+  undoStack.push({ raw: capture(), audio, time: forward.time, label: forward.label })
+  restore(forward)
+  return forward
+}
+
+// Jump to a point in History: undo or redo as many steps as it takes.
+function goToVersion(where, count) {
+  let last = null
+  for (let i = 0; i < count; i++) last = where === "back" ? stepBack() : stepForward()
+  rememberSong()
+  renderInspector()
+  const n = count === 1 ? "1 change" : `${count} changes`
+  $("save-status").textContent = where === "back"
+    ? `Went back ${n}, to before “${last?.label || "that change"}”. Redo comes forward again.`
+    : `Went forward ${n}, through “${last?.label || "that change"}”.`
+}
+
+function timeLabel(time) {
+  if (!time) return ""
+  return new Date(time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+}
+
+function historyPanel(head) {
+  const done = undoStack.map((entry, index) => ({ entry, index })).reverse()
+  // Newest first: the oldest undone change is the one right above Now.
+  const undone = redoStack.map((entry, index) => ({ entry, index }))
+  const row = (entry, button) => `<li class="version">
+      <span class="version-time">${esc(timeLabel(entry.time))}</span>
+      <span class="version-what">${esc(entry.label || "A change")}</span>
+      ${button}
+    </li>`
+  return `${head("History")}
+    <p class="hint">Every change you've made to this song since you opened it, newest first. Go back to any point; nothing is lost, and Redo comes forward again.</p>
+    ${undone.length ? `<p class="ask">Undone (you can bring these back)</p>
+    <ol class="versions undone">${undone.map(({ entry, index }) => row(entry, `<button class="version-go" data-version="forward" data-count="${redoStack.length - index}">Bring back up to here</button>`)).join("")}</ol>` : ""}
+    <p class="ask">${ms("radio_button_checked")} Now</p>
+    ${done.length ? `<ol class="versions">${done.map(({ entry }, i) => row(entry, `<button class="version-go" data-version="back" data-count="${i + 1}">Go back to before this</button>`)).join("")}</ol>` : `<p class="empty">No changes yet. As you work, each change shows up here.</p>`}
+    <p class="hint">History lasts while the app is open. Your saved song keeps its latest version.</p>`
 }
 
 function restore(entry) {
@@ -1788,8 +1871,11 @@ function paintSelection() {
   }
   const box = laneBox()
   band.hidden = false
-  band.style.left = `${box.left + section.start * box.width}px`
-  band.style.width = `${Math.max(8, (section.end - section.start) * box.width)}px`
+  // Never past the end of the song, so the timeline doesn't scroll into nothing.
+  const start = Math.max(0, Math.min(1, section.start))
+  const end = Math.max(start, Math.min(1, section.end))
+  band.style.left = `${box.left + start * box.width}px`
+  band.style.width = `${Math.max(8, (end - start) * box.width)}px`
 }
 
 function fillLayerWithSection() {
@@ -1939,7 +2025,7 @@ function renderRuler() {
   for (let t = 0; t <= total + 0.01; t += beat * 4) ticks.push(`<i style="left:${(t / total) * 100}%"></i>`)
   const zoomLevels = [1, 1.5, 2]
   const zoomAt = Math.max(0, zoomLevels.indexOf(state.zoom || 1))
-  const zoom = `<button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.max(0, zoomAt - 1)]}" aria-label="Zoom out" title="Zoom out" ${zoomAt === 0 ? "disabled" : ""}>${ms("zoom_out")}</button><button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.min(2, zoomAt + 1)]}" aria-label="Zoom in" title="Zoom in" ${zoomAt === 2 ? "disabled" : ""}>${ms("zoom_in")}</button>`
+  const zoom = `<button class="icon-btn zoom-btn" data-action="history" aria-label="History: every change this session" title="History">${ms("history")}</button><button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.max(0, zoomAt - 1)]}" aria-label="Zoom out" title="Zoom out" ${zoomAt === 0 ? "disabled" : ""}>${ms("zoom_out")}</button><button class="icon-btn zoom-btn" data-action="zoom" data-zoom="${zoomLevels[Math.min(2, zoomAt + 1)]}" aria-label="Zoom in" title="Zoom in" ${zoomAt === 2 ? "disabled" : ""}>${ms("zoom_in")}</button>`
   $("ruler").innerHTML = `<div class="ruler-layout"><div class="ruler-gutter">Parts</div><div class="ruler-main">${bands}<div class="ruler-tools"><div class="beats" aria-hidden="true">${ticks.join("")}</div></div><div class="ruler-marks">${marks.join("")}</div></div></div>`
   const bar = $("section-bar")
   if (bar) bar.innerHTML = `${tools.replace('<div class="section-tools">', '<div class="section-tools">').replace(/<\/div>$/, "")}<div class="zoom" role="group" aria-label="Timeline zoom">${zoom}</div></div>`
@@ -2406,6 +2492,7 @@ async function studioFinish() {
     markStudio(step.id)
   }
   undoStack.splice(mark + 1)
+  labelTop("Make it studio quality")
   rememberSong()
   renderTracks()
   renderInspector()
@@ -2687,6 +2774,8 @@ function renderInspector() {
     body = soundsPanel(head)
   } else if (state.panel === "notes") {
     body = noteCheckPanel(head)
+  } else if (state.panel === "history") {
+    body = historyPanel(head)
   } else if (state.panel === "fix") {
     body = fixPanel(head)
   } else if (state.panel === "vocal") {
@@ -5821,29 +5910,16 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "close-panel") closePanel()
   if (action === "undo" && undoStack.length) {
-    const back = undoStack.pop()
-    const ids = back && typeof back === "object" && back.audio ? Object.keys(back.audio) : []
-    const audio = {}
-    for (const id of ids) {
-      const buf = buffers.get(id + ":audio")
-      if (buf) audio[id] = buf
-    }
-    redoStack.push({ raw: capture(), audio })
-    restore(back)
+    const back = stepBack()
     rememberSong()
+    $("save-status").textContent = `Undid ${back?.label ? `“${back.label}”` : "the last change"}. Hold Undo to see all your changes.`
   }
   if (action === "redo" && redoStack.length) {
-    const forward = redoStack.pop()
-    const ids = forward && typeof forward === "object" && forward.audio ? Object.keys(forward.audio) : []
-    const audio = {}
-    for (const id of ids) {
-      const buf = buffers.get(id + ":audio")
-      if (buf) audio[id] = buf
-    }
-    undoStack.push({ raw: capture(), audio })
-    restore(forward)
+    const forward = stepForward()
     rememberSong()
+    $("save-status").textContent = `Redid ${forward?.label ? `“${forward.label}”` : "that change"}.`
   }
+  if (action === "history") setPanel("history")
   if (action === "toggle-click") {
     state.click = !state.click
     if (!state.click) stopClick()
@@ -6436,3 +6512,42 @@ document.body.addEventListener("input", (event) => {
 document.body.addEventListener("change", (event) => {
   if (event.target.closest?.("[data-master]")) rememberSong()
 })
+
+// Name each change by what the app said it did.
+;(() => {
+  const status = $("save-status")
+  if (!status || typeof MutationObserver === "undefined") return
+  new MutationObserver(() => labelLatest(status.textContent.trim())).observe(status, { childList: true, characterData: true, subtree: true })
+})()
+
+document.body.addEventListener("click", (event) => {
+  const node = event.target.closest?.("[data-version]")
+  if (!node) return
+  goToVersion(node.dataset.version, Number(node.dataset.count) || 1)
+})
+
+// Hold Undo (or Redo) to see every change.
+;(() => {
+  let timer = 0
+  let held = false
+  const start = (event) => {
+    const button = event.target.closest?.('[data-action="undo"], [data-action="redo"]')
+    if (!button) return
+    held = false
+    timer = setTimeout(() => {
+      held = true
+      setPanel("history")
+    }, 550)
+  }
+  const stop = () => clearTimeout(timer)
+  document.addEventListener("pointerdown", start)
+  document.addEventListener("pointerup", stop)
+  document.addEventListener("pointercancel", stop)
+  document.addEventListener("click", (event) => {
+    if (held && event.target.closest?.('[data-action="undo"], [data-action="redo"]')) {
+      event.stopPropagation()
+      event.preventDefault()
+      held = false
+    }
+  }, true)
+})()

@@ -664,6 +664,7 @@ async function buildSong() {
     state.fadeOut = arrange.plan === "jam" || arrange.vibes.includes("party") ? 4 : 8
     // One Undo for the whole build. Your selection stays where it was.
     undoStack.splice(mark + 1)
+    labelTop("Make it a full song")
     if (state.layers.some((layer) => layer.id === wasSelected)) state.selected = wasSelected
     rememberSong()
     renderRuler()
@@ -679,6 +680,7 @@ async function buildSong() {
     console.error("Couldn't build the song:", error)
     arrange.working = ""
     undoStack.splice(mark + 1)
+    labelTop("Make it a full song")
     $("save-status").textContent = "That didn't work. Tap Undo to go back to how it was."
     renderInspector()
   }
