@@ -1736,3 +1736,4 @@ html, body { touch-action: manipulation; }
 .song-tools { display: flex; gap: 2px; flex: none; }
 .song-tools .icon-btn.small { width: 44px; height: 44px; min-height: 44px; border-color: transparent; background: transparent; }
 .song-tools .icon-btn.danger { color: #e8b86b; }
+.scope-note { display: flex; gap: 6px; align-items: center; color: var(--md-primary, #34d399); } .scope-note .ms { font-size: 18px; }

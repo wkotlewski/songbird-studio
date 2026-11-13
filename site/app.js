@@ -6003,6 +6003,7 @@ document.body.addEventListener("click", (event) => {
   }
   if (action === "unpick-layer") {
     state.selected = null
+    state.magicScope = "song"
     renderTracks()
     renderRuler()
   }
