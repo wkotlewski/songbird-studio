@@ -2883,6 +2883,7 @@ function renderInspector() {
       ${state.looper ? loopClockMarkup() : ""}
       <p class="hint ${state.counting ? "count-beat" : ""}" id="rec-time">${state.counting ? (state.countBeat ? String(state.countBeat) : `Tempo ${state.bpm}`) : listening ? "Listening for the tempo." : state.recording ? "Recording. The song is in the speakers, not in the take." : state.looper ? (state.loopSec && songHasSound() ? "Tap to add another sound" : "Tap the button, then hum, sing, or clap") : "00:00"}</p>
       ${!state.recording && !state.counting && songHasSound() ? `<button class="listen-btn ${playing ? "on" : ""}" data-action="play" id="listen-btn" aria-label="${playing ? "Stop" : "Play what you have"}">${ms(playing ? "stop" : "play_arrow")}${playing ? "Stop" : "Listen to what you have"}</button>` : ""}
+      ${beatBox()}
       ${looperBox()}
       ${micLevelBox()}
       ${headphonesBox()}
@@ -3737,6 +3738,19 @@ function runLoopClock() {
     loopClock.raf = requestAnimationFrame(frame)
   }
   loopClock.raf = requestAnimationFrame(frame)
+}
+
+// The beat you hear while you record, to keep time. It's never in the take.
+function beatBox() {
+  return `<div class="looper ${state.click ? "on" : ""}">
+    <div class="looper-head">
+      <div>
+        <p class="ask">Beat while I record</p>
+        <p class="hint">${state.click ? "A soft tick on every beat helps you keep time. It isn't recorded." : "Off. No tick while you record."}</p>
+      </div>
+      <button class="switch ${state.click ? "on" : ""}" data-action="toggle-click" role="switch" aria-checked="${state.click ? "true" : "false"}" aria-label="Beat while I record"><span></span></button>
+    </div>
+  </div>`
 }
 
 function looperBox() {
@@ -6105,12 +6119,7 @@ document.body.addEventListener("click", (event) => {
     state.click = !state.click
     if (!state.click) stopClick()
     else if (state.recording) startClick()
-    const clickButton = $("click-btn")
-    if (clickButton) {
-      clickButton.classList.toggle("on", state.click)
-      clickButton.setAttribute("aria-pressed", state.click ? "true" : "false")
-      clickButton.textContent = state.click ? "Beat" : "Beat off"
-    }
+    if (state.panel === "record") renderInspector()
   }
   if (action === "pick-section") {
     const section = songSections().find((item) => item.id === node.dataset.id)
