@@ -1693,21 +1693,28 @@ html, body { touch-action: manipulation; }
 
 /* History */
 .versions { list-style: none; margin: 6px 0 12px; padding: 0; display: grid; gap: 6px; }
-.version {
-  display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center;
-  padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255, 251, 242, 0.14); background: rgba(255, 251, 242, 0.04);
+.version { border-radius: 14px; border: 1px solid rgba(255, 251, 242, 0.14); background: rgba(255, 251, 242, 0.04); overflow: hidden; }
+.version.open { border-color: var(--md-primary, #34d399); }
+.version-head {
+  width: 100%; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; min-height: 52px;
+  padding: 10px 12px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
+.version-head > .ms { opacity: 0.7; }
 .version-time { font-size: 13px; opacity: 0.7; font-variant-numeric: tabular-nums; }
 .version-what { line-height: 1.3; }
-.version-go {
-  grid-column: 2; justify-self: start; min-height: 36px; padding: 0 14px; border-radius: 999px;
-  border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer;
+.version-do { display: grid; gap: 6px; padding: 0 12px 12px; }
+.version-btn, .version-go {
+  display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 14px; border-radius: 12px; text-align: left;
+  border: 1px solid var(--line); background: rgba(255, 251, 242, 0.03); color: inherit; font: inherit; font-size: 14px; cursor: pointer;
 }
+.version-btn .ms { font-size: 20px; flex: none; }
+.version-preview { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: center; margin: 8px 0; padding: 12px; border-radius: 14px; background: #10352c; border: 1px solid var(--md-primary, #34d399); }
+.version-preview .row { grid-column: 1 / -1; }
 .versions.undone .version { opacity: 0.7; border-style: dashed; }
 .version-what .version-tag { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; vertical-align: 1px; white-space: nowrap; }
 .version-tag .ms { font-size: 14px; }
-.version-tag.song { background: rgba(52, 211, 153, 0.15); color: #a7f3d0; }
-.version-tag.layer { background: rgba(249, 168, 212, 0.18); color: #fbcfe8; }
+.version-tag.vt-song { background: rgba(52, 211, 153, 0.15); color: #a7f3d0; }
+.version-tag.vt-layer { background: rgba(249, 168, 212, 0.18); color: #fbcfe8; }
 .version-go .ms { font-size: 18px; vertical-align: -4px; margin-right: 4px; }
 
 /* The timeline scrolls to the end of the song and no further. */

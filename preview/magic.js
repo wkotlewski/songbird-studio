@@ -1109,7 +1109,7 @@ function say(text, warn) {
 
 function chatMarkup() {
   if (!state.magicChat.length) return ""
-  return `<ol class="magic-chat" aria-live="polite">${state.magicChat.slice(-3).map((item) => `<li><p class="you">${esc(item.you)}</p><p class="did ${item.warn ? "warn-text" : ""}">${esc(item.did || "…")}</p></li>`).join("")}</ol>`
+  return `<ol class="magic-chat" aria-live="polite">${state.magicChat.slice(-1).map((item) => `<li><p class="you">${esc(item.you)}</p><p class="did ${item.warn ? "warn-text" : ""}">${esc(item.did || "…")}</p></li>`).join("")}</ol>`
 }
 
 function magicPanel(head) {
@@ -1184,7 +1184,7 @@ function magicPanel(head) {
       ${cards.map(([id, icon, name, line, attrs]) => `<button class="quick-card ${open === id ? "on" : ""}" ${attrs} ${busy}>${ms(icon)}<b>${name}</b><small>${esc(line)}</small></button>`).join("")}
     </div>
     ${openPart}
-    ${scopeLayer ? "" : magicLog()}`
+`
 }
 
 document.body.addEventListener("click", (event) => {
