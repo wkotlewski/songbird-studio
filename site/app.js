@@ -2812,21 +2812,39 @@ function panelScope() {
   if (panel === "record") return { kind: "song", line: "Adds a new layer to the song" }
   if (panel === "arrange" || panel === "finish") return { kind: "song", line: "Every layer" }
   const layer = pickedLayer()
-  return layer ? { kind: "layer", layer, canSwitch: true } : { kind: "song", line: state.layers.length ? "Every layer. Tap a layer in the song to change just that one." : "Every layer", canSwitch: false }
+  return layer ? { kind: "layer", layer, canSwitch: true } : { kind: "song", line: "Every layer", canSwitch: true }
 }
 
 function scopeBar() {
   const scope = panelScope()
   if (!scope) return ""
+  if (scope.canSwitch !== undefined && state.layers.length) {
+    // Panels that can do both: Songbird picks from where you started, and
+    // you can always switch.
+    const layer = scope.kind === "layer" ? scope.layer : null
+    const choosing = !layer && state.scopeChoosing
+    const icon = (item) => ms(isRecording(item) ? "mic" : "wand_stars")
+    return `<div class="scope-bar ${layer ? "layer" : "song"}">
+      <div class="scope-seg" role="group" aria-label="What this changes">
+        <button class="scope-opt ${layer ? "" : "on"}" data-action="edit-whole-song" aria-pressed="${!layer}">${ms("album")}Whole song</button>
+        <button class="scope-opt ${layer || choosing ? "on" : ""}" data-action="edit-one-layer" aria-pressed="${!!layer}">${layer ? icon(layer) : ms("layers")}${layer ? `Only ${esc(layer.name)}` : "One layer"}</button>
+      </div>
+      <small>${layer ? `The rest of the song stays as it is.${state.layers.length > 1 ? " Pick another layer below to switch." : ""}` : choosing ? "Which layer?" : "Every layer changes together."}</small>
+      ${choosing ? `<div class="scope-pick">${state.layers.map((item) => `<button class="chip" data-action="scope-layer" data-id="${item.id}">${icon(item)}${esc(item.name)}</button>`).join("")}</div>` : ""}
+      ${layer && state.layers.length > 1 ? `<div class="scope-pick">${state.layers.map((item) => `<button class="chip ${item.id === layer.id ? "on" : ""}" data-action="scope-layer" data-id="${item.id}" aria-pressed="${item.id === layer.id}">${icon(item)}${esc(item.name)}</button>`).join("")}</div>` : ""}
+    </div>`
+  }
   if (scope.kind === "song" || !scope.layer) {
-    return `<div class="scope-bar song" role="note">${ms("album")}<span><b>Whole song</b><small>${esc(scope.line || "Every layer")}</small></span></div>`
+    return `<div class="scope-bar song" role="note"><div class="scope-line">${ms("album")}<span><b>Whole song</b><small>${esc(scope.line || "Every layer")}</small></span></div></div>`
   }
   const layer = scope.layer
-  return `<div class="scope-bar layer" role="note">${ms(isRecording(layer) ? "mic" : "wand_stars")}<span><b>Only ${esc(layer.name)}</b><small>The rest of the song stays as it is</small></span>${scope.canSwitch ? `<button class="scope-switch" data-action="edit-whole-song">${ms("album")}Whole song</button>` : ""}</div>`
+  return `<div class="scope-bar layer" role="note"><div class="scope-line">${ms(isRecording(layer) ? "mic" : "wand_stars")}<span><b>Only ${esc(layer.name)}</b><small>The rest of the song stays as it is</small></span></div></div>`
 }
 
 function unpickLayer() {
+  state.scopeChoosing = false
   if (!state.selected) return
+  state.lastPicked = state.selected
   state.selected = null
   state.magicScope = "song"
   state.lengthScope = "song"
@@ -6039,7 +6057,30 @@ document.body.addEventListener("click", (event) => {
     setPanel(node.dataset.panel)
   }
   if (action === "edit-whole-song") {
+    state.scopeChoosing = false
     unpickLayer()
+    renderInspector()
+  }
+  if (action === "edit-one-layer") {
+    // One layer: the one picked before, or the only one; otherwise ask which.
+    const last = state.layers.find((item) => item.id === state.lastPicked)
+    const only = state.layers.length === 1 ? state.layers[0] : null
+    const pick = pickedLayer() || last || only
+    if (pick) {
+      state.selected = pick.id
+      state.scopeChoosing = false
+      renderTracks()
+      renderRuler()
+    } else state.scopeChoosing = !state.scopeChoosing
+    renderInspector()
+  }
+  if (action === "scope-layer") {
+    state.selected = node.dataset.id
+    state.lastPicked = node.dataset.id
+    state.scopeChoosing = false
+    syncPlaying(state.layers.find((item) => item.id === state.selected))
+    renderTracks()
+    renderRuler()
     renderInspector()
   }
   if (action === "zoom") {
