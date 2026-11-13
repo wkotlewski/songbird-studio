@@ -1829,7 +1829,7 @@ function renderRuler() {
   // scroll sideways with it, so no button ever slides off the screen.
   const tools = `<div class="section-tools">
         ${current ? "" : `<p class="hint section-guide">Tap a part above the song to change just that part.</p>`}
-        ${current ? `<input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Section name" />` : ""}
+        ${current ? `<input class="section-name" data-section="${esc(current.id)}" value="${esc(current.name)}" maxlength="32" aria-label="Section name" autocomplete="off" autocorrect="off" spellcheck="false" />` : ""}
         ${outlinedButton(`${ms("add")}Add a part`, `data-action="add-section"`)}
         ${current ? outlinedButton(`${ms("delete")}Delete part`, `data-action="remove-section" data-id="${esc(current.id)}"`) : ""}
         ${current ? `${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
@@ -2008,7 +2008,7 @@ function renderTracks() {
       return `<div class="track ${layer.id === state.selected ? "selected" : ""} ${layer.id === state.arrived ? "arrived" : ""} ${layer.mute ? "muted" : ""} ${layer.solo ? "solo" : ""} ${hear.className} ${edited ? "edited" : "original"}" data-id="${layer.id}" data-hearing="${hear.className === "quiet" ? "quiet" : "playing"}">
         <div class="track-label">
           <div class="label-top">
-            <input class="layer-name" data-rename="${layer.id}" value="${esc(layer.name)}" maxlength="40" aria-label="Name this layer" />
+            <button type="button" class="layer-name" data-action="select-layer" data-id="${layer.id}" title="${esc(layer.name)}">${esc(layer.name)}</button>
             <button type="button" class="layer-mute ${layer.mute ? "on" : ""}" data-action="toggle-mute" data-id="${layer.id}" data-keep-selection aria-pressed="${layer.mute ? "true" : "false"}" aria-label="${layer.mute ? "Unmute" : "Mute"} ${esc(layer.name)}" title="${layer.mute ? "Unmute" : "Mute"}">${ms(layer.mute ? "volume_off" : "volume_up")}</button>
             <button type="button" class="layer-delete" data-action="delete-layer" data-id="${layer.id}" aria-label="Delete ${esc(layer.name)}">${ms("close_small")}</button>
           </div>
@@ -2193,7 +2193,7 @@ function renderMix(head, layer) {
     </div>
     <div class="mix-channels">${channels}</div>
     <label class="field">Name this sound
-      <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" />
+      <input class="layer-name" data-rename="${current.id}" value="${esc(current.name)}" maxlength="40" aria-label="Name this layer" autocomplete="off" autocorrect="off" spellcheck="false" />
     </label>
     ${dangerButton(`${ms("delete")}Delete this sound`, `data-action="delete-layer" data-id="${current.id}"`)}
     ${outlinedButton(state.fine ? "Hide tone" : "Tone: deeper, brighter, roomier", `data-action="toggle-fine"`)}
