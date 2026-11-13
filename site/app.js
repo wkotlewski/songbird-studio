@@ -2245,13 +2245,12 @@ function renderMix(head, layer) {
   const vocal = typeof leadVocal === "function" ? leadVocal() : null
   const master = state.master || {}
   const hissy = state.layers.some((item) => isRecording(item))
-  const quick = [
-    ["mix-balance", "balance", "Balance everything", vocal ? "Your voice in front, the band right under it" : "Every sound at the right level"],
-    hissy ? ["mix-hiss", "graphic_eq", "Remove hiss", "Takes the steady hiss out of your recordings"] : null,
-    ["fix-timing", "timer", "Tighten timing", "Moves slightly early or late notes onto the beat"],
-    vocal ? ["mix-room", "spatial_audio", "Make room for my voice", "The band steps back while you sing"] : null,
-    ["master-polish", "compress", master.polish ? "Polish is on" : "Polish", master.polish ? "Tap to turn off" : "Holds it together and makes it louder, without clipping"],
-  ].filter(Boolean)
+  const steps = studioSteps()
+  const skip = state.studioSkip || new Set()
+  const doing = steps.filter((step) => !skip.has(step.id))
+  const done = new Set(state.studioDone || [])
+  if (master.polish) done.add("polish")
+  if (vocal?.lead) done.add("room")
   const channels = state.layers.map((item) => {
     const hear = hearingMark(item)
     const toneOpen = state.toneFor === item.id
@@ -2281,13 +2280,28 @@ function renderMix(head, layer) {
   const canRevertTiming = state.layers.some((item) => buffers.get(item.id + ":timing"))
   const tone = master.tone || "natural"
   return `${head("Mixer")}
-    <p class="hint mixer-intro">Make the whole song sound finished: one tap first, then fine-tune any sound.</p>
+    <p class="hint mixer-intro">Make the whole song sound finished. Start at the top, then fine-tune any sound.</p>
 
-    <section class="mixer-block">
-      ${filledButton(`${ms("auto_awesome")}${state.transforming ? "Working…" : "Make it studio quality"}`, `data-action="studio-finish" ${busy}`)}
-      <p class="hint">Takes out hiss, balances every sound${vocal ? ", puts your voice on top" : ""}, and polishes the whole song. One Undo takes it back.</p>
+    <section class="mixer-block studio-block">
+      <h3 class="magic-h">Make it studio quality</h3>
+      <p class="hint">Songbird does these ${steps.length} steps, in this order. Turn off any you don't want, or do just one.</p>
+      <ol class="studio-steps">
+        ${steps.map((step, index) => {
+          const on = !skip.has(step.id)
+          return `<li class="studio-step ${on ? "" : "skipped"} ${done.has(step.id) ? "done" : ""}">
+            <span class="step-num">${done.has(step.id) ? ms("check") : index + 1}</span>
+            <span class="step-copy"><b>${ms(step.icon)}${step.name}</b><small>${step.line}</small></span>
+            <span class="step-actions">
+              <button class="switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" data-action="studio-skip" data-step="${step.id}" aria-label="${on ? "Included" : "Skipped"}: ${step.name}" ${busy}><span></span></button>
+              <button class="step-just" data-action="${step.action}" ${busy}>Just this</button>
+            </span>
+          </li>`
+        }).join("")}
+      </ol>
+      ${filledButton(`${ms("auto_awesome")}${state.transforming ? "Working…" : doing.length === steps.length ? `Do all ${steps.length} steps` : doing.length ? `Do these ${doing.length} steps` : "Turn on a step first"}`, `data-action="studio-finish" ${busy || (doing.length ? "" : "disabled")}`)}
+      <p class="hint">One Undo takes it all back.</p>
       <div class="quick-grid">
-        ${quick.map(([action, icon, name, line]) => `<button class="quick-card ${action === "master-polish" && master.polish ? "on" : ""}" data-action="${action}" ${busy}>${ms(icon)}<b>${name}</b><small>${line}</small></button>`).join("")}
+        <button class="quick-card" data-action="fix-timing" ${busy}>${ms("timer")}<b>Also: tighten timing</b><small>Not part of studio quality, since it changes your takes. Moves slightly early or late notes onto the beat.</small></button>
       </div>
     </section>
 
@@ -2298,6 +2312,7 @@ function renderMix(head, layer) {
         ${Object.entries(MASTER_TONES).map(([id, item]) => filterChip(item.name, `data-action="master-tone" data-tone="${id}" title="${esc(item.line)}"`, tone === id)).join("")}
       </div>
       <p class="hint">${esc(MASTER_TONES[tone].line)}.</p>
+      ${filterChip(`${ms("compress")}Polish ${master.polish ? "on" : "off"}`, `data-action="master-polish"`, !!master.polish)}
       <label class="field">Low end
         <input class="slider" type="range" min="-6" max="6" step="0.5" value="${master.low || 0}" data-master="low" aria-label="Whole song low end" />
       </label>
@@ -2330,29 +2345,55 @@ function renderMix(head, layer) {
     ${magicLog()}`
 }
 
-// One tap: hiss out, every sound balanced, room for the voice, polish on.
+// What Make it studio quality does, step by step. The Mixer shows exactly
+// these, so nothing it does is hidden.
+function studioSteps() {
+  const vocal = typeof leadVocal === "function" ? leadVocal() : null
+  return [
+    state.layers.some((layer) => isRecording(layer)) ? { id: "hiss", icon: "graphic_eq", name: "Remove hiss", line: "Takes the steady hiss out of your recordings.", action: "mix-hiss" } : null,
+    { id: "balance", icon: "balance", name: "Balance everything", line: vocal ? "Your voice in front, the band right under it, each sound in its own spot." : "Every sound at the right level, in its own spot.", action: "mix-balance" },
+    vocal ? { id: "room", icon: "spatial_audio", name: "Make room for my voice", line: "The band steps back a little while you sing.", action: "mix-room" } : null,
+    { id: "polish", icon: "compress", name: "Polish", line: "Holds the song together and makes it louder, without clipping.", action: "master-polish-on" },
+  ].filter(Boolean)
+}
+
+function markStudio(id) {
+  state.studioDone = state.studioDone || new Set()
+  state.studioDone.add(id)
+}
+
 async function studioFinish() {
   if (state.transforming) return
+  const skip = state.studioSkip || new Set()
+  const steps = studioSteps().filter((step) => !skip.has(step.id))
+  if (!steps.length) return
   const mark = undoStack.length
   snapshot()
   const vocal = typeof leadVocal === "function" ? leadVocal() : null
   const said = []
-  if (state.layers.some((layer) => isRecording(layer)) && typeof cleanNoise === "function") {
-    const scope = state.magicScope
-    state.magicScope = "song"
-    const reply = await cleanNoise().catch(() => null)
-    state.magicScope = scope
-    if (reply?.text && !/no hiss|nothing/i.test(reply.text)) said.push("hiss out")
+  for (const step of steps) {
+    if (step.id === "hiss" && typeof cleanNoise === "function") {
+      const scope = state.magicScope
+      state.magicScope = "song"
+      await cleanNoise().catch(() => null)
+      state.magicScope = scope
+      said.push("hiss out")
+    }
+    if (step.id === "balance") {
+      applyMix(vocal ? "clear" : "big")
+      said.push("every sound balanced")
+    }
+    if (step.id === "room" && vocal && typeof makeRoom === "function") {
+      await makeRoom(vocal).catch(() => null)
+      said.push("your voice on top")
+    }
+    if (step.id === "polish") {
+      state.master = { ...(state.master || {}), polish: true, tone: state.master?.tone || "natural" }
+      refreshMaster()
+      said.push("polished")
+    }
+    markStudio(step.id)
   }
-  applyMix(vocal ? "clear" : "big")
-  said.push("every sound balanced")
-  if (vocal && typeof makeRoom === "function") {
-    await makeRoom(vocal).catch(() => null)
-    said.push("your voice on top")
-  }
-  state.master = { ...(state.master || {}), polish: true, tone: state.master?.tone || "natural" }
-  refreshMaster()
-  said.push("polished")
   undoStack.splice(mark + 1)
   rememberSong()
   renderTracks()
@@ -2935,6 +2976,7 @@ function openSong(id) {
     state.era = song.era || "today"
     state.songKey = song.songKey ?? null
     state.master = song.master || null
+    state.studioDone = new Set()
     refreshMaster()
     state.magicChat = []
     $("bpm").value = state.bpm
@@ -6063,19 +6105,39 @@ document.body.addEventListener("click", (event) => {
   if (action === "apply-genre") applyGenrePackage()
   if (action === "apply-mix") applyMix(node.dataset.preset)
   if (action === "studio-finish") void studioFinish()
-  if (action === "mix-balance") applyMix(typeof leadVocal === "function" && leadVocal() ? "clear" : "big")
+  if (action === "mix-balance") {
+    applyMix(typeof leadVocal === "function" && leadVocal() ? "clear" : "big")
+    markStudio("balance")
+    renderInspector()
+  }
   if (action === "mix-hiss" && typeof cleanNoise === "function") {
     const scope = state.magicScope
     state.magicScope = "song"
     void cleanNoise().then((reply) => {
       state.magicScope = scope
       if (reply?.text) $("save-status").textContent = reply.text
+      markStudio("hiss")
       renderInspector()
     })
   }
-  if (action === "mix-room" && typeof runVocal === "function") void runVocal("room")
+  if (action === "mix-room" && typeof runVocal === "function") void runVocal("room").then(() => {
+    markStudio("room")
+    renderInspector()
+  })
   if (action === "master-tone") setMasterTone(node.dataset.tone)
   if (action === "master-polish") togglePolish()
+  if (action === "master-polish-on") {
+    if (!state.master?.polish) togglePolish()
+    markStudio("polish")
+    renderInspector()
+  }
+  if (action === "studio-skip") {
+    state.studioSkip = state.studioSkip || new Set()
+    const id = node.dataset.step
+    if (state.studioSkip.has(id)) state.studioSkip.delete(id)
+    else state.studioSkip.add(id)
+    renderInspector()
+  }
   if (action === "strip-tone") {
     state.toneFor = state.toneFor === node.dataset.id ? null : node.dataset.id
     renderInspector()
