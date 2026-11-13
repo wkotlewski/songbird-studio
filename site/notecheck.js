@@ -25,6 +25,8 @@ const check = {
   working: false,
   backTo: "transform",
   start: "",
+  rough: false,
+  hintsOpen: true,
 }
 let checkSources = []
 
@@ -54,7 +56,7 @@ function hasNotes(layer) {
 }
 
 function resetCheck(fields) {
-  Object.assign(check, { choice: null, layerId: null, loading: false, empty: false, melody: [], sel: -1, hearing: false, working: false }, fields)
+  Object.assign(check, { choice: null, layerId: null, loading: false, empty: false, rough: false, melody: [], sel: -1, hearing: false, working: false }, fields)
 }
 
 function centerOctave() {
@@ -85,6 +87,7 @@ async function openNoteCheck(source, pending = {}) {
       beat: source.notes.beat,
       phase: source.notes.phase || 0,
     })
+    tagHints()
     check.start = JSON.stringify(check.melody)
     centerOctave()
     setPanel("notes")
@@ -98,6 +101,7 @@ async function openNoteCheck(source, pending = {}) {
     Object.assign(check, {
       loading: false,
       empty: !read.melody.length,
+      rough: !!read.rough,
       melody: read.melody.map((note) => ({ time: note.time, dur: note.dur, midi: note.midi, heard: note.heard })),
       key: { ...read.key },
       heardKey: { ...read.key },
@@ -107,6 +111,7 @@ async function openNoteCheck(source, pending = {}) {
       beat: read.beat,
       phase: read.phase || 0,
     })
+    tagHints()
     check.start = JSON.stringify(check.melody)
     centerOctave()
   } catch {
@@ -137,6 +142,7 @@ async function openNotesFor(layerId) {
       phase: played.phase || 0,
       withVoice: false,
     })
+    tagHints()
     check.start = JSON.stringify(check.melody)
     centerOctave()
     setPanel("notes")
@@ -179,6 +185,113 @@ function setNote(index, midi) {
 
 function changed() {
   return JSON.stringify(check.melody) !== check.start
+}
+
+// ---------------------------------------------------------------------------
+// What might be off: Songbird's guesses, each shown as what it is and
+// what it could be, so you pick.
+
+// Guesses are found once, when the notes are read, and stay with their
+// note, so you can flip between the two choices.
+function tagHints() {
+  const notes = check.melody
+  notes.forEach((note, index) => {
+    delete note.hint
+    if (note.chord || note.tones) return
+    const prev = notes[index - 1]
+    const next = notes[index + 1]
+    const around = [prev, next].filter((item) => item && !(item.chord || item.tones)).map((item) => item.midi)
+    if (around.length) {
+      const near = around.reduce((a, b) => a + b, 0) / around.length
+      const gap = note.midi - near
+      if (Math.abs(gap) >= 9 && around.every((midi) => Math.abs(note.midi - midi) >= 7)) {
+        note.hint = { kind: "octave", from: note.midi, alt: note.midi + (gap > 0 ? -12 : 12), up: gap > 0 }
+        return
+      }
+    }
+    if (note.dur < 0.16 && prev && next && note.midi !== prev.midi && note.midi !== next.midi) note.hint = { kind: "short" }
+  })
+}
+
+function noteHints() {
+  const hints = []
+  check.melody.forEach((note, index) => {
+    if (note.chord || note.tones) return
+    // You sang a note outside the key: it plays the key's note next to it.
+    if (check.mode === "source" && note.heard != null && !note.hint) {
+      const fits = SongbirdMusic.inKey(note.heard, check.key)
+      if (fits !== note.heard && Math.abs(fits - note.heard) < 3) {
+        hints.push({
+          index, kind: "key",
+          why: `You sang ${noteName(note.heard)}. ${noteName(fits)} fits ${keyName(check.key)}.`,
+          options: [{ midi: note.heard, label: `As sung: ${noteName(note.heard)}` }, { midi: fits, label: `Fits the key: ${noteName(fits)}`, suggested: true }],
+        })
+        return
+      }
+    }
+    if (note.hint?.kind === "octave") {
+      const { from, alt, up } = note.hint
+      hints.push({
+        index, kind: "octave",
+        why: `It jumps ${up ? "up" : "down"} a long way from the notes around it. It may be the same note, ${up ? "lower" : "higher"}.`,
+        options: [{ midi: from, label: `As heard: ${noteName(from)}${octaveOf(from)}` }, { midi: alt, label: `${up ? "Lower" : "Higher"}: ${noteName(alt)}${octaveOf(alt)}`, suggested: true }],
+      })
+    }
+    if (note.hint?.kind === "short") {
+      hints.push({
+        index, kind: "short",
+        why: "It's very short, between two other notes. It may be your voice sliding, not a note.",
+        options: [{ midi: note.midi, label: `Keep ${noteName(note.midi)}` }, { remove: true, label: "Take it out", suggested: true }],
+      })
+    }
+  })
+  return hints
+}
+
+function octaveOf(midi) {
+  return Math.floor(midi / 12) - 1
+}
+
+// Two keys on a small keyboard: what it is now, and the other choice.
+function hintKeys(now, other) {
+  const lo = Math.min(now, other ?? now)
+  const hi = Math.max(now, other ?? now)
+  const WHITE = [0, 2, 4, 5, 7, 9, 11]
+  let from = lo - 2
+  while (!WHITE.includes(((from % 12) + 12) % 12)) from--
+  let whites = 0
+  for (let midi = from; midi <= hi + 2; midi++) if (WHITE.includes(((midi % 12) + 12) % 12)) whites++
+  return keyboardMarkup(from, Math.max(6, whites), "data-hint-key", { key: check.key, marks: { [now]: "is", ...(other != null && other !== now ? { [other]: "could" } : {}) } })
+}
+
+function hintsMarkup(busy) {
+  const hints = noteHints()
+  if (!hints.length) return check.melody.length ? `<p class="hint hint-clear">${ms("check_circle")}Nothing looks off to me. Tap any note to change it.</p>` : ""
+  const rows = hints.map((hint) => {
+    const note = check.melody[hint.index]
+    const others = hint.options.filter((option) => option.midi !== note.midi && !option.remove)
+    const other = others.find((option) => option.suggested) || others[0] || null
+    return `<li class="hint-row ${hint.index === check.sel ? "on" : ""}">
+      <button class="hint-head" data-check-note="${hint.index}">
+        <b>Note ${hint.index + 1}</b><span>${esc(hint.why)}</span>
+      </button>
+      ${hintKeys(note.midi, other ? other.midi : null)}
+      <div class="hint-legend"><span class="dot is"></span>Now: ${esc(noteName(note.midi))}${other ? `<span class="dot could"></span>Could be: ${esc(noteName(other.midi))}` : ""}</div>
+      <div class="choices">${hint.options.map((option) => {
+        const on = option.remove ? false : option.midi === note.midi && (hint.kind !== "short")
+        return `<button class="chip ${on ? "on" : ""}" data-hint-pick="${hint.index}" ${option.remove ? `data-hint-remove="1"` : `data-hint-midi="${option.midi}"`} aria-pressed="${on}" ${busy}>${esc(option.label)}${option.suggested ? " · suggested" : ""}</button>`
+      }).join("")}</div>
+    </li>`
+  }).join("")
+  const open = hints.filter((hint) => hint.options.some((option) => option.suggested && (option.remove || option.midi !== check.melody[hint.index].midi)))
+  return `<section class="note-hints">
+    <div class="hints-top">
+      <h3 class="magic-h">${ms("lightbulb")}${hints.length === 1 ? "1 note might be off" : `${hints.length} notes might be off`}</h3>
+      ${open.length ? `<button class="btn btn-secondary" data-check="hints-all" ${busy}>Use all suggestions</button>` : ""}
+    </div>
+    <p class="hint">Each shows the note now, and what it could be. Tap the one you mean. Marked notes in the picture above have a dot.</p>
+    <ol class="hint-list">${rows}</ol>
+  </section>`
 }
 
 // ---------------------------------------------------------------------------
@@ -339,8 +452,9 @@ function keyboardMarkup(from, whites, attr, options = {}) {
     const pc = ((midi % 12) + 12) % 12
     const white = WHITE.includes(pc)
     const inKey = options.key ? SongbirdMusic.inKey(midi, options.key) === midi : false
-    const cls = [white ? "white" : "black", inKey ? "in-key" : "", options.active?.has(midi) ? "on" : ""].join(" ")
-    const label = white ? `<span>${noteName(midi)}${pc === 0 && options.octaves ? `<sub>${Math.floor(midi / 12) - 1}</sub>` : ""}</span>` : ""
+    const mark = options.marks?.[midi]
+    const cls = [white ? "white" : "black", inKey ? "in-key" : "", options.active?.has(midi) ? "on" : "", mark ? `mark-${mark}` : ""].join(" ")
+    const label = white || mark ? `<span>${noteName(midi)}${(pc === 0 && options.octaves) || mark ? `<sub>${Math.floor(midi / 12) - 1}</sub>` : ""}</span>` : ""
     const style = white ? "" : ` style="left:${((w / whites) * 100).toFixed(3)}%"`
     keys.push(`<button class="key ${cls}" ${attr}="${midi}" aria-label="${noteName(midi)}"${style}>${label}</button>`)
     if (white) w++
@@ -350,6 +464,7 @@ function keyboardMarkup(from, whites, attr, options = {}) {
 
 function rollMarkup() {
   const notes = check.melody
+  const maybe = new Set(noteHints().map((hint) => hint.index))
   const mids = notes.flatMap((note) => [note.midi, note.chord || note.tones ? note.midi + 7 : note.midi])
   let lo = Math.min(...mids) - 2
   let hi = Math.max(...mids) + 2
@@ -371,7 +486,7 @@ function rollMarkup() {
     const bottom = ((note.midi - lo) / rows) * 100
     const chord = note.chord || note.tones
     const label = chord ? chordName(note.midi, check.key) : noteName(note.midi)
-    return `<button class="roll-note ${i === check.sel ? "on" : ""} ${chord ? "chord" : ""} ${note.set ? "fixed" : ""}" data-check-note="${i}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;bottom:${bottom.toFixed(2)}%;height:${(100 / rows).toFixed(2)}%" aria-label="Note ${i + 1}, ${label}${chord ? " chord" : ""}">${label}</button>`
+    return `<button class="roll-note ${i === check.sel ? "on" : ""} ${chord ? "chord" : ""} ${note.set ? "fixed" : ""} ${maybe.has(i) ? "maybe" : ""}" data-check-note="${i}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;bottom:${bottom.toFixed(2)}%;height:${(100 / rows).toFixed(2)}%" aria-label="Note ${i + 1}, ${label}${chord ? " chord" : ""}">${label}</button>`
   }).join("")
   return `<div class="roll-scroll"><div class="roll" style="min-width:max(100%, ${notes.length * 30}px)"><div class="roll-beats">${lines}</div>${blocks}</div></div>`
 }
@@ -400,6 +515,7 @@ function noteCheckPanel(head) {
     <p class="hint">${check.mode === "played"
       ? `These are the notes you played in <b>${esc(source.name)}</b>. Tap a note to fix it.`
       : `Here are the notes I heard in <b>${esc(source.name)}</b>${making ? `, before I make ${esc(making)}` : ""}. Tap a note to fix it. When it sounds right, tap <b>Looks good</b>.`}</p>
+    ${check.rough ? `<p class="hint warn-text">${ms("hearing")}It was hard to hear clear notes, so these are my best guesses. Check them, and fix any that are wrong.</p>` : ""}
     <div class="check-key">
       <div>
         <p class="ask">Key</p>
@@ -420,6 +536,7 @@ function noteCheckPanel(head) {
       </div>
     </div>
     ${rollMarkup()}
+    ${hintsMarkup(busy)}
     <div class="note-tools ${note ? "" : "idle"}">
       ${note
         ? `<p class="note-now"><b>${esc(chordOn ? `${chordName(note.midi, check.key)} chord` : noteName(note.midi))}</b> · note ${check.sel + 1} of ${check.melody.length}</p>
@@ -454,11 +571,25 @@ function noteCheckPanel(head) {
 // Taps
 
 document.body.addEventListener("click", (event) => {
-  const node = event.target.closest?.("[data-check],[data-check-note],[data-notes-open]")
+  const node = event.target.closest?.("[data-check],[data-check-note],[data-notes-open],[data-hint-pick]")
   if (!node || node.disabled) return
   const d = node.dataset
   if (d.notesOpen) {
     void openNotesFor(d.notesOpen)
+    return
+  }
+  if (d.hintPick != null) {
+    const index = Number(d.hintPick)
+    if (d.hintRemove) {
+      check.melody.splice(index, 1)
+      check.sel = -1
+    } else {
+      setNote(index, Number(d.hintMidi))
+      check.sel = index
+      checkPreview(Number(d.hintMidi))
+    }
+    if (check.hearing) stopHearing()
+    renderInspector()
     return
   }
   if (d.checkNote != null) {
@@ -508,6 +639,18 @@ document.body.addEventListener("click", (event) => {
     })
   }
   if (what === "with-voice") check.withVoice = !check.withVoice
+  if (what === "hints-all") {
+    const hints = noteHints()
+    const drop = []
+    for (const hint of hints) {
+      const pick = hint.options.find((option) => option.suggested)
+      if (!pick) continue
+      if (pick.remove) drop.push(hint.index)
+      else setNote(hint.index, pick.midi)
+    }
+    for (const index of drop.sort((a, b) => b - a)) check.melody.splice(index, 1)
+    check.sel = -1
+  }
   if (what === "reset") {
     check.melody = JSON.parse(check.start)
     if (check.heardKey) check.key = { ...check.heardKey }
@@ -551,4 +694,12 @@ document.body.addEventListener("pointerdown", (event) => {
     node.classList.add("on")
     window.setTimeout(() => node.classList.remove("on"), 220)
   }
+})
+
+// The small keyboards next to a guess: tap to hear a key.
+document.body.addEventListener("pointerdown", (event) => {
+  const node = event.target.closest?.("[data-hint-key]")
+  if (!node) return
+  event.preventDefault()
+  checkPreview(Number(node.dataset.hintKey))
 })
