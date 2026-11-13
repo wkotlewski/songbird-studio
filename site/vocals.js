@@ -8,6 +8,8 @@
 // you; only the double is made from your own voice.
 const SINGER_MIX = {
   doubleL: { name: "Double (left)", gain: 0.42, pan: -0.45 },
+  voiceUp: { name: "Harmony above (your voice)", gain: 0.5, pan: 0.38 },
+  voiceDown: { name: "Harmony below (your voice)", gain: 0.46, pan: -0.38 },
   doubleR: { name: "Double (right)", gain: 0.42, pan: 0.45 },
   oohs: { name: "Oohs behind you", gain: 0.5, pan: 0 },
   answers: { name: "Choir answers", gain: 0.55, pan: 0.15 },
@@ -19,7 +21,7 @@ const SINGER_MIX = {
 const SINGER_IDEAS = {
   soul: { name: "Soul oohs", kinds: ["oohs", "doubleL", "doubleR"], line: "Soft oohs hold the chords under you, and your voice is doubled left and right. Warm, like a soul record." },
   gospel: { name: "Choir answers", kinds: ["answers", "oohs"], line: "A choir answers in the spaces between your lines, call and response." },
-  harmony: { name: "Harmony singers", kinds: ["third", "low"], line: "Real choir voices sing along with your melody: one a third above you, and a lower harmony under you." },
+  harmony: { name: "Your harmonies", kinds: ["voiceUp", "voiceDown"], line: "Your own voice sings a harmony above you and one below, following every note you sing (your slides and words too) and the band's chords." },
   doubles: { name: "Just you, doubled", kinds: ["doubleL", "doubleR"], line: "Two more of you, left and right. The most natural, and best for quick lines." },
 }
 
@@ -120,9 +122,9 @@ function vocalStyle(study) {
 
 function ideaOrder(study) {
   const style = vocalStyle(study)
-  if (style === "soul") return ["soul", "gospel", "harmony", "doubles"]
-  if (style === "quick") return ["doubles", "soul", "harmony", "gospel"]
-  return ["harmony", "soul", "doubles", "gospel"]
+  if (style === "soul") return ["harmony", "soul", "gospel", "doubles"]
+  if (style === "quick") return ["doubles", "harmony", "soul", "gospel"]
+  return ["harmony", "doubles", "soul", "gospel"]
 }
 
 function heardLine(study) {
@@ -349,6 +351,20 @@ async function singerAudio(lead, kind) {
     const full = loop ? tileTo(samples, length) : samples
     return { buffer: loopedBuffer(full, rate, loop), peaks: peaksFromSamples(full) }
   }
+  if (kind === "voiceUp" || kind === "voiceDown") {
+    // Your own take, moved note by note to the band's chord above or below
+    // you, then set a hair apart in time so it sounds like another singer.
+    const harmony = typeof songHarmony === "function" ? await songHarmony(Math.max(spanSeconds(), length / rate)).catch(() => null) : null
+    const study = harmony?.key ? null : await studyVocal(lead)
+    const key = harmony?.key ? { root: harmony.key.root, minor: harmony.key.minor } : study.key
+    const chords = (harmony?.chords || []).map((chord) => ({ time: chord.time, tones: chord.tones }))
+    const made = await engine.call("voiceHarmony", pass, rate, { chords, key, below: kind === "voiceDown", start: lead.range?.start || 0 })
+    if (!made?.samples) return null
+    let samples = made.sampleRate !== rate ? resampleTo(made.samples, made.sampleRate, rate, pass.length) : made.samples
+    samples = doubleTake(samples, rate, kind === "voiceUp" ? { base: 0.014, depth: 0.004, speed: 0.33, seed: 3 } : { base: 0.024, depth: 0.005, speed: 0.27, seed: 4 })
+    const full = loop ? tileTo(samples, length) : samples
+    return { buffer: loopedBuffer(full, rate, loop), peaks: peaksFromSamples(full) }
+  }
   const study = await studyVocal(lead)
   let choice
   let source = null
@@ -450,7 +466,7 @@ async function useIdea(lead, id, where = vocal.where) {
       const mix = SINGER_MIX[kind]
       const id = uid()
       buffers.set(id + ":audio", buffer)
-      const own = kind.startsWith("double")
+      const own = kind.startsWith("double") || kind.startsWith("voice")
       return {
         id,
         name: mix.name,
@@ -550,7 +566,7 @@ async function vocalRequest(text) {
   const where = /whole song|everywhere|all the way|the whole/.test(text) ? "song" : vocal.where
   if (asksSingers) {
     const study = await studyVocal(lead)
-    const idea = /double/.test(text) ? "doubles" : /harmon|octave|third|fifth/.test(text) ? "harmony" : /answer|call and response|gospel|choir/.test(text) ? "gospel" : /oohs?\b/.test(text) ? "soul" : ideaOrder(study)[0]
+    const idea = /double/.test(text) ? "doubles" : /harmon|octave|third|fifth|my (own )?voice/.test(text) ? "harmony" : /answer|call and response|gospel|choir/.test(text) ? "gospel" : /oohs?\b/.test(text) ? "soul" : ideaOrder(study)[0]
     return useIdea(lead, idea, where)
   }
   if (asksTime) return fitVocal(lead, /tight|exact|perfect|snap/.test(text))
