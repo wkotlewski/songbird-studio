@@ -1755,11 +1755,26 @@ html, body { touch-action: manipulation; }
    the picked layer in the song). */
 .sheet-head { flex-wrap: wrap; }
 .scope-bar {
-  flex: 1 0 100%; display: flex; align-items: center; gap: 10px; min-width: 0;
+  flex: 1 0 100%; display: grid; gap: 6px; min-width: 0;
   padding: 8px 10px; border-radius: 14px; font-size: 14px;
 }
-.scope-bar > .ms { font-size: 22px; flex: none; }
-.scope-bar > span { display: grid; min-width: 0; flex: 1; }
+.scope-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.scope-line > .ms { font-size: 22px; flex: none; }
+.scope-line > span { display: grid; min-width: 0; flex: 1; }
+.scope-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 999px; background: rgba(0, 0, 0, 0.35); }
+.scope-opt {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; min-width: 0; padding: 4px 10px;
+  border: 0; border-radius: 999px; background: transparent; color: rgba(255, 251, 242, 0.75); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scope-opt .ms { font-size: 18px; flex: none; }
+.scope-bar.song .scope-opt.on:first-child { background: #34d399; color: #062b1f; }
+.scope-bar.layer .scope-opt.on:last-child { background: #f9a8d4; color: #3b0a24; }
+.scope-bar.song .scope-opt.on:last-child { background: rgba(249, 168, 212, 0.25); color: #fbcfe8; }
+.scope-pick { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.scope-pick::-webkit-scrollbar { display: none; }
+.scope-pick .chip { flex: none; white-space: nowrap; min-height: 36px; }
+.scope-bar .scope-pick .chip.on { border-color: #f9a8d4; color: #fbcfe8; background: rgba(249, 168, 212, 0.15); }
 .scope-bar b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scope-bar small { font-size: 12px; opacity: 0.8; line-height: 1.3; }
 .scope-bar.song { background: rgba(52, 211, 153, 0.12); color: #a7f3d0; border: 1px solid rgba(52, 211, 153, 0.3); }
