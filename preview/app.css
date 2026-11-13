@@ -1715,3 +1715,24 @@ html, body { touch-action: manipulation; }
 }
 .layer-actions::-webkit-scrollbar { display: none; }
 .layer-actions .btn { flex: none; white-space: nowrap; min-height: 40px; }
+
+/* My Music: the song's name first, one line about it, a little wave. */
+.song { padding: 10px 12px; }
+.song-row { display: flex; align-items: center; gap: 6px; }
+.song .song-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; padding: 4px 0; text-align: left; }
+.song-icon {
+  flex: none; width: 56px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+  background: rgba(52, 211, 153, 0.12); color: var(--md-primary, #34d399);
+}
+.song-icon svg { fill: currentColor; }
+.song-icon .ms { font-size: 24px; }
+.song .song-copy { display: grid; gap: 2px; }
+.song b.song-title {
+  white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  font-size: 18px; line-height: 1.25; color: var(--text, #fffbf2);
+}
+.song .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; opacity: 0.75; }
+.song-tag { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: rgba(249, 168, 212, 0.18); color: #f9a8d4; font-size: 12px; font-weight: 600; opacity: 1; }
+.song-tools { display: flex; gap: 2px; flex: none; }
+.song-tools .icon-btn.small { width: 44px; height: 44px; min-height: 44px; border-color: transparent; background: transparent; }
+.song-tools .icon-btn.danger { color: #e8b86b; }
