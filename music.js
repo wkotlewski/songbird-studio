@@ -3249,6 +3249,105 @@ function vocalOffset(samples, sampleRate, options = {}) {
   return Math.max(-0.15, Math.min(0.15, middle))
 }
 
+// Slide each sung line, as a whole, to where it fits the beat: on the
+// downbeat, or a beat or a half beat from it. Nothing inside a line is
+// stretched or chopped, so the singing keeps its feel.
+function alignPhrases(samples, sampleRate, options = {}) {
+  const rate = sampleRate || SR
+  const beat = 60 / Math.max(40, Math.min(220, options.bpm || 92))
+  const start = options.start || 0
+  const phrases = vocalPhrases(samples, rate)
+  if (!phrases.length) return { samples, moves: [] }
+  const placeScore = (at) => {
+    // How natural a line start is here: the one is best, then three, then
+    // two and four, then the half beats.
+    const inBeats = (at - (options.phase || 0)) / beat
+    const nearest = Math.round(inBeats * 2) / 2
+    const inBar = ((nearest % 4) + 4) % 4
+    return inBar === 0 ? 0 : inBar === 2 ? 0.12 : Number.isInteger(nearest) ? 0.22 : inBar === 3.5 ? 0.18 : 0.32
+  }
+  const moves = []
+  let lastEnd = -Infinity
+  for (const phrase of phrases) {
+    const songAt = start + phrase.start
+    let best = { shift: 0, score: Infinity }
+    const first = Math.ceil((songAt - beat * 0.8) / (beat / 2))
+    const last = Math.floor((songAt + beat * 0.8) / (beat / 2))
+    for (let k = first; k <= last; k++) {
+      const at = k * (beat / 2) + ((options.phase || 0) % (beat / 2))
+      const shift = at - songAt
+      const score = Math.abs(shift) / beat + placeScore(at)
+      if (score < best.score) best = { shift, score }
+    }
+    let shift = Math.abs(best.shift) < 0.025 ? 0 : best.shift
+    // Never run into the line before.
+    if (phrase.start + shift < lastEnd + 0.03) shift = Math.max(shift, lastEnd + 0.03 - phrase.start)
+    if (Math.abs(shift) > beat * 0.9) shift = 0
+    moves.push({ start: phrase.start, end: phrase.end, shift })
+    lastEnd = phrase.end + shift
+  }
+  const out = new Float32Array(samples.length)
+  const fade = Math.floor(rate * 0.02)
+  const pad = [Math.floor(rate * 0.06), Math.floor(rate * 0.25)]
+  // Between lines: the take as it was, very soft, so breaths aren't cut.
+  const covered = new Uint8Array(samples.length)
+  moves.forEach((move, index) => {
+    const nextStart = index + 1 < moves.length ? Math.floor(moves[index + 1].start * rate) - pad[0] : samples.length
+    const from = Math.max(0, Math.floor(move.start * rate) - pad[0])
+    const to = Math.min(samples.length, Math.max(from, Math.min(Math.floor(move.end * rate) + pad[1], nextStart)))
+    const by = Math.round(move.shift * rate)
+    for (let i = from; i < to; i++) {
+      const at = i + by
+      if (at < 0 || at >= out.length) continue
+      const edge = Math.min(i - from, to - 1 - i)
+      const gain = edge < fade ? edge / fade : 1
+      out[at] += samples[i] * gain
+      covered[at] = 1
+    }
+  })
+  return { samples: out, moves: moves.map((move) => ({ at: Math.round((start + move.start) * 1000) / 1000, shift: Math.round(move.shift * 1000) / 1000 })) }
+}
+
+// What Songbird hears in a sung take: its key and range, its lines, how
+// much it slides into notes, and how its lines sit against the beat.
+function vocalStudy(samples, sampleRate, options = {}) {
+  const rate = sampleRate || SR
+  const beat = 60 / Math.max(40, Math.min(220, options.bpm || 92))
+  const start = options.start || 0
+  const phrases = vocalPhrases(samples, rate)
+  const audio = toEngineRate(samples, rate)
+  const heard = notesHeard(audio, audio.length / SR, options.bpm || 92, { snap: false })
+  const melody = heard.melody
+  const pitches = melody.map((note) => note.heard).sort((a, b) => a - b)
+  const low = pitches.length ? pitches[Math.floor(pitches.length * 0.05)] : null
+  const high = pitches.length ? pitches[Math.min(pitches.length - 1, Math.floor(pitches.length * 0.95))] : null
+  // Slides: lines that begin with a short note a step or more below the next.
+  let slides = 0
+  for (const phrase of phrases) {
+    const inside = melody.filter((note) => note.time >= phrase.start - 0.05 && note.time < phrase.end)
+    if (inside.length >= 2 && inside[0].dur < 0.25 && inside[1].heard - inside[0].heard >= 2) slides++
+  }
+  // Against the nearest beat, in beats: plus is late, minus is early.
+  const offsets = phrases.map((phrase) => {
+    const at = (start + phrase.start) / beat
+    return at - Math.round(at)
+  })
+  const sung = phrases.reduce((sum, phrase) => sum + phrase.end - phrase.start, 0)
+  return {
+    key: heard.key,
+    low,
+    high,
+    lines: phrases.length,
+    lineSec: phrases.length ? sung / phrases.length : 0,
+    slides: phrases.length ? slides / phrases.length : 0,
+    notesPerSec: sung > 0 ? melody.length / sung : 0,
+    off: offsets.length ? medianValue(offsets.map(Math.abs)) : 0,
+    late: offsets.length ? medianValue(offsets) : 0,
+    melody: melody.map((note) => ({ time: Math.round(note.time * 1000) / 1000, dur: Math.round(note.dur * 1000) / 1000, midi: note.midi, heard: note.heard })),
+    phrases,
+  }
+}
+
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
@@ -3283,4 +3382,6 @@ globalThis.SongbirdMusic = {
   vocalPhrases,
   harmonyVoice,
   vocalOffset,
+  alignPhrases,
+  vocalStudy,
 }
