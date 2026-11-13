@@ -315,6 +315,9 @@ h2 { font: var(--type-section); }
   margin: 0;
   overflow-x: auto;
   overflow-y: auto;
+  /* No rubber-band: the parts can't be pulled out of their box, and a
+     sideways drag doesn't drift up or down. */
+  overscroll-behavior: none;
   height: 100%;
   border: 0;
   border-radius: 0;
@@ -1540,3 +1543,6 @@ button.layer-delete {
   .bpm input { width: 60px; }
 }
 .dock-btn b .spark { font-style: normal; }
+
+/* The page itself doesn't bounce either. */
+html, body { overscroll-behavior: none; }

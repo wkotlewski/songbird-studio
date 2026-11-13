@@ -1811,6 +1811,8 @@ function fixTiming(layers, options = {}) {
           reason = nearestDist > beat * 0.16 ? "floating" : "bare"
         }
       }
+      // Gentle: only part of the way to the beat, so singing still breathes.
+      if (options.strength != null && options.strength < 1) target = songTime + (target - songTime) * Math.max(0, options.strength)
       const localTarget = target - layer.start
       anchors.push({ from: layer.local[index], to: Math.max(0, localTarget) })
       if (Math.abs(target - songTime) > 0.004) {
@@ -3087,6 +3089,166 @@ function timeStretch(samples, sampleRate, factor, loopSamples) {
   return { samples: fit(wsolaStretch(src, factor), Math.round(src.length * factor)), loopSamples: 0 }
 }
 
+// ---------------------------------------------------------------------------
+// Vocals: a studio sound for a sung take, background singers made from it,
+// and lining it up with the song.
+
+// The chain an engineer puts on a lead vocal: hiss out, rumble out, a little
+// less mud, presence where the words are, a touch of air, softer S sounds,
+// and an even level so every word is heard over the band.
+function vocalShine(samples, sampleRate, options = {}) {
+  if (options.loopSamples) {
+    const looped = onEachLoop(samples, sampleRate, options.loopSamples, sampleRate, (pass) => vocalShine(pass, sampleRate, { ...options, loopSamples: 0 }))
+    if (looped) return looped
+  }
+  const rate = sampleRate || SR
+  const amount = Math.min(1, Math.max(0.2, options.amount ?? 0.7))
+  let out = removeHiss(samples instanceof Float32Array ? samples : Float32Array.from(samples), rate, { amount: 0.55, gentle: true })
+  out = runBiquad(out, biquad("highpass", 90, rate, 0.7))
+  out = runBiquad(out, biquad("peaking", 300, rate, 1, -1.5 - amount * 1.5))
+  out = runBiquad(out, biquad("peaking", 3200, rate, 0.9, 1.5 + amount * 2))
+  out = runBiquad(out, biquad("highshelf", 10000, rate, 0.7, 1 + amount * 1.5))
+  // De-ess: when the S band is loud next to the voice, turn that band down.
+  const ess = runBiquad(runBiquad(out, biquad("highpass", 5200, rate, 0.7)), biquad("lowpass", 9500, rate, 0.7))
+  const fast = Math.exp(-1 / (rate * 0.003))
+  const slow = Math.exp(-1 / (rate * 0.06))
+  let essEnv = 0
+  let allEnv = 0
+  for (let i = 0; i < out.length; i++) {
+    const e = ess[i] * ess[i]
+    const a = out[i] * out[i]
+    essEnv = e > essEnv ? fast * essEnv + (1 - fast) * e : slow * essEnv + (1 - slow) * e
+    allEnv = a > allEnv ? fast * allEnv + (1 - fast) * a : slow * allEnv + (1 - slow) * a
+    const ratio = allEnv > 1e-9 ? Math.sqrt(essEnv / allEnv) : 0
+    const cut = Math.min(0.75, Math.max(0, (ratio - 0.3) * 2.2)) * amount
+    out[i] -= ess[i] * cut
+  }
+  // Even the level: loud words come down, so quiet ones can come up.
+  const frame = Math.max(1, Math.floor(rate * 0.05))
+  const levels = []
+  for (let at = 0; at + frame <= out.length; at += frame) {
+    let sum = 0
+    for (let i = at; i < at + frame; i += 2) sum += out[i] * out[i]
+    levels.push(Math.sqrt(sum / (frame / 2)))
+  }
+  const loudest = levels.reduce((a, b) => Math.max(a, b), 1e-6)
+  const voiced = levels.filter((level) => level > loudest * 0.06).sort((x, y) => x - y)
+  const threshold = Math.max(1e-5, voiced.length ? voiced[Math.floor(voiced.length * 0.45)] : loudest * 0.3)
+  const ratio = 2.2 + amount * 1.8
+  const attack = Math.exp(-1 / (rate * 0.008))
+  const release = Math.exp(-1 / (rate * 0.16))
+  let env = 0
+  for (let i = 0; i < out.length; i++) {
+    const x = out[i] * out[i]
+    env = x > env ? attack * env + (1 - attack) * x : release * env + (1 - release) * x
+    const level = Math.sqrt(env)
+    if (level > threshold) out[i] *= (level / threshold) ** (1 / ratio - 1)
+  }
+  // Up to a strong level, with a soft ceiling instead of clipping.
+  let peak = 0
+  for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]))
+  const gain = peak > 1e-6 ? 0.95 / peak : 1
+  for (let i = 0; i < out.length; i++) {
+    const v = out[i] * gain
+    out[i] = Math.abs(v) < 0.8 ? v : Math.sign(v) * (0.8 + 0.2 * Math.tanh((Math.abs(v) - 0.8) / 0.2))
+  }
+  return out
+}
+
+// Where someone is singing, as phrases in seconds: short breaths inside a
+// line stay part of it.
+function vocalPhrases(samples, sampleRate) {
+  const rate = sampleRate || SR
+  const frame = Math.max(1, Math.floor(rate * 0.04))
+  const levels = []
+  for (let at = 0; at + frame <= samples.length; at += frame) {
+    let sum = 0
+    for (let i = at; i < at + frame; i += 4) sum += samples[i] * samples[i]
+    levels.push(Math.sqrt(sum / (frame / 4)))
+  }
+  const loudest = levels.reduce((a, b) => Math.max(a, b), 1e-6)
+  const on = loudest * 0.12
+  const phrases = []
+  let start = -1
+  let quiet = 0
+  levels.forEach((level, index) => {
+    const t = (index * frame) / rate
+    if (level >= on) {
+      if (start < 0) start = t
+      quiet = 0
+    } else if (start >= 0) {
+      quiet += frame / rate
+      if (quiet > 0.45) {
+        phrases.push({ start, end: t - quiet + frame / rate })
+        start = -1
+        quiet = 0
+      }
+    }
+  })
+  if (start >= 0) phrases.push({ start, end: samples.length / rate })
+  return phrases.filter((phrase) => phrase.end - phrase.start > 0.25).map((phrase) => ({ start: Math.round(phrase.start * 1000) / 1000, end: Math.round(phrase.end * 1000) / 1000 }))
+}
+
+// A background singer made from your take. A fixed shift (an octave, or a
+// hair for a double), or a harmony that follows the key: for each note you
+// sang, the note a third (or a fifth) away in the scale.
+function harmonyVoice(samples, sampleRate, options = {}) {
+  const src = toEngineRate(samples, sampleRate)
+  let out
+  if (!options.steps) {
+    out = shiftPitch(src, SR, options.semitones || 0, 0)
+  } else {
+    const key = keyFrom(options.key)
+    const notes = (options.melody || []).filter((note) => note.dur > 0.05).slice().sort((a, b) => a.time - b.time)
+    if (!notes.length) return { error: "no-notes" }
+    const shifts = notes.map((note) => {
+      const midi = Math.round(note.heard ?? note.midi)
+      return scaleStep(midi, options.steps, key) - midi
+    })
+    const rendered = new Map()
+    for (const shift of new Set(shifts)) rendered.set(shift, shiftPitch(src, SR, shift, 0))
+    out = new Float32Array(src.length)
+    const fade = Math.floor(SR * 0.03)
+    const starts = notes.map((note, index) => (index ? Math.max(0, Math.floor((note.time - 0.03) * SR)) : 0))
+    for (let k = 0; k < notes.length; k++) {
+      const from = starts[k]
+      const to = k + 1 < notes.length ? starts[k + 1] : src.length
+      const now = rendered.get(shifts[k])
+      const before = rendered.get(shifts[Math.max(0, k - 1)])
+      for (let i = from; i < Math.min(to, src.length); i++) {
+        const into = i - from
+        out[i] = k && before !== now && into < fade ? before[i] * (1 - into / fade) + now[i] * (into / fade) : now[i]
+      }
+    }
+  }
+  if (options.delay) {
+    // A double sings a hair behind you, never exactly with you.
+    const by = Math.round(options.delay * SR)
+    const late = new Float32Array(out.length)
+    late.set(out.subarray(0, Math.max(0, out.length - by)), by)
+    out = late
+  }
+  return { samples: out, sampleRate: SR }
+}
+
+// How far a whole take sits ahead of or behind the beat, in seconds: the
+// lag a phone adds while recording, or a singer who's always a little late.
+function vocalOffset(samples, sampleRate, options = {}) {
+  const beat = 60 / Math.max(40, Math.min(220, options.bpm || 92))
+  const grid = beat / 2
+  const start = options.start || 0
+  const times = timingOnsets(samples, sampleRate || SR)
+  const offsets = times.map((time) => {
+    const at = start + time
+    return at - Math.round(at / grid) * grid
+  }).filter((offset) => Math.abs(offset) < grid * 0.45)
+  if (offsets.length < 6) return 0
+  const middle = medianValue(offsets)
+  const spread = medianValue(offsets.map((offset) => Math.abs(offset - middle)))
+  if (Math.abs(middle) < 0.012 || spread > grid * 0.3) return 0
+  return Math.max(-0.15, Math.min(0.15, middle))
+}
+
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
@@ -3117,4 +3279,8 @@ globalThis.SongbirdMusic = {
   shiftPitch,
   timeStretch,
   keyOf,
+  vocalShine,
+  vocalPhrases,
+  harmonyVoice,
+  vocalOffset,
 }
