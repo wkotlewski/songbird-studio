@@ -917,7 +917,8 @@ button.song-card {
   box-shadow: inset 0 0 0 1px rgba(255, 251, 242, 0.12);
 }
 button.song-card > .ms:first-child { font-size: 28px; color: #F9A8D4; }
-button.song-card span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+button.song-card > span:not(.ms) { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+button.song-card > .ms { flex: none; }
 button.song-card b { font-size: 16px; }
 button.song-card small { font-size: 13px; color: var(--md-on-surface-variant); }
 .plan-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 6px 0 10px; }
@@ -1037,3 +1038,13 @@ body.file-over::after {
   border: 3px dashed #34D399; border-radius: 24px; background: rgba(7, 28, 23, 0.82);
   color: #fff; font: 600 20px/1.3 "Plus Jakarta Sans", system-ui, sans-serif; pointer-events: none;
 }
+
+/* Fix a part */
+.fix-note:empty { display: none; }
+
+/* Your vocal */
+.vocal-step { margin: 14px 0 4px; padding-top: 12px; border-top: 1px solid rgba(255, 251, 242, 0.1); }
+.vocal-step .btn { margin-top: 6px; }
+.done-tag { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; font-size: 13px; font-weight: 600; color: var(--md-primary); vertical-align: middle; }
+.done-tag .ms { font-size: 16px; }
+.vocal-note:empty { display: none; }

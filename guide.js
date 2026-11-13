@@ -108,6 +108,7 @@ function ideasFor(step, facts) {
   if (step === "polish") {
     go("Balance it for me", "tune", "balance")
     if (!facts.tight) say("Fix my timing & notes", "check", "make it tight")
+    if (typeof vocalTakes === "function" && vocalTakes().length) say("Make my vocal shine", "record_voice_over", "make my vocal shine")
     if (state.layers.some((layer) => isRecording(layer))) say("Remove hiss", "noise_control_off", "remove hiss")
     if (!state.fadeOut) say("Fade out at the end", "volume_down", "fade out at the end")
     say("Add more echo", "spatial_audio", "more echo")
