@@ -1,21 +1,29 @@
-// Your vocal, made to sit in the song: lined up with the beat, a studio
-// sound, room in the music where the words are, and background singers
-// made from your own voice. Each step is one Undo; Do it all is one too.
+// Your vocal, made to sit in the song. Songbird listens to what you sang
+// (your key, your range, your lines, how you slide into notes, where your
+// lines land against the beat) and suggests what fits: lines slid into
+// place, a studio sound, room in the music, and background singers picked
+// for your voice. Each step is one Undo; Do it all is one too.
 
-const SINGERS = [
-  ["double", "Double me", "A second you, a hair behind, for a fuller sound"],
-  ["third", "A third up", "Harmony above you, following the key"],
-  ["low", "Octave below", "A low voice under you"],
-  ["high", "Octave above", "A high voice over you"],
-]
+// Background singers. Real recorded voices (the choir sounds) sing with
+// you; only the double is made from your own voice.
 const SINGER_MIX = {
-  double: { name: "Double", gain: 0.55, pan: -0.35 },
-  third: { name: "Harmony (third up)", gain: 0.42, pan: 0.38 },
-  low: { name: "Low octave", gain: 0.4, pan: -0.12 },
-  high: { name: "High octave", gain: 0.28, pan: 0.22 },
+  doubleL: { name: "Double (left)", gain: 0.42, pan: -0.45 },
+  doubleR: { name: "Double (right)", gain: 0.42, pan: 0.45 },
+  oohs: { name: "Oohs behind you", gain: 0.5, pan: 0 },
+  answers: { name: "Choir answers", gain: 0.55, pan: 0.15 },
+  third: { name: "Harmony (third up)", gain: 0.5, pan: 0.35 },
+  low: { name: "Low harmony", gain: 0.5, pan: -0.3 },
+  high: { name: "High voices", gain: 0.36, pan: 0.25 },
 }
 
-const vocal = { layerId: null, working: "", said: "", singers: new Set(["double", "third", "low"]), where: null, fit: "gentle" }
+const SINGER_IDEAS = {
+  soul: { name: "Soul oohs", kinds: ["oohs", "doubleL", "doubleR"], line: "Soft oohs hold the chords under you, and your voice is doubled left and right. Warm, like a soul record." },
+  gospel: { name: "Choir answers", kinds: ["answers", "oohs"], line: "A choir answers in the spaces between your lines, call and response." },
+  harmony: { name: "Harmony singers", kinds: ["third", "low"], line: "Real choir voices sing along with your melody: one a third above you, and a lower harmony under you." },
+  doubles: { name: "Just you, doubled", kinds: ["doubleL", "doubleR"], line: "Two more of you, left and right. The most natural, and best for quick lines." },
+}
+
+const vocal = { layerId: null, working: "", said: "", where: null, tight: false, idea: null, study: null, studyFor: null }
 
 function vocalTakes() {
   return state.layers.filter((layer) => isRecording(layer) && !layer.singer && kindOf(layer) === "vocals" && buffers.get(layer.id + ":audio"))
@@ -38,7 +46,7 @@ function chorusSections() {
 
 // Gaps that keep a singer to the choruses.
 function chorusGaps() {
-  const total = state.lengthSec || 0
+  const total = state.lengthSec || spanSeconds()
   const on = chorusSections()
   if (!on.length) return []
   const gaps = []
@@ -75,8 +83,8 @@ async function vocalStep(label, run) {
 }
 
 // One pass of a looped take, or the whole take.
-function takeAudio(layer) {
-  const audio = buffers.get(layer.id + ":audio")
+function takeAudio(layer, kind = "audio") {
+  const audio = buffers.get(`${layer.id}:${kind}`) || buffers.get(layer.id + ":audio")
   const loop = audio.loopSamples || 0
   const all = samplesOf(audio)
   return { audio, rate: audio.sampleRate, loop, pass: loop ? all.slice(0, loop) : all, length: all.length }
@@ -86,28 +94,71 @@ function keepOriginal(layer) {
   if (!buffers.get(layer.id + ":original")) buffers.set(layer.id + ":original", buffers.get(layer.id + ":audio"))
 }
 
-// ---------------------------------------------------------------------------
-// Timing
+function capital(text) {
+  return text ? text[0].toUpperCase() + text.slice(1) : text
+}
 
-async function fitVocal(layer, how = vocal.fit) {
-  return vocalStep("Lining your vocal up with the beat…", async () => {
-    const { rate, loop, pass, length } = takeAudio(layer)
+// ---------------------------------------------------------------------------
+// Listening
+
+async function studyVocal(layer) {
+  const audio = buffers.get(layer.id + ":audio")
+  if (vocal.studyFor === audio && vocal.study) return vocal.study
+  const { pass, rate } = takeAudio(layer)
+  const study = await engine.call("vocalStudy", pass, rate, { bpm: state.bpm || 92, start: layer.range?.start || 0 })
+  vocal.study = study
+  vocal.studyFor = audio
+  return study
+}
+
+function vocalStyle(study) {
+  if (!study?.lines) return "plain"
+  if (study.notesPerSec > 3.2) return "quick"
+  if (study.slides >= 0.25 || study.lineSec >= 3.2) return "soul"
+  return "plain"
+}
+
+function ideaOrder(study) {
+  const style = vocalStyle(study)
+  if (style === "soul") return ["soul", "gospel", "harmony", "doubles"]
+  if (style === "quick") return ["doubles", "soul", "harmony", "gospel"]
+  return ["harmony", "soul", "doubles", "gospel"]
+}
+
+function heardLine(study) {
+  if (!study?.lines) return "I couldn't hear clear singing in this take yet."
+  const named = (midi) => `${noteName(midi)}${Math.floor(midi / 12) - 1}`
+  const range = study.low != null ? ` from ${named(study.low)} up to ${named(study.high)}` : ""
+  const style = vocalStyle(study)
+  const feel = style === "soul" ? ", with long lines that slide into notes, like a soul singer" : style === "quick" ? ", with quick runs of notes" : ""
+  const off = study.off * 4
+  const timing = study.off > 0.12
+    ? ` Your lines start about ${off > 1.4 ? "half a beat" : "a quarter beat"} ${study.late > 0 ? "late" : "early"}, so sliding them into place will help.`
+    : " Your lines already land close to the beat."
+  return `You sing in ${keyName(study.key)}${range}, in ${study.lines} ${study.lines === 1 ? "line" : "lines"}${feel}.${timing}`
+}
+
+// ---------------------------------------------------------------------------
+// Timing: each line slides, whole, to where it fits the beat
+
+async function fitVocal(layer, tight = vocal.tight) {
+  return vocalStep("Sliding your lines into place…", async () => {
+    // From the take as you sang it, so earlier fixes don't pile up.
+    const { rate, loop, pass, length } = takeAudio(layer, "original")
     const start = layer.range?.start || 0
-    const late = await engine.call("vocalOffset", pass, rate, { bpm: state.bpm || 92, start })
-    let samples = pass
-    if (Math.abs(late) > 0.005) {
-      // The whole take moves together first: the lag a phone adds, or a
-      // singer who's always a touch behind.
-      const by = Math.round(late * rate)
-      const moved = new Float32Array(samples.length)
-      if (by > 0) moved.set(samples.subarray(by))
-      else moved.set(samples.subarray(0, samples.length + by), -by)
-      samples = moved
+    const aligned = await engine.call("alignPhrases", pass, rate, { bpm: state.bpm || 92, start })
+    let samples = aligned.samples
+    const moved = aligned.moves.filter((move) => Math.abs(move.shift) >= 0.025)
+    let nudged = 0
+    if (tight) {
+      const fixed = await engine.call("fixTiming", [{ id: "take", samples, sampleRate: rate, start }], { bpm: state.bpm || 92, slack: 0.22, strength: 0.5 })
+      if (fixed?.[0]?.samples) {
+        samples = fixed[0].samples
+        nudged = fixed[0].moved || 0
+      }
     }
-    const fixed = await engine.call("fixTiming", [{ id: "take", samples, sampleRate: rate, start }], { bpm: state.bpm || 92, slack: how === "tight" ? 0.3 : 0.22, strength: how === "tight" ? 0.9 : 0.55 })
-    const moved = fixed?.[0]?.moved || 0
-    if (fixed?.[0]?.samples) samples = fixed[0].samples
-    if (!moved && Math.abs(late) <= 0.005) return { text: `${layer.name} is already on the beat.` }
+    if (!moved.length && !nudged) return { text: `Your lines in ${layer.name} already land where they fit.` }
+    if (layer.shine) samples = await engine.call("vocalShine", samples, rate, { amount: 0.7 })
     snapshot([layer.id, ...singersOf(layer).map((item) => item.id)])
     keepOriginal(layer)
     const full = loop ? tileTo(samples, length) : samples
@@ -118,15 +169,12 @@ async function fitVocal(layer, how = vocal.fit) {
     rememberSong()
     renderTracks()
     playFromVocal(layer)
+    const typical = moved.length ? Math.round(1000 * moved.map((move) => Math.abs(move.shift)).sort((a, b) => a - b)[Math.floor(moved.length / 2)]) : 0
     const bits = []
-    if (Math.abs(late) > 0.005) bits.push(`moved your whole vocal ${Math.round(Math.abs(late) * 1000)} ms ${late > 0 ? "earlier" : "later"} to sit with the band`)
-    if (moved) bits.push(`${how === "tight" ? "snapped" : "nudged"} ${moved} ${moved === 1 ? "note" : "notes"} ${how === "tight" ? "onto" : "toward"} the beat`)
+    if (moved.length) bits.push(`slid ${moved.length} of your ${aligned.moves.length} lines into place (most by about ${typical} ms), each one whole, so nothing in your singing is stretched`)
+    if (nudged) bits.push(`brought ${nudged} ${nudged === 1 ? "word" : "words"} a little closer to the beat`)
     return { text: `${capital(bits.join(", and "))}. Undo puts it back.` }
   })
-}
-
-function capital(text) {
-  return text ? text[0].toUpperCase() + text.slice(1) : text
 }
 
 // Parts that follow the vocal (and its background singers) move with it.
@@ -140,11 +188,16 @@ async function followVocal(layer) {
       }
     } catch { /* stays as it was */ }
   }
-  for (const singer of singersOf(layer)) {
-    const made = await singerAudio(layer, singer.singer)
-    if (made) {
-      buffers.set(singer.id + ":audio", made.buffer)
-      singer.peaks = made.peaks
+  const singers = singersOf(layer)
+  if (singers.length) {
+    vocal.studyFor = null
+    for (const singer of singers) {
+      const made = await singerAudio(layer, singer.singer).catch(() => null)
+      if (made) {
+        buffers.set(singer.id + ":audio", made.buffer)
+        singer.peaks = made.peaks
+        if (made.gaps) singer.gaps = mergeGaps([...(singer.choruses || []), ...made.gaps])
+      }
     }
   }
   if (layer.lead) layer.phrases = await phrasesOf(layer)
@@ -262,70 +315,147 @@ function noRoom(layer) {
 // ---------------------------------------------------------------------------
 // Background singers
 
-let notesFor = new Map()
+// Your melody, the way backing singers would sing it: no scoops or tiny
+// notes, each note held into the next.
+function singable(melody) {
+  const notes = (melody || []).filter((note) => note.dur >= 0.14).map((note) => ({ ...note }))
+  const out = []
+  for (const note of notes) {
+    const last = out[out.length - 1]
+    if (last && last.midi === note.midi && note.time - (last.time + last.dur) < 0.15) {
+      last.dur = note.time + note.dur - last.time
+      continue
+    }
+    if (last && note.time - (last.time + last.dur) < 0.25) last.dur = Math.max(last.dur, note.time - last.time - 0.02)
+    out.push(note)
+  }
+  return out
+}
 
-async function vocalNotes(layer, pass, rate) {
-  if (layer.notes?.melody?.length) return layer.notes
-  const cached = notesFor.get(layer.id)
-  if (cached && cached.buffer === buffers.get(layer.id + ":audio")) return cached.notes
-  const notes = await engine.call("readNotes", pass, rate, { bpm: state.bpm || 92 })
-  notesFor.set(layer.id, { buffer: buffers.get(layer.id + ":audio"), notes })
-  return notes
+// The part the band's chords come from, so the oohs sing the same chords.
+function chordSource() {
+  const parts = state.layers.filter((layer) => layer.make && !layer.singer && ["section", "chords"].includes(layer.make.play) && layer.make.sourceId && state.layers.some((item) => item.id === layer.make.sourceId))
+  const pick = parts.find((layer) => layer.make.family === "voices") || parts.find((layer) => layer.make.family === "strings") || parts[0]
+  return pick ? { make: pick.make, source: state.layers.find((item) => item.id === pick.make.sourceId) } : null
 }
 
 async function singerAudio(lead, kind) {
   const { rate, loop, pass, length } = takeAudio(lead)
-  const options = { double: { semitones: 0.12, delay: 0.022 }, low: { semitones: -12 }, high: { semitones: 12 } }[kind] || {}
-  if (kind === "third") {
-    const notes = await vocalNotes(lead, pass, rate)
-    if (!notes?.melody?.length) return null
-    Object.assign(options, { steps: 2, melody: notes.melody, key: notes.key })
+  const songLength = Math.round(Math.max(spanSeconds(), length / rate) * rate)
+  if (kind === "doubleL" || kind === "doubleR") {
+    // You again, like a second take: a few hundredths of a second behind,
+    // drifting a little in time (and so in pitch) the way a real double does.
+    const samples = doubleTake(pass, rate, kind === "doubleL" ? { base: 0.022, depth: 0.006, speed: 0.37, seed: 1 } : { base: 0.031, depth: 0.007, speed: 0.29, seed: 2 })
+    const full = loop ? tileTo(samples, length) : samples
+    return { buffer: loopedBuffer(full, rate, loop), peaks: peaksFromSamples(full) }
   }
-  const made = await engine.call("harmonyVoice", pass, rate, options)
-  if (!made?.samples) return null
-  let samples = made.samples
-  // Back to the take's rate and length.
-  if (made.sampleRate !== rate) {
-    const ratio = made.sampleRate / rate
-    const back = new Float32Array(pass.length)
-    for (let i = 0; i < back.length; i++) {
-      const at = i * ratio
-      const index = Math.floor(at)
-      const frac = at - index
-      back[i] = (samples[index] || 0) * (1 - frac) + (samples[index + 1] || 0) * frac
+  const study = await studyVocal(lead)
+  let choice
+  let source = null
+  if (kind === "oohs" || kind === "answers") {
+    const band = chordSource()
+    const instrument = kind === "oohs" ? "voice-oohs" : "choir-aahs"
+    if (band) {
+      choice = { ...band.make, family: "voices", instrument, play: "section", rhythm: "held", variant: kind === "answers" ? 1 : 0, voicing: kind === "answers" ? 1 : 0, busy: 0 }
+      for (const key of ["kinds", "kit", "fills", "octave", "shift", "melody", "hits"]) delete choice[key]
+      source = band.source
+    } else {
+      const melody = singable(study.melody)
+      if (!melody.length) return null
+      choice = { family: "voices", instrument, play: "section", rhythm: "held", melody, key: study.key, pass: pass.length / rate, total: pass.length / rate, loop: false, beat: 60 / (state.bpm || 92), phase: 0 }
     }
-    samples = back
+  } else {
+    const melody = singable(study.melody)
+    if (!melody.length) return null
+    const key = study.key
+    const keyed = { root: key.root, minor: key.minor }
+    const steps = { third: 2, high: 4, low: 2 }[kind]
+    const shifted = melody.map((note) => {
+      let midi = SongbirdMusic.scaleStep(note.midi, steps, keyed)
+      if (kind === "low") midi -= 12
+      return { ...note, midi }
+    })
+    choice = { family: "voices", instrument: kind === "low" ? "choir-aahs" : "voice-oohs", play: "solo", rhythm: "played", melody: shifted, key: keyed, pass: pass.length / rate, total: pass.length / rate, loop: false, beat: 60 / (state.bpm || 92), phase: 0 }
   }
-  const full = loop ? tileTo(samples, length) : samples
-  return { buffer: loopedBuffer(full, rate, loop), peaks: peaksFromSamples(full) }
+  const made = await buildPart(choice, source)
+  if (made.error) return null
+  let samples = made.samples
+  if (made.rate !== rate) samples = resampleTo(samples, made.rate, rate, Math.round(samples.length * rate / made.rate))
+  samples = fitLength(samples, songLength, 0)
+  const start = lead.range?.start || 0
+  // Melody singers come in where you sing; they start where your take starts.
+  if (choice.play === "solo" && start > 0) {
+    const late = new Float32Array(samples.length)
+    late.set(samples.subarray(0, Math.max(0, samples.length - Math.round(start * rate))), Math.round(start * rate))
+    samples = late
+  }
+  let gaps = null
+  if (kind === "answers") {
+    // Answers rest while you sing and sing in the spaces between your lines.
+    const phrases = lead.phrases?.length ? lead.phrases : await phrasesOf(lead)
+    gaps = phrases.map((phrase) => ({ start: Math.max(0, phrase.start - 0.15), end: phrase.end + 0.35 }))
+  }
+  return { buffer: loopedBuffer(samples, rate, 0), peaks: peaksFromSamples(samples), gaps }
 }
 
-async function addSingers(lead, kinds = vocal.singers, where = vocal.where) {
-  const want = [...kinds].filter((kind) => SINGER_MIX[kind])
-  if (!want.length) return { text: "Pick at least one singer.", warn: true }
-  return vocalStep("Making background singers from your voice…", async () => {
+function doubleTake(samples, rate, { base, depth, speed, seed }) {
+  const out = new Float32Array(samples.length)
+  // A slow, uneven drift: two slow waves that never line up.
+  const w1 = (2 * Math.PI * speed) / rate
+  const w2 = (2 * Math.PI * speed * 0.61) / rate
+  for (let i = 0; i < out.length; i++) {
+    const delay = (base + depth * (0.6 * Math.sin(w1 * i + seed) + 0.4 * Math.sin(w2 * i + seed * 2.3))) * rate
+    const at = i - delay
+    const index = Math.floor(at)
+    if (index < 0 || index + 1 >= samples.length) continue
+    const frac = at - index
+    out[i] = samples[index] * (1 - frac) + samples[index + 1] * frac
+  }
+  return out
+}
+
+function resampleTo(samples, from, to, length) {
+  const ratio = from / to
+  const out = new Float32Array(length)
+  for (let i = 0; i < out.length; i++) {
+    const at = i * ratio
+    const index = Math.floor(at)
+    const frac = at - index
+    out[i] = (samples[index] || 0) * (1 - frac) + (samples[index + 1] || 0) * frac
+  }
+  return out
+}
+
+async function useIdea(lead, id, where = vocal.where) {
+  const idea = SINGER_IDEAS[id]
+  if (!idea) return { text: "Pick one of the ideas.", warn: true }
+  return vocalStep(`Bringing in ${idea.name.toLowerCase()}…`, async () => {
     const made = []
-    for (const kind of want) {
-      vocal.working = `Making ${SINGER_MIX[kind].name.toLowerCase()}…`
+    for (const kind of idea.kinds) {
+      vocal.working = `Bringing in ${SINGER_MIX[kind].name.toLowerCase()}…`
       vocalSay(vocal.working)
-      const audio = await singerAudio(lead, kind)
+      const audio = await singerAudio(lead, kind).catch((error) => {
+        console.error("Singer failed:", error)
+        return null
+      })
       if (audio) made.push({ kind, ...audio })
     }
-    if (!made.length) return { text: "I couldn't hear clear notes to sing along with. Try “Double me” or an octave instead.", warn: true }
-    const old = singersOf(lead).filter((item) => want.includes(item.singer))
+    if (!made.length) return { text: "I couldn't hear clear enough notes to sing along with. Try Just you, doubled.", warn: true }
     snapshot()
+    const old = singersOf(lead)
     state.layers = state.layers.filter((item) => !old.includes(item))
     const choruses = where !== "song" && chorusSections().length ? chorusGaps() : []
     const at = state.layers.indexOf(lead) + 1
-    const added = made.map(({ kind, buffer, peaks }) => {
+    const added = made.map(({ kind, buffer, peaks, gaps }) => {
       const mix = SINGER_MIX[kind]
       const id = uid()
       buffers.set(id + ":audio", buffer)
+      const own = kind.startsWith("double")
       return {
         id,
         name: mix.name,
-        sound: "Background singer",
-        from: `from ${lead.name}${choruses.length ? " · in the choruses" : ""}`,
+        sound: own ? "Your voice" : "Backing singers",
+        from: `${idea.name}${choruses.length ? " · in the choruses" : ""}`,
         family: "voices",
         generated: true,
         singer: kind,
@@ -334,26 +464,28 @@ async function addSingers(lead, kinds = vocal.singers, where = vocal.where) {
         peaks,
         gain: Math.round((lead.gain ?? 0.8) * mix.gain * 100) / 100,
         pan: mix.pan,
-        low: -2,
-        high: -4,
-        space: 0.42,
+        low: own ? -3 : -1,
+        high: own ? -4 : -2,
+        space: own ? 0.3 : 0.45,
         echo: 0,
         mute: false,
         solo: false,
         live: true,
-        loop: lead.loop,
-        lengthSec: lead.lengthSec,
-        range: lead.range ? { ...lead.range } : undefined,
-        gaps: choruses.map((gap) => ({ ...gap })),
+        loop: own ? lead.loop : false,
+        lengthSec: own ? lead.lengthSec : undefined,
+        range: own && lead.range ? { ...lead.range } : undefined,
+        choruses: choruses.map((gap) => ({ ...gap })),
+        gaps: mergeGaps([...choruses, ...(gaps || [])].map((gap) => ({ ...gap }))),
       }
     })
     state.layers.splice(at, 0, ...added)
+    lead.idea = id
+    vocal.idea = id
     rememberSong()
     renderTracks()
     playFromVocal(lead, choruses.length ? chorusSections()[0].start : null)
-    const names = added.map((item) => item.name.toLowerCase())
-    const missed = want.length > made.length ? " I couldn't hear clear enough notes for the harmony, so it's left out." : ""
-    return { text: `Added background singers from your voice: ${names.join(", ")}${choruses.length ? ", in the choruses" : ""}.${missed} Undo takes them away.` }
+    const missed = made.length < idea.kinds.length ? " One voice couldn't follow your notes, so it's left out." : ""
+    return { text: `${idea.name}: ${added.map((item) => item.name.toLowerCase()).join(", ")}${choruses.length ? ", in the choruses" : ""}.${missed} Tap another idea to compare, or Undo to go back.` }
   })
 }
 
@@ -362,6 +494,8 @@ function removeSingers(lead) {
   if (!old.length) return { text: "There are no background singers yet." }
   snapshot()
   state.layers = state.layers.filter((item) => !old.includes(item))
+  lead.idea = null
+  vocal.idea = null
   rememberSong()
   renderTracks()
   return { text: "Took the background singers out. Undo brings them back." }
@@ -372,21 +506,23 @@ function removeSingers(lead) {
 
 async function vocalAll(lead) {
   if (vocal.working || state.transforming) return { text: "Still working on the last one." }
+  const study = await studyVocal(lead)
+  const best = ideaOrder(study)[0]
   const mark = undoStack.length
   snapshot([lead.id])
   const said = []
   const steps = [
-    () => fitVocal(lead, vocal.fit),
+    () => fitVocal(lead, vocal.tight),
     () => (lead.shine ? null : shineVocal(lead)),
     () => makeRoom(lead),
-    () => addSingers(lead, vocal.singers, vocal.where),
+    () => useIdea(lead, best, vocal.where),
   ]
   for (const step of steps) {
     const reply = await step()
     if (reply?.warn) said.push(reply.text)
   }
   undoStack.splice(mark + 1)
-  const text = `Your vocal is lined up with the beat, has a studio sound, sits on top of the music, and has background singers${chorusSections().length && vocal.where !== "song" ? " in the choruses" : ""}.${said.length ? ` ${said.join(" ")}` : ""} One Undo takes it all back.`
+  const text = `Your lines are slid into place, your vocal has a studio sound and sits on top of the music, with ${SINGER_IDEAS[best].name.toLowerCase()} behind you${chorusSections().length && vocal.where !== "song" ? " in the choruses" : ""}. Try the other singer ideas to compare.${said.length ? ` ${said.join(" ")}` : ""} One Undo takes it all back.`
   return { text }
 }
 
@@ -402,29 +538,22 @@ function playFromVocal(layer, at) {
 async function vocalRequest(text) {
   // “Less background vocals” is about a part's amount, not your voice.
   if (/\b(less|more|fewer|too much|turn (up|down)|louder|quieter)\b/.test(text)) return null
-  if (!/(vocal|voice|singing|my sing|singer|harmon|backing|background (singer|vocal|voice))/.test(text)) return null
+  if (!/(vocal|voice|singing|my sing|singer|harmon|backing|background (singer|vocal|voice)|oohs?\b|call and response|answer)/.test(text)) return null
   const lead = leadVocal()
-  const asksSingers = /(background|backing) (singer|vocal|voice)s?|harmon|double (me|my|the)|octave|choir of me|sing(ers)? with me/.test(text)
-  const asksTime = /(timing|on (the )?beat|in time|line (it )?up|fit|sync|late|early|behind|ahead)/.test(text)
+  // No vocal of yours yet: “add background vocals” still adds a choir.
+  if (!lead) return null
+  const asksSingers = /(background|backing) (singer|vocal|voice)s?|harmon|double|octave|oohs?\b|call and response|answer|gospel|choir|sing(ers)? with me/.test(text)
+  const asksTime = /(timing|on (the )?beat|in time|line (it |them )?up|fit|sync|late|early|behind|ahead|slide)/.test(text)
   const asksRoom = /(blend|sit|mix|hear (my|the) (voice|vocal)|on top|over the (music|band)|buried|drown|cut through|room for)/.test(text)
   const asksShine = /(enhance|shine|studio|better|professional|polish|clean|clear|improve|pro\b|radio)/.test(text)
   if (!asksSingers && !asksTime && !asksRoom && !asksShine) return null
-  // No vocal of yours yet: “add background vocals” still adds a choir.
-  if (!lead) return null
+  const where = /whole song|everywhere|all the way|the whole/.test(text) ? "song" : vocal.where
   if (asksSingers) {
-    const kinds = new Set()
-    if (/double/.test(text)) kinds.add("double")
-    if (/harmon|third/.test(text)) kinds.add("third")
-    if (/octave (below|lower|down|under)|low (octave|voice)|lower octave|deep/.test(text)) kinds.add("low")
-    if (/octave (above|higher|up|over)|high (octave|voice)|higher octave/.test(text)) kinds.add("high")
-    if (/\boctaves?\b/.test(text) && !kinds.has("low") && !kinds.has("high")) {
-      kinds.add("low")
-      kinds.add("high")
-    }
-    const where = /whole song|everywhere|all the way|the whole/.test(text) ? "song" : vocal.where
-    return addSingers(lead, kinds.size ? kinds : vocal.singers, where)
+    const study = await studyVocal(lead)
+    const idea = /double/.test(text) ? "doubles" : /harmon|octave|third|fifth/.test(text) ? "harmony" : /answer|call and response|gospel|choir/.test(text) ? "gospel" : /oohs?\b/.test(text) ? "soul" : ideaOrder(study)[0]
+    return useIdea(lead, idea, where)
   }
-  if (asksTime) return fitVocal(lead, /tight|exact|perfect|snap/.test(text) ? "tight" : "gentle")
+  if (asksTime) return fitVocal(lead, /tight|exact|perfect|snap/.test(text))
   if (asksRoom && !asksShine) return makeRoom(lead)
   const shine = lead.shine ? null : await shineVocal(lead)
   const room = await makeRoom(lead)
@@ -437,62 +566,74 @@ async function vocalRequest(text) {
 function vocalCard() {
   const lead = leadVocal()
   if (!lead) return ""
-  return `<button class="song-card vocal-card" data-vocal-open="${lead.id}">${ms("record_voice_over")}<span><b>Make my vocal shine</b><small>On the beat, a studio sound, room in the music, and background singers from your voice.</small></span>${ms("arrow_forward")}</button>`
+  return `<button class="song-card vocal-card" data-vocal-open="${lead.id}">${ms("record_voice_over")}<span><b>Make my vocal shine</b><small>Songbird listens to your singing and suggests timing, sound, and background singers that fit.</small></span>${ms("arrow_forward")}</button>`
 }
 
 function vocalPanel(head) {
   const lead = leadVocal()
   if (!lead) {
     return `${head("Your vocal")}
-      <p class="hint">Record yourself singing, then come back here to line it up with the beat, give it a studio sound, and add background singers.</p>
+      <p class="hint">Record yourself singing, then come back here. Songbird listens and suggests what fits your voice.</p>
       ${filledButton(`${ms("mic")}Record my vocal`, `data-action="panel" data-panel="record"`)}`
   }
+  const study = vocal.studyFor === buffers.get(lead.id + ":audio") ? vocal.study : null
+  if (!study && !vocal.working) setTimeout(() => {
+    studyVocal(lead).then(() => state.panel === "vocal" && renderInspector()).catch(() => {})
+  }, 0)
   const busy = vocal.working || state.transforming ? "disabled" : ""
   const takes = vocalTakes()
   const singers = singersOf(lead)
   const hasChorus = chorusSections().length > 0
   const where = vocal.where || (hasChorus ? "chorus" : "song")
+  const using = singers.length ? lead.idea || vocal.idea : null
   const done = (on) => (on ? `<span class="done-tag">${ms("check")}Done</span>` : "")
+  const order = study ? ideaOrder(study) : ["soul", "gospel", "harmony", "doubles"]
   return `${head("Your vocal")}
     ${takes.length > 1 ? `<div class="choices" role="group" aria-label="Which vocal">${takes.map((item) => filterChip(esc(item.name), `data-vocal-pick="${item.id}" ${busy}`, item.id === lead.id)).join("")}</div>` : ""}
+    <div class="vocal-heard">${ms("hearing")}<p>${study ? esc(heardLine(study)) : "Listening to your singing…"}</p></div>
     ${filledButton(`${ms("auto_awesome")}${vocal.working ? esc(vocal.working) : "Do it all"}`, `data-vocal-do="all" ${busy}`)}
-    <p class="hint">Lines it up with the beat, gives it a studio sound, makes room in the music, and adds background singers. One Undo takes it all back.</p>
+    <p class="hint">Slides your lines into place, gives your voice a studio sound, makes room in the music, and brings in the singers that fit you best. One Undo takes it all back.</p>
     <p class="hint vocal-note" id="vocal-note" role="status">${esc(vocal.said)}</p>
 
     <section class="vocal-step">
-      <h3 class="magic-h">1. On the beat ${done(lead.tight)}</h3>
-      <p class="hint">Moves your whole take to sit with the band, then brings late or early words toward the beat.</p>
-      <div class="choices">
-        ${filterChip("Gentle, keeps my feel", `data-vocal-fit="gentle" ${busy}`, vocal.fit === "gentle")}
-        ${filterChip("Tight", `data-vocal-fit="tight" ${busy}`, vocal.fit === "tight")}
-      </div>
-      ${outlinedButton(`${ms("timer")}Fit my vocal to the beat`, `data-vocal-do="fit" ${busy}`)}
-    </section>
-
-    <section class="vocal-step">
-      <h3 class="magic-h">2. Studio sound ${done(lead.shine)}</h3>
-      <p class="hint">Hiss and rumble out, clearer words, softer S sounds, and an even level so every word is heard.</p>
-      ${outlinedButton(`${ms("wand_stars")}Give it a studio sound`, `data-vocal-do="shine" ${busy || (lead.shine ? "disabled" : "")}`)}
-    </section>
-
-    <section class="vocal-step">
-      <h3 class="magic-h">3. Sit on top of the music ${done(lead.lead)}</h3>
-      <p class="hint">While you sing, the music steps back a little and leaves space where your words are. Your voice is set about as loud as the band.</p>
-      ${lead.lead ? outlinedButton(`${ms("close")}Stop making room`, `data-vocal-do="noroom" ${busy}`) : outlinedButton(`${ms("spatial_audio")}Make room for my voice`, `data-vocal-do="room" ${busy}`)}
-    </section>
-
-    <section class="vocal-step">
-      <h3 class="magic-h">4. Background singers ${done(singers.length)}</h3>
-      <p class="hint">Made from your own voice, a little quieter and spread left and right.</p>
-      <div class="choices" role="group" aria-label="Singers">
-        ${SINGERS.map(([id, label]) => filterChip(label, `data-vocal-singer="${id}" ${busy}`, vocal.singers.has(id))).join("")}
+      <h3 class="magic-h">Background singers ${done(singers.length)}</h3>
+      <p class="hint">Picked for how you sing. Tap one to hear it with the song; tap another to compare.</p>
+      <div class="idea-list">
+        ${order.map((id, index) => {
+          const idea = SINGER_IDEAS[id]
+          const on = using === id
+          return `<button class="idea-card${on ? " on" : ""}" data-vocal-idea="${id}" ${busy} aria-pressed="${on}">
+            <span class="idea-top"><b>${esc(idea.name)}</b>${index === 0 && study ? `<span class="idea-tag">Best fit</span>` : ""}${on ? `<span class="idea-tag on">${ms("volume_up")}In use</span>` : ""}</span>
+            <small>${esc(idea.line)}</small>
+          </button>`
+        }).join("")}
       </div>
       ${hasChorus ? `<div class="choices" role="group" aria-label="Where they sing">
         ${filterChip("In the choruses", `data-vocal-where="chorus" ${busy}`, where === "chorus")}
         ${filterChip("The whole song", `data-vocal-where="song" ${busy}`, where === "song")}
       </div>` : ""}
-      ${outlinedButton(`${ms("record_voice_over")}${singers.length ? "Make them again" : "Add background singers"}`, `data-vocal-do="singers" ${busy}`)}
       ${singers.length ? outlinedButton(`${ms("delete")}Take them out`, `data-vocal-do="nosingers" ${busy}`) : ""}
+    </section>
+
+    <section class="vocal-step">
+      <h3 class="magic-h">On the beat ${done(lead.tight)}</h3>
+      <p class="hint">Each line you sang slides, whole, to where it fits the beat: on the one, or a beat or half beat from it. Nothing inside your singing is stretched.</p>
+      <div class="choices">
+        ${filterChip("Also tighten words", `data-vocal-tight ${busy}`, vocal.tight)}
+      </div>
+      ${outlinedButton(`${ms("timer")}Slide my lines into place`, `data-vocal-do="fit" ${busy}`)}
+    </section>
+
+    <section class="vocal-step">
+      <h3 class="magic-h">Studio sound ${done(lead.shine)}</h3>
+      <p class="hint">Hiss and rumble out, clearer words, softer S sounds, and an even level so every word is heard.</p>
+      ${outlinedButton(`${ms("wand_stars")}Give it a studio sound`, `data-vocal-do="shine" ${busy || (lead.shine ? "disabled" : "")}`)}
+    </section>
+
+    <section class="vocal-step">
+      <h3 class="magic-h">Sit on top of the music ${done(lead.lead)}</h3>
+      <p class="hint">While you sing, the music steps back a little and leaves space where your words are.</p>
+      ${lead.lead ? outlinedButton(`${ms("close")}Stop making room`, `data-vocal-do="noroom" ${busy}`) : outlinedButton(`${ms("spatial_audio")}Make room for my voice`, `data-vocal-do="room" ${busy}`)}
     </section>`
 }
 
@@ -505,17 +646,17 @@ function openVocal(id) {
   renderTracks()
 }
 
-async function runVocal(action) {
+async function runVocal(action, idea) {
   const lead = leadVocal()
   if (!lead) return
   if (!vocal.where) vocal.where = chorusSections().length ? "chorus" : "song"
   let reply
   if (action === "all") reply = await vocalAll(lead)
-  else if (action === "fit") reply = await fitVocal(lead, vocal.fit)
+  else if (action === "idea") reply = await useIdea(lead, idea, vocal.where)
+  else if (action === "fit") reply = await fitVocal(lead, vocal.tight)
   else if (action === "shine") reply = await shineVocal(lead)
   else if (action === "room") reply = await makeRoom(lead)
   else if (action === "noroom") reply = noRoom(lead)
-  else if (action === "singers") reply = await addSingers(lead, vocal.singers, vocal.where)
   else if (action === "nosingers") reply = removeSingers(lead)
   if (reply?.text) {
     vocalSay(reply.text)
@@ -525,7 +666,7 @@ async function runVocal(action) {
 }
 
 document.body.addEventListener("click", (event) => {
-  const node = event.target.closest?.("[data-vocal-open],[data-vocal-pick],[data-vocal-do],[data-vocal-fit],[data-vocal-singer],[data-vocal-where]")
+  const node = event.target.closest?.("[data-vocal-open],[data-vocal-pick],[data-vocal-do],[data-vocal-tight],[data-vocal-idea],[data-vocal-where]")
   if (!node || node.disabled) return
   const d = node.dataset
   if (d.vocalOpen != null) return openVocal(d.vocalOpen)
@@ -534,12 +675,12 @@ document.body.addEventListener("click", (event) => {
     state.selected = d.vocalPick
     renderTracks()
   }
-  if (d.vocalFit) vocal.fit = d.vocalFit
-  if (d.vocalSinger) {
-    if (vocal.singers.has(d.vocalSinger)) vocal.singers.delete(d.vocalSinger)
-    else vocal.singers.add(d.vocalSinger)
-  }
+  if (d.vocalTight != null) vocal.tight = !vocal.tight
   if (d.vocalWhere) vocal.where = d.vocalWhere
+  if (d.vocalIdea) {
+    void runVocal("idea", d.vocalIdea)
+    return
+  }
   if (d.vocalDo) {
     void runVocal(d.vocalDo)
     return
