@@ -538,6 +538,7 @@ async function vocalAll(lead) {
     if (reply?.warn) said.push(reply.text)
   }
   undoStack.splice(mark + 1)
+  labelTop("Do it all on your vocal")
   const text = `Your lines are slid into place, your vocal has a studio sound and sits on top of the music, with ${SINGER_IDEAS[best].name.toLowerCase()} behind you${chorusSections().length && vocal.where !== "song" ? " in the choruses" : ""}. Try the other singer ideas to compare.${said.length ? ` ${said.join(" ")}` : ""} One Undo takes it all back.`
   return { text }
 }

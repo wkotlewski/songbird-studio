@@ -1687,3 +1687,20 @@ html, body { touch-action: manipulation; }
 .studio-step.done { border-color: var(--md-primary, #34d399); }
 .studio-block .quick-grid { grid-template-columns: 1fr; } .studio-block .quick-card { min-height: 0; }
 .studio-step .step-extra { grid-column: 2; display: grid; gap: 6px; } .studio-step .tone-fine summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; font-size: 14px; opacity: 0.85; }
+
+/* History */
+.versions { list-style: none; margin: 6px 0 12px; padding: 0; display: grid; gap: 6px; }
+.version {
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center;
+  padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255, 251, 242, 0.14); background: rgba(255, 251, 242, 0.04);
+}
+.version-time { font-size: 13px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.version-what { line-height: 1.3; }
+.version-go {
+  grid-column: 2; justify-self: start; min-height: 36px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer;
+}
+.versions.undone .version { opacity: 0.7; border-style: dashed; }
+
+/* The timeline scrolls to the end of the song and no further. */
+.timeline-inner { overflow-x: clip; }
