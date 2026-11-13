@@ -1704,6 +1704,11 @@ html, body { touch-action: manipulation; }
   border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer;
 }
 .versions.undone .version { opacity: 0.7; border-style: dashed; }
+.version-what .version-tag { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; vertical-align: 1px; white-space: nowrap; }
+.version-tag .ms { font-size: 14px; }
+.version-tag.song { background: rgba(52, 211, 153, 0.15); color: #a7f3d0; }
+.version-tag.layer { background: rgba(249, 168, 212, 0.18); color: #fbcfe8; }
+.version-go .ms { font-size: 18px; vertical-align: -4px; margin-right: 4px; }
 
 /* The timeline scrolls to the end of the song and no further. */
 .timeline-inner { overflow-x: clip; }
