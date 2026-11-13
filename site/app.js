@@ -1214,9 +1214,9 @@ function entryScope(entry, after, audio) {
 }
 
 function scopeTag(scope) {
-  if (scope.song || !scope.layers.length) return `<span class="version-tag song">${ms("album")}Whole song</span>`
+  if (scope.song || !scope.layers.length) return `<span class="version-tag vt-song">${ms("album")}Whole song</span>`
   const name = scope.names.get(scope.layers[0]) || "A layer"
-  return `<span class="version-tag layer">${esc(name)}</span>`
+  return `<span class="version-tag vt-layer">${esc(name)}</span>`
 }
 
 function historyPanel(head) {
@@ -1233,28 +1233,78 @@ function historyPanel(head) {
     try { scope = changeScope(before, entry.raw) } catch { scope = { layers: [], names: new Map(), song: true } }
     return { entry, index, scope }
   })
-  const touches = (scope) => !only || scope.layers.includes(only.id)
-  const row = (entry, scope, button) => `<li class="version">
-      <span class="version-time">${esc(timeLabel(entry.time))}</span>
-      <span class="version-what">${esc(entry.label || "A change")}${only ? "" : scopeTag(scope)}</span>
-      ${button}
+  const open = state.versionOpen
+  const preview = state.versionPreview
+  // A change, closed: when, what, and where. Tap it for what you can do.
+  const row = (key, entry, scope, actions) => `<li class="version ${open === key ? "open" : ""}">
+      <button class="version-head" data-version-open="${key}" aria-expanded="${open === key}">
+        <span class="version-time">${esc(timeLabel(entry.time))}</span>
+        <span class="version-what">${esc(entry.label || "A change")}${only ? "" : scopeTag(scope)}</span>
+        ${ms(open === key ? "expand_less" : "expand_more")}
+      </button>
+      ${open === key ? `<div class="version-do">${actions}</div>` : ""}
     </li>`
-  if (only) {
-    // One layer: its own changes, and a way to put just it back.
-    const mine = done.filter(({ scope }) => touches(scope))
-    return `${head("History")}
-      <p class="hint">Changes to ${esc(only.name)} since you opened the song, newest first. Put it back to how it was before any of them. The rest of the song stays as it is.</p>
-      ${mine.length ? `<ol class="versions">${mine.map(({ entry, index, scope }) => row(entry, scope, `<button class="version-go" data-layer-back="${index}" data-id="${only.id}">${ms("undo")}Put it back to before this</button>`)).join("")}</ol>` : `<p class="empty">No changes to ${esc(only.name)} yet.</p>`}
-      <p class="hint">Each one is a single Undo, so you can change your mind.</p>`
-  }
-  const back = done.map(({ entry, scope }, i) => row(entry, scope, `<button class="version-go" data-version="back" data-count="${i + 1}">Go back to before this</button>`)).join("")
+  const doneRows = done
+    .filter(({ scope }) => !only || scope.layers.includes(only.id))
+    .map(({ entry, index, scope }) => {
+      const count = undoStack.length - index
+      const layerId = only ? only.id : !scope.song && scope.layers.length === 1 ? scope.layers[0] : null
+      const layerName = layerId ? (state.layers.find((layer) => layer.id === layerId)?.name || scope.names.get(layerId)) : ""
+      const later = layerId ? done.some((item) => item.index > index && item.scope.layers.includes(layerId)) : false
+      const actions = [
+        `<button class="version-btn" data-version-hear="${count}">${ms("play_arrow")}Hear the song before this</button>`,
+        layerId && state.layers.some((layer) => layer.id === layerId) || (layerId && !scope.before?.layers?.some((layer) => layer.id === layerId))
+          ? `<button class="version-btn" data-layer-back="${index}" data-id="${layerId}">${ms("undo")}Undo just this, on ${esc(layerName)}${later ? " (and its later changes)" : ""}</button>`
+          : "",
+        only ? "" : `<button class="version-btn" data-version="back" data-count="${count}">${ms("history")}Go back to before this (undoes it and everything after)</button>`,
+      ].join("")
+      return row(`d${index}`, entry, scope, actions)
+    })
+  const undoneRows = only ? [] : undone.map(({ entry, index, scope }) => row(`u${index}`, entry, scope,
+    `<button class="version-btn" data-version="forward" data-count="${redoStack.length - index}">${ms("redo")}Bring back up to here</button>`))
   return `${head("History")}
-    <p class="hint">Every change since you opened the song, newest first. Each says if it was the whole song or one layer. Go back to any point; Redo comes forward again. To see one layer's changes, tap One layer.</p>
-    ${undone.length ? `<p class="ask">Undone (you can bring these back)</p>
-    <ol class="versions undone">${undone.map(({ entry, index, scope }) => row(entry, scope, `<button class="version-go" data-version="forward" data-count="${redoStack.length - index}">Bring back up to here</button>`)).join("")}</ol>` : ""}
+    ${preview ? `<div class="version-preview" role="status">
+      ${ms("headphones")}<span>You're hearing the song before <b>“${esc(preview.label || "that change")}”</b>.</span>
+      <div class="row tight">
+        <button class="btn btn-primary" data-version-keep>Keep this version</button>
+        <button class="btn btn-secondary" data-version-return>Back to now</button>
+      </div>
+    </div>` : ""}
+    <p class="hint">${only
+      ? `Changes to ${esc(only.name)} since you opened the song, newest first. Tap one to hear the song before it, or undo just it.`
+      : "Every change since you opened the song, newest first, marked Whole song or with its layer. Tap one to hear the song before it, undo just that change, or go back to that point."}</p>
+    ${undoneRows.length && !preview ? `<p class="ask">Undone (you can bring these back)</p><ol class="versions undone">${undoneRows.join("")}</ol>` : ""}
     <p class="ask">${ms("radio_button_checked")} Now</p>
-    ${done.length ? `<ol class="versions">${back}</ol>` : `<p class="empty">No changes yet. As you work, each change shows up here.</p>`}
+    ${doneRows.length ? `<ol class="versions">${doneRows.join("")}</ol>` : `<p class="empty">${only ? `No changes to ${esc(only.name)} yet.` : "No changes yet. As you work, each change shows up here."}</p>`}
     <p class="hint">History lasts while the app is open. Your saved song keeps its latest version.</p>`
+}
+
+// Hear the song as it was before a change: step back to it and play from
+// where you were then. Keep it, or come back to now.
+function hearVersion(count) {
+  const entry = undoStack[undoStack.length - count]
+  if (!entry) return
+  if (state.versionPreview) returnFromPreview(true)
+  let at = 0
+  try { at = Math.max(0, (JSON.parse(entry.raw).playAt || 0) - 1) } catch { /* from the top */ }
+  for (let i = 0; i < count; i++) stepBack()
+  state.versionPreview = { count, label: entry.label }
+  state.versionOpen = null
+  renderInspector()
+  if ($("inspector")) $("inspector").scrollTop = 0
+  play(at)
+}
+
+function returnFromPreview(quiet) {
+  const preview = state.versionPreview
+  if (!preview) return
+  if (playing) stopPlayback()
+  for (let i = 0; i < preview.count; i++) stepForward()
+  state.versionPreview = null
+  if (!quiet) {
+    renderInspector()
+    $("save-status").textContent = "Back to now."
+  }
 }
 
 // Put one layer back to how it was before a change, leaving the rest.
@@ -1367,6 +1417,7 @@ function placeSheet() {
 window.addEventListener("resize", () => placeSheet())
 
 function setPanel(panel) {
+  if (state.versionPreview && panel !== "history") returnFromPreview(true)
   if (state.panel !== panel && $("inspector")) $("inspector").scrollTop = 0
   state.panel = panel
   document.body.dataset.panel = panel
@@ -1375,6 +1426,7 @@ function setPanel(panel) {
 }
 
 function closePanel() {
+  if (state.versionPreview) returnFromPreview(true)
   document.body.classList.remove("sheet-open")
   document.body.classList.add("inspector-closed")
   syncDock()
@@ -2610,7 +2662,7 @@ function renderMix(head, layer) {
       </label>
       ${outlinedButton(`${ms("undo")}Put timing back`, `data-action="revert-timing" ${canRevertTiming ? "" : "disabled"}`)}
     </details>
-    ${magicLog()}`
+`
 }
 
 // What Make it studio quality does, step by step. The Mixer shows exactly
@@ -6840,13 +6892,39 @@ document.body.addEventListener("change", (event) => {
 document.body.addEventListener("click", (event) => {
   const node = event.target.closest?.("[data-version]")
   if (!node) return
+  if (state.versionPreview) returnFromPreview(true)
+  state.versionOpen = null
   goToVersion(node.dataset.version, Number(node.dataset.count) || 1)
 })
 
 document.body.addEventListener("click", (event) => {
-  const node = event.target.closest?.("[data-layer-back]")
+  const node = event.target.closest?.("[data-layer-back],[data-version-open],[data-version-hear],[data-version-keep],[data-version-return]")
   if (!node) return
-  layerBack(Number(node.dataset.layerBack), node.dataset.id)
+  const d = node.dataset
+  if (d.versionOpen) {
+    state.versionOpen = state.versionOpen === d.versionOpen ? null : d.versionOpen
+    renderInspector()
+    return
+  }
+  if (d.versionHear) {
+    hearVersion(Number(d.versionHear))
+    return
+  }
+  if (d.versionKeep != null) {
+    const label = state.versionPreview?.label
+    state.versionPreview = null
+    if (playing) stopPlayback()
+    rememberSong()
+    renderInspector()
+    $("save-status").textContent = `Kept the song from before “${label || "that change"}”. Redo brings the later changes back.`
+    return
+  }
+  if (d.versionReturn != null) {
+    returnFromPreview()
+    return
+  }
+  if (state.versionPreview) returnFromPreview(true)
+  layerBack(Number(d.layerBack), d.id)
 })
 
 // Hold Undo (or Redo) to see every change.
