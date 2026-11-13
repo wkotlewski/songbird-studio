@@ -299,7 +299,7 @@ function fitLength(samples, length, loopSamples) {
 }
 
 async function retakePart(layer, issues = fix.issues) {
-  if (!fixable(layer)) return { text: "Pick a part Songbird added. Your own recordings stay as you made them.", warn: true }
+  if (!fixable(layer)) return { text: "Pick a layer Songbird added. Your own recordings stay as you made them.", warn: true }
   if (fix.working || state.transforming) return { text: "Still working on the last one." }
   const { make, said } = retakeChoice(layer, new Set(issues))
   fix.working = true
@@ -345,7 +345,7 @@ async function retakePart(layer, issues = fix.issues) {
 // ---------------------------------------------------------------------------
 // Less of it, more of it: which sections a part plays in
 
-function songSections() {
+function partSections() {
   const total = state.lengthSec || 0
   if (state.sections?.length && total) return state.sections.map((section) => ({ name: section.name, start: section.start * total, end: section.end * total }))
   // No sections yet: four-bar stretches.
@@ -426,14 +426,14 @@ function sectionList(names) {
 }
 
 function playWhereItPlays(layer) {
-  const sections = songSections()
+  const sections = partSections()
   const first = sections.find((section) => restingIn(layer, section) < 0.5)
   play(first ? Math.max(0, first.start - 1) : 0)
 }
 
 function lessOf(layer) {
   if (!layer) return { text: "Pick the part you want less of.", warn: true }
-  const sections = songSections()
+  const sections = partSections()
   const on = sections.map((section, index) => ({ section, index, score: importance(section, index, sections) })).filter((item) => restingIn(layer, item.section) < 0.5)
   snapshot([layer.id])
   let text
@@ -460,7 +460,7 @@ function lessOf(layer) {
 
 function moreOf(layer) {
   if (!layer) return { text: "Pick the part you want more of.", warn: true }
-  const sections = songSections()
+  const sections = partSections()
   // Only where it has something to play and is resting.
   const off = sections.map((section, index) => ({ section, index, score: importance(section, index, sections) })).filter((item) => heardIn(layer, item.section) && restingIn(layer, item.section) >= 0.5)
   snapshot([layer.id])
@@ -566,7 +566,7 @@ function setFixNote(text) {
 }
 
 function wherePlays(layer) {
-  const sections = songSections()
+  const sections = partSections()
   if (!sections.length || sections[0].name === "Part") return ""
   const on = sections.filter((section) => restingIn(layer, section) < 0.5).map((section) => sectionName(section, sections))
   if (!on.length) return "It rests the whole song right now."
@@ -578,8 +578,8 @@ function fixPanel(head) {
   const layer = state.layers.find((item) => item.id === (fix.layerId || state.selected))
   if (!fixable(layer)) {
     const parts = state.layers.filter(fixable)
-    return `${head("Fix a part")}
-      <p class="hint">${parts.length ? "Pick a part Songbird added." : "Parts Songbird adds can be fixed here. Your own recordings stay as you made them."}</p>
+    return `${head("Fix a layer")}
+      <p class="hint">${parts.length ? "Pick a layer Songbird added." : "Layers Songbird adds can be fixed here. Your own recordings stay as you made them."}</p>
       <div class="choices">${parts.map((item) => `<button class="chip" data-fix-open="${item.id}">${esc(item.name)}</button>`).join("")}</div>`
   }
   const busy = fix.working || state.transforming ? "disabled" : ""
@@ -601,7 +601,7 @@ function fixPanel(head) {
     </div>
     <p class="hint">Less takes it out of the parts of the song that need it least. More brings it back in.</p>
     <p class="hint fix-note" id="fix-note" role="status">${esc(fix.said)}</p>
-    ${others.length ? `<p class="ask">Fix another part</p>
+    ${others.length ? `<p class="ask">Fix another layer</p>
     <div class="choices">${others.map((item) => `<button class="chip" data-fix-open="${item.id}" ${busy}>${esc(item.name)}</button>`).join("")}</div>` : ""}`
 }
 
