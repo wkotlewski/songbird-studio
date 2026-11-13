@@ -2153,6 +2153,7 @@ function renderMix(head, layer) {
       <div class="mix-channel-top">
         <button class="strip-name" data-action="select-layer" data-id="${item.id}">${esc(item.name)}</button>
         <button class="mini" data-browse-open="${item.id}" aria-label="Change ${esc(item.name)} to another sound" title="Change sound">${ms("swap_horiz")}</button>
+        ${item.make ? `<button class="mini" data-fix-open="${item.id}" aria-label="Fix ${esc(item.name)}: another take, less or more of it" title="Fix this part">${ms("tune")}</button>` : ""}
         ${hasNotes(item) ? `<button class="mini" data-notes-open="${item.id}" aria-label="Check the notes in ${esc(item.name)}" title="Notes">${ms("music_note")}</button>` : ""}
         <button class="mini ${item.mute ? "on" : ""}" data-action="toggle-mute" data-id="${item.id}" aria-pressed="${item.mute ? "true" : "false"}" aria-label="Mute ${esc(item.name)}" title="Mute">${ms("volume_off")}</button>
         <button class="mini ${item.solo ? "on" : ""}" data-action="toggle-solo" data-id="${item.id}" aria-pressed="${item.solo ? "true" : "false"}" aria-label="Solo ${esc(item.name)}" title="Solo">${ms("hearing")}</button>
@@ -2452,6 +2453,8 @@ function renderInspector() {
     body = soundsPanel(head)
   } else if (state.panel === "notes") {
     body = noteCheckPanel(head)
+  } else if (state.panel === "fix") {
+    body = fixPanel(head)
   } else if (state.panel === "arrange") {
     body = arrangeMarkup(head)
   } else if (state.panel === "build") {
@@ -2843,8 +2846,8 @@ function rememberSong() {
   state.song.fadeOut = state.fadeOut || 0
   state.song.era = state.era
   state.song.songKey = state.songKey ?? null
-  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole }) => ({
-    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole,
+  state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried }) => ({
+    id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried,
   }))
   state.song.audioKept = state.layers.some((layer) => buffers.get(layer.id + ":audio"))
   const stored = saveSongs()

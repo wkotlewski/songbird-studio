@@ -272,6 +272,10 @@ async function buildPart(choice, source) {
       low: info?.low,
       high: info?.high,
       transpose: state.transpose || 0,
+      variant: choice.variant || 0,
+      voicing: choice.voicing || 0,
+      steady: choice.steady,
+      plain: !!choice.plain,
     })
   } else if (audio) {
     plan = await engine.call("planPerformance", samplesOf(audio), audio.sampleRate, {
@@ -288,6 +292,10 @@ async function buildPart(choice, source) {
       high: info?.high,
       snap: true,
       transpose: state.transpose || 0,
+      variant: choice.variant || 0,
+      voicing: choice.voicing || 0,
+      steady: choice.steady,
+      plain: !!choice.plain,
     })
   } else if (drums && melodyLayer()) {
     // Nothing to drum along with: build a groove that fits the song itself.
@@ -305,6 +313,7 @@ async function buildPart(choice, source) {
     if (plan.loop) plan.total = Math.max(plan.total, seconds)
   }
   if (plan.error) return { error: plan.error }
+  if (typeof reshapePlan === "function") reshapePlan(plan, choice, info)
   if (drums && !(plan.hits || []).length) return { error: "no-hits" }
   const seconds = plan.loop ? plan.pass : plan.total
   const body = await SongbirdSampler.render(plan, {
@@ -953,6 +962,9 @@ async function runRequest(raw) {
     document.querySelector('#studio [data-action="undo"]')?.click()
     return { text: "Undone." }
   }
+  // “The guitar riff is weird”, “less congas”, “more strings”.
+  const fixed = typeof fixRequest === "function" ? await fixRequest(text) : null
+  if (fixed) return fixed
   if (/(background|noise|hiss|static|hum noise|room noise|clean (it |the )?(up|audio|sound|recording)|denoise)/.test(text) && !/add/.test(text)) return cleanNoise()
   const tightWords = /(tight|on (the )?beat|in time|timing|quantiz|snap|metronome|off beat|offbeat|rhythm)/
   const tuneWords = /(in tune|pitch|off key|out of tune|flat|sharp|autotune|tune it|tune my|tuned)/
@@ -1104,6 +1116,7 @@ function magicPanel(head) {
       ${filterChip(`${ms("layers")}Whole song`, `data-magic-scope="song"`, state.magicScope !== "layer")}
       ${filterChip(`Just ${esc(target.name)}`, `data-magic-scope="layer"`, state.magicScope === "layer")}
     </div>` : ""}
+    ${typeof fixCard === "function" ? fixCard(state.layers.find((layer) => layer.id === state.selected)) : ""}
     <form class="magic-ask" data-magic-form>
       <label class="sr" for="magic-say">Tell Songbird what you want</label>
       <textarea id="magic-say" rows="2" placeholder="Add a horn section and make it tight" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>

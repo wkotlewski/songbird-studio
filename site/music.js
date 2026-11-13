@@ -2514,6 +2514,15 @@ function bassRoot(chord, low) {
   return root
 }
 
+// Strum patterns, in eighths across a bar.
+const STRUMS = [
+  [[0, "D"], [2, "D"], [3, "U"], [5, "U"], [6, "D"], [7, "U"]],
+  [[0, "D"], [4, "D"]],
+  [[0, "D"], [1, "U"], [2, "D"], [3, "U"], [4, "D"], [5, "U"], [6, "D"], [7, "U"]],
+  [[0, "D"], [3, "U"], [4, "D"], [6, "D"], [7, "U"]],
+  [[2, "D"], [6, "D"]],
+]
+
 function accompany(harmony, options) {
   const beat = options.beat
   const style = options.style || "block"
@@ -2533,11 +2542,13 @@ function accompany(harmony, options) {
     // string section would: each voice moves to the nearest note of the next
     // chord, a note both chords share keeps sounding, and chords overlap a
     // little so there's no gap between them.
+    // Another take: 1 sings each chord fresh, 2 pulses on the beat.
+    const pulse = (options.variant || 0) % 3
     const blocks = []
     for (let i = 0; i < harmony.length; i++) {
       const chord = harmony[i]
       let dur = chord.dur
-      while (i + 1 < harmony.length && harmony[i + 1].degree === chord.degree) {
+      while (!pulse && i + 1 < harmony.length && harmony[i + 1].degree === chord.degree) {
         dur += harmony[i + 1].dur
         i++
       }
@@ -2545,7 +2556,8 @@ function accompany(harmony, options) {
     }
     const low = Math.max(options.low, 40)
     const high = options.high
-    const center = Math.max(low + 7, Math.min(high - 7, options.center || 62))
+    const lift = [0, 5, -5][(options.voicing || 0) % 3]
+    const center = Math.max(low + 7, Math.min(high - 7, (options.center || 62) + lift))
     const withBass = options.withBass
     let prev = null
     const open = []
@@ -2569,7 +2581,7 @@ function accompany(harmony, options) {
       voices.forEach((midi, n) => {
         const held = open[n]
         // A shared note carries on into the next chord.
-        if (held && held.midi === midi && Math.abs(held.time + held.dur - block.time) < 0.05) {
+        if (!pulse && held && held.midi === midi && Math.abs(held.time + held.dur - block.time) < 0.05) {
           held.dur = end - held.time
           return
         }
@@ -2581,6 +2593,15 @@ function accompany(harmony, options) {
         events.push(event)
       })
     })
+    if (pulse === 2) {
+      // Pulsing: each chord sung again on every beat, a little short.
+      const pulsed = []
+      for (const event of events) {
+        for (let t = event.time; t < event.time + event.dur - beat * 0.5; t += beat) pulsed.push({ ...event, time: t, dur: beat * 0.82, vel: event.vel * (Math.round((t - event.time) / beat) % 2 ? 0.86 : 1), attack: 0.05 })
+      }
+      events.length = 0
+      events.push(...pulsed)
+    }
     // Keep the times inside the pass, wrapping a loop's pickup to the end.
     return events.filter((event) => {
       if (event.time < 0) {
@@ -2591,11 +2612,18 @@ function accompany(harmony, options) {
       return true
     }).map((event) => ({ ...event, dur: Math.min(event.dur, pass + 0.06 - event.time) }))
   }
+  const variant = options.variant || 0
   for (const chord of harmony) {
-    const tones = voiceChord(chord, style, options.low, options.high)
+    let tones = voiceChord(chord, style, options.low, options.high)
+    // Another voicing: 1 turns the chord over (lowest note up an octave),
+    // 2 plays it lower and simpler.
+    const voicing = (options.voicing || 0) % 3
+    if (voicing === 1 && tones.length > 2 && tones[0] + 12 <= options.high + 2) tones = [...tones.slice(1), tones[0] + 12].sort((a, b) => a - b)
+    if (voicing === 2) tones = tones.slice(0, 3).map((m) => (m - 12 >= options.low ? m - 12 : m)).sort((a, b) => a - b)
     if (style === "strum") {
-      // Down, down-up, up-down-up: the pattern most players reach for.
-      const pattern = [[0, "D"], [2, "D"], [3, "U"], [5, "U"], [6, "D"], [7, "U"]]
+      // Down, down-up, up-down-up: the pattern most players reach for. Other
+      // takes: two big strums, straight eighths, an island feel, the off-beat.
+      const pattern = STRUMS[variant % STRUMS.length]
       const halfBar = Math.round(((chord.time - options.phase) / (beat * 2))) % 2 === 0 ? 0 : 4
       const eighth = beat / 2
       for (const [slot, way] of pattern) {
@@ -2608,15 +2636,35 @@ function accompany(harmony, options) {
       }
     } else if (style === "stab") {
       // Horn stabs: short and punchy on the one, and a push on the and of
-      // two, the way a horn section punches a groove.
-      tones.forEach((midi, n) => put(midi, chord.time, beat * 0.35, n === 0 ? 0.95 : 0.85))
-      tones.forEach((midi, n) => put(midi, chord.time + beat * 1.5, beat * 0.3, n === 0 ? 0.8 : 0.7))
+      // two, the way a horn section punches a groove. Other takes: just the
+      // one, the off-beat, or a long swell.
+      const take = variant % 4
+      if (take === 0) {
+        tones.forEach((midi, n) => put(midi, chord.time, beat * 0.35, n === 0 ? 0.95 : 0.85))
+        tones.forEach((midi, n) => put(midi, chord.time + beat * 1.5, beat * 0.3, n === 0 ? 0.8 : 0.7))
+      } else if (take === 1) tones.forEach((midi, n) => put(midi, chord.time, beat * 0.5, n === 0 ? 0.95 : 0.85))
+      else if (take === 2) tones.forEach((midi, n) => put(midi, chord.time + beat, beat * 0.3, n === 0 ? 0.88 : 0.78))
+      else tones.forEach((midi, n) => put(midi, chord.time, beat * 1.85, n === 0 ? 0.72 : 0.62))
     } else if (style === "beat") {
-      for (let b = 0; b < 2; b++) tones.forEach((midi, n) => put(midi, chord.time + b * beat, beat * 0.9, b === 0 ? 0.8 : 0.68))
+      const off = variant % 2 ? beat / 2 : 0
+      for (let b = 0; b < 2; b++) tones.forEach((midi, n) => put(midi, chord.time + b * beat + off, off ? beat * 0.4 : beat * 0.9, b === 0 ? 0.8 : 0.68))
     } else {
-      // Block chords: on the half-bar, held, with a lighter one on the off-beat.
-      tones.forEach((midi, n) => put(midi, chord.time, beat * 1.9, n === 0 ? 0.8 : 0.7))
-      tones.slice(1).forEach((midi) => put(midi, chord.time + beat * 1.5, beat * 0.45, 0.45))
+      const take = variant % 4
+      if (take === 1) {
+        // One chord, held.
+        tones.forEach((midi, n) => put(midi, chord.time, beat * 1.95, n === 0 ? 0.78 : 0.68))
+      } else if (take === 2) {
+        // On every beat.
+        for (let b = 0; b < 2; b++) tones.forEach((midi, n) => put(midi, chord.time + b * beat, beat * 0.85, (b ? 0.62 : 0.76) - (n ? 0.06 : 0)))
+      } else if (take === 3) {
+        // Broken chord: the notes one at a time, in eighths.
+        const order = [0, 1, 2, 1].map((i) => tones[Math.min(i, tones.length - 1)])
+        order.forEach((midi, i) => put(midi, chord.time + (i * beat) / 2, beat * 0.55, i ? 0.6 : 0.75))
+      } else {
+        // Block chords: on the half-bar, held, with a lighter one on the off-beat.
+        tones.forEach((midi, n) => put(midi, chord.time, beat * 1.9, n === 0 ? 0.8 : 0.7))
+        tones.slice(1).forEach((midi) => put(midi, chord.time + beat * 1.5, beat * 0.45, 0.45))
+      }
     }
   }
   return events
@@ -2651,11 +2699,15 @@ function voicePlan(melody, options, key) {
       let root = low + ((chord.root - low) % 12 + 12) % 12
       if (root > low + 9) root -= 12
       if (root < low) root += 12
-      const times = touch === "held" ? [0] : touch === "beat" ? [0, 1] : [0, 1.5]
-      for (const b of times) {
+      // Another take: root and fifth, held, eighths, or an octave jump.
+      const take = (options.variant || 0) % 5
+      const fifth = ((chord.tones[2] - chord.root) % 12 + 12) % 12
+      const steps = take === 1 ? [[0, 0, 0.9], [1, fifth, 0.8]] : take === 2 ? [[0, 0, chord.dur / beat]] : take === 3 ? [[0, 0, 0.45], [0.5, 0, 0.45], [1, 0, 0.45], [1.5, 0, 0.45]] : take === 4 ? [[0, 0, 0.9], [1, 12, 0.4], [1.5, fifth, 0.45]] : null
+      const times = steps || (touch === "held" ? [[0, 0, chord.dur / beat]] : touch === "beat" ? [[0, 0, 0.9], [1, 0, 0.9]] : [[0, 0, 1.4], [1.5, 0, 0.45]])
+      for (const [b, step, len] of times) {
         let t = chord.time + b * beat
         if (t < 0 && options.loop) t += total
-        if (t >= 0 && t < total - 0.03) add(root, t, Math.min(touch === "held" ? chord.dur * 0.95 : beat * (b ? 0.45 : 1.4), total - t), b ? 0.75 : 0.95)
+        if (t >= 0 && t < total - 0.03) add(root + step, t, Math.min(len * beat * 0.98, total - t), b ? 0.75 : 0.95)
       }
     }
     return events
@@ -2663,7 +2715,7 @@ function voicePlan(melody, options, key) {
   if (figure === "chords" && options.harmony) return accompany(options.harmony, { ...options, low: Math.max(low, 40), high, withBass: options.style === "held" && options.organ })
   if (figure === "section" && options.harmony && options.style === "held") {
     // A choir or string section: held, voice-led chords, a little higher.
-    return accompany(options.harmony, { ...options, style: "held", low: Math.max(low, 48), high, center: Math.min(high - 5, 66), gospel: options.voices, key })
+    return accompany(options.harmony, { ...options, style: "held", low: Math.max(low, 48), high, center: Math.min(high - 5, 66), gospel: options.voices && !options.plain, key })
   }
   if (figure === "bass") {
     // A bass line: the root under each bar, on beats 1 and 3, with the
@@ -2920,7 +2972,7 @@ function planFromNotes(notes, options = {}) {
   const shifted = options.transpose ? { ...key, root: (key.root + options.transpose + 120) % 12 } : key
   if (options.figure !== "bass") melody = fitRange(melody, options.low, options.high)
   const heldSection = options.figure === "section" && options.style === "held"
-  const harmony = options.figure === "chords" || options.figure === "bass" || heldSection ? harmonize(melody, shifted, beat, phase, pass, { steady: options.style === "held" }) : null
+  const harmony = options.figure === "chords" || options.figure === "bass" || heldSection ? harmonize(melody, shifted, beat, phase, pass, { steady: options.steady ?? options.style === "held" }) : null
   const events = voicePlan(melody, { ...options, total: pass, beat, phase, harmony, loop }, shifted)
   return { events, key: shifted, pass, total, loop, melody, harmony, grid: { beat, phase } }
 }
