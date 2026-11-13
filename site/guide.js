@@ -144,7 +144,7 @@ function guideText(step, facts) {
     case "polish":
       return {
         title: "Make it sound great",
-        hint: "One tap balances everything so every sound can be heard. You can still change any sound in Sounds.",
+        hint: "One tap balances everything so every sound can be heard. Or open the Mixer for studio quality in one tap.",
       }
     default:
       return {
