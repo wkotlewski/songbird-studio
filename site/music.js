@@ -3348,6 +3348,178 @@ function vocalStudy(samples, sampleRate, options = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Harmony in your own voice: your take, pitch for pitch, moved to a note of
+// the band's chord above (or below) each note you sing. Your slides,
+// vibrato, words and timing stay yours. It's pitch-synchronous (one cycle
+// of your voice at a time), which keeps the sound of your voice instead of
+// making it chipmunk-high or robot-low.
+
+// Your pitch every ~6 ms, as fractional MIDI notes (null when not sung).
+function voiceContour(audio) {
+  const down = downsample(audio)
+  const rate = down.sampleRate
+  const win = 512
+  const hop = 64
+  const frames = []
+  let loudest = 0
+  for (let start = 0; start + win < down.samples.length; start += hop) {
+    let sum = 0
+    for (let i = start; i < start + win; i += 4) sum += down.samples[i] * down.samples[i]
+    const level = Math.sqrt(sum / (win / 4))
+    loudest = Math.max(loudest, level)
+    frames.push({ time: (start + win / 2) / rate, level })
+  }
+  const floor = loudest * 0.06
+  const midi = frames.map((frame, index) => {
+    if (frame.level < floor) return null
+    const start = index * hop
+    const hz = yinPitch(down.samples.subarray(start, start + win), rate, 75, 1000)
+    return hz ? 69 + 12 * Math.log2(hz / 440) : null
+  })
+  // Smooth out single-frame octave jumps.
+  const smooth = midi.map((value, index) => {
+    if (value == null) return null
+    const near = midi.slice(Math.max(0, index - 2), index + 3).filter((item) => item != null).sort((a, b) => a - b)
+    return near[Math.floor(near.length / 2)]
+  })
+  return { times: frames.map((frame) => frame.time), midi: smooth, step: hop / rate }
+}
+
+// Steady stretches of pitch: the notes you meant, not the slides between.
+function steadyNotes(contour) {
+  const notes = []
+  let run = []
+  const close = () => {
+    if (run.length * contour.step >= 0.09) {
+      const sorted = run.map((index) => contour.midi[index]).sort((a, b) => a - b)
+      notes.push({ start: contour.times[run[0]], end: contour.times[run[run.length - 1]] + contour.step, midi: sorted[Math.floor(sorted.length / 2)] })
+    }
+    run = []
+  }
+  for (let i = 0; i < contour.midi.length; i++) {
+    const value = contour.midi[i]
+    if (value == null) {
+      close()
+      continue
+    }
+    if (run.length) {
+      const sorted = run.map((index) => contour.midi[index]).sort((a, b) => a - b)
+      if (Math.abs(value - sorted[Math.floor(sorted.length / 2)]) > 0.8) close()
+    }
+    run.push(i)
+  }
+  close()
+  return notes
+}
+
+function chordAtTime(chords, t) {
+  let found = chords[0]
+  for (const chord of chords) if (chord.time <= t + 0.02) found = chord
+  return found
+}
+
+// The harmony note for a sung note: the nearest note of the chord (or, off
+// the chord, of the key) a third-ish above, or below.
+function harmonyNote(midi, chord, key, below) {
+  const sung = Math.round(midi)
+  const pcs = new Set((chord?.tones || []).map((tone) => ((Math.round(tone) % 12) + 12) % 12))
+  const scale = new Set((key.scale || [0, 2, 4, 5, 7, 9, 11]).map((step) => (key.root + step) % 12))
+  const inChord = (note) => pcs.has(((note % 12) + 12) % 12)
+  const inKey = (note) => scale.has(((note % 12) + 12) % 12)
+  const steps = below ? [-3, -4, -5, -8, -9] : [3, 4, 5, 8, 9]
+  if (pcs.size) for (const step of steps) if (inChord(sung + step)) return sung + step
+  for (const step of below ? [-3, -4] : [3, 4]) if (inKey(sung + step)) return sung + step
+  return sung + (below ? -3 : 4)
+}
+
+function psolaShift(audio, contour, shiftAt) {
+  const n = audio.length
+  const out = new Float32Array(n)
+  const periodAt = (t) => {
+    const index = Math.min(contour.midi.length - 1, Math.max(0, Math.round((t - contour.times[0]) / contour.step)))
+    const midi = contour.midi[index]
+    return midi == null ? null : SR / (440 * 2 ** ((midi - 69) / 12))
+  }
+  // Analysis marks: one per cycle of your voice, on its peaks.
+  const marks = []
+  let at = 0
+  while (at < n) {
+    const period = periodAt(at / SR)
+    if (!period) {
+      marks.push({ at, period: Math.round(SR * 0.005), voiced: false })
+      at += Math.round(SR * 0.005)
+      continue
+    }
+    const p = Math.round(period)
+    let best = at
+    let peak = -Infinity
+    for (let i = Math.max(0, at - Math.round(p * 0.3)); i < Math.min(n, at + Math.round(p * 0.3)); i++) {
+      if (audio[i] > peak) {
+        peak = audio[i]
+        best = i
+      }
+    }
+    if (marks.length && best <= marks[marks.length - 1].at) best = marks[marks.length - 1].at + p
+    marks.push({ at: best, period: p, voiced: true })
+    at = best + p
+  }
+  // Synthesis: lay one cycle down every period ÷ ratio.
+  let mark = 0
+  let t = 0
+  while (t < n && marks.length) {
+    while (mark + 1 < marks.length && Math.abs(marks[mark + 1].at - t) <= Math.abs(marks[mark].at - t)) mark++
+    const source = marks[mark]
+    const p = source.period
+    const ratio = source.voiced ? 2 ** (shiftAt(t / SR) / 12) : 1
+    const gain = 1 / ratio
+    for (let k = -p; k < p; k++) {
+      const from = source.at + k
+      const to = Math.round(t) + k
+      if (from < 0 || from >= n || to < 0 || to >= n) continue
+      const w = 0.5 + 0.5 * Math.cos((Math.PI * k) / p)
+      out[to] += audio[from] * w * gain
+    }
+    t += p / ratio
+  }
+  return out
+}
+
+function voiceHarmony(samples, sampleRate, options = {}) {
+  const audio = toEngineRate(samples, sampleRate)
+  const contour = voiceContour(audio)
+  const notes = steadyNotes(contour)
+  if (!notes.length) return { error: "no-notes" }
+  const key = keyFrom(options.key || { root: 0, minor: false })
+  const chords = options.chords || []
+  const start = options.start || 0
+  // How far to move each note you held; slides keep the last move.
+  const shifts = notes.map((note) => ({
+    start: note.start,
+    shift: harmonyNote(note.midi, chordAtTime(chords, start + note.start), key, options.below) - Math.round(note.midi),
+  }))
+  const ramp = 0.04
+  const shiftAt = (t) => {
+    let index = -1
+    let lo = 0
+    let hi = shifts.length - 1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (shifts[mid].start <= t) {
+        index = mid
+        lo = mid + 1
+      } else hi = mid - 1
+    }
+    if (index < 0) return shifts[0].shift
+    const now = shifts[index]
+    const before = index ? shifts[index - 1].shift : now.shift
+    const into = t - now.start
+    return into < ramp ? before + (now.shift - before) * (into / ramp) : now.shift
+  }
+  const out = psolaShift(audio, contour, shiftAt)
+  return { samples: out, sampleRate: SR, notes: notes.length }
+}
+
 globalThis.SongbirdMusic = {
   makeExample,
   transformAudio,
@@ -3384,4 +3556,5 @@ globalThis.SongbirdMusic = {
   vocalOffset,
   alignPhrases,
   vocalStudy,
+  voiceHarmony,
 }
