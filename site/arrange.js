@@ -904,7 +904,10 @@ document.body.addEventListener("click", (event) => {
       const role = { drums: "kit", bass: "bass", chords: "chords", solo: "solo", vocals: "vocals", guitar: "guitar" }[d.reviewSwap]
       const list = roleOptions(role)
       const now = role === "solo" ? arrange.soloPick || band.solo : band[role]
-      const next = list[(list.indexOf(now) + 1) % list.length]
+      // Not the sound another part already plays (chords and solo).
+      const other = role === "chords" ? arrange.soloPick || band.solo : role === "solo" ? band.chords : null
+      const free = list.filter((id) => id === now || id !== other)
+      const next = free[(free.indexOf(now) + 1) % free.length]
       band[role] = next
       if (role === "solo") arrange.soloPick = null
       if (typeof checkPreview === "function" && role !== "kit" && instrumentInfo(next)) {
