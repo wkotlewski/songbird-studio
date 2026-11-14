@@ -2441,7 +2441,36 @@ function syncRecordGuide() {
   paintRecordGuide()
 }
 
+// Where you scrolled the layers to. Redrawing the layers (a sound
+// loading in, a pick, a change) never moves you: if a redraw was briefly
+// shorter, the list goes back to where you were.
+const timelineView = { y: 0, x: 0, ours: false }
+
+function keepTimelineView() {
+  const timeline = $("timeline")
+  if (!timeline) return
+  timelineView.ours = true
+  if (timeline.scrollTop < timelineView.y - 2) timeline.scrollTop = timelineView.y
+  requestAnimationFrame(() => {
+    if (timeline.scrollTop < timelineView.y - 2) timeline.scrollTop = timelineView.y
+    timelineView.ours = false
+  })
+}
+
+$("timeline")?.addEventListener("scroll", () => {
+  if (timelineView.ours) return
+  timelineView.y = $("timeline").scrollTop
+}, { passive: true })
+
 function renderTracks() {
+  try {
+    drawTracks()
+  } finally {
+    keepTimelineView()
+  }
+}
+
+function drawTracks() {
   forgetLane()
   waveCache = null
   const box = $("tracks")
@@ -3488,6 +3517,7 @@ function openSong(id) {
   setScreen("studio")
   const timeline = $("timeline")
   if (timeline) timeline.scrollTop = 0
+  timelineView.y = 0
   renderPlanNote()
   renderRuler()
   renderTracks()
@@ -6876,7 +6906,7 @@ $("timeline").addEventListener("pointerdown", (event) => {
     if (wasPlaying) play()
   }
   event.preventDefault()
-  $("timeline").focus()
+  $("timeline").focus({ preventScroll: true })
   move(event)
   window.addEventListener("pointermove", move)
   window.addEventListener("pointerup", up)
