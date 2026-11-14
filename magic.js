@@ -73,6 +73,39 @@ const KITS = [
   { id: "808", name: "808" },
 ]
 
+// Beats Songbird can play on a kit, one bar each (beats 0 to 4), with
+// the hats or ride that give each its feel.
+const eighths = (kind = "hat", loud = 0.5, soft = 0.34) => Array.from({ length: 8 }, (_, i) => [i / 2, kind, i % 2 ? soft : loud])
+const sixteenths = (kind = "hat") => Array.from({ length: 16 }, (_, i) => [i / 4, kind, i % 4 === 0 ? 0.48 : i % 2 ? 0.24 : 0.36])
+const swung = (kind = "hat") => Array.from({ length: 4 }, (_, i) => [[i, kind, 0.46], [i + 0.667, kind, 0.3]]).flat()
+const GROOVES = {
+  pop: { name: "Pop beat", line: "Kick and snare, steady hats.", bar: [[0, "kick", 0.95], [2, "kick", 0.9], [2.5, "kick", 0.6], [1, "snare", 0.85], [3, "snare", 0.85], ...eighths()] },
+  rock: { name: "Rock beat", line: "Big and straight.", bar: [[0, "kick", 1], [1.5, "kick", 0.75], [2, "kick", 0.95], [1, "snare", 0.95], [3, "snare", 0.95], ...eighths("hat", 0.6, 0.45), [0, "crash", 0.0]] },
+  funk: { name: "Funk beat", line: "Busy hats, ghost notes, bounce.", bar: [[0, "kick", 0.95], [0.75, "kick", 0.6], [2.5, "kick", 0.8], [1, "snare", 0.9], [1.75, "snare", 0.25], [3, "snare", 0.9], [3.25, "snare", 0.22], ...sixteenths()] },
+  hiphop: { name: "Hip-hop beat", line: "Laid back, swung.", bar: [[0, "kick", 1], [1.75, "kick", 0.7], [2.5, "kick", 0.85], [1, "snare", 0.95], [3, "snare", 0.95], ...swung()] },
+  dance: { name: "Dance beat", line: "Kick on every beat, open hats.", bar: [[0, "kick", 1], [1, "kick", 1], [2, "kick", 1], [3, "kick", 1], [1, "clap", 0.8], [3, "clap", 0.8], ...[0.5, 1.5, 2.5, 3.5].map((b) => [b, "open-hat", 0.45])] },
+  halftime: { name: "Half-time", line: "Slow and heavy, snare on 3.", bar: [[0, "kick", 1], [1.75, "kick", 0.6], [2, "snare", 0.95], ...eighths("hat", 0.42, 0.28)] },
+  reggae: { name: "One drop", line: "Reggae: kick and rim together on 3.", bar: [[2, "kick", 0.95], [2, "rim", 0.8], ...swung("hat")] },
+  latin: { name: "Latin", line: "Tresillo kick, clave on the rim.", bar: [[0, "kick", 0.9], [0.75, "kick", 0.7], [1.5, "kick", 0.8], [2, "kick", 0.9], [2.75, "kick", 0.7], [3.5, "kick", 0.8], [0, "rim", 0.6], [0.75, "rim", 0.55], [1.5, "rim", 0.6], [2.5, "rim", 0.55], [3, "rim", 0.6], ...sixteenths("shaker")] },
+  shuffle: { name: "Shuffle", line: "Bluesy, rolling triplets.", bar: [[0, "kick", 0.95], [2, "kick", 0.9], [1, "snare", 0.85], [3, "snare", 0.85], ...swung("ride")] },
+  jazz: { name: "Jazz swing", line: "Ride cymbal swing, soft kit.", bar: [[0, "ride", 0.5], [1, "ride", 0.55], [1.667, "ride", 0.35], [2, "ride", 0.5], [3, "ride", 0.55], [3.667, "ride", 0.35], [1, "pedal-hat", 0.4], [3, "pedal-hat", 0.4], [0, "kick", 0.4], [2, "kick", 0.35]] },
+}
+
+// The beat's hits over a stretch of time.
+function grooveHits(id, seconds) {
+  const groove = GROOVES[id] || GROOVES.pop
+  const beat = 60 / Math.max(40, state.bpm || 92)
+  const bar = beat * 4
+  const hits = []
+  for (let start = 0; start < seconds - 0.01; start += bar) {
+    for (const [at, kind, vel] of groove.bar) {
+      const time = start + at * beat
+      if (time < seconds - 0.02 && vel > 0) hits.push({ time, kind, vel })
+    }
+  }
+  return hits.sort((a, b) => a.time - b.time)
+}
+
 const SINGLES = [
   { id: "kick", name: "Kick" }, { id: "snare", name: "Snare" }, { id: "clap", name: "Clap" },
   { id: "rim", name: "Rim click" }, { id: "tambourine", name: "Tambourine" }, { id: "shaker", name: "Shaker" },
@@ -203,18 +236,120 @@ function playedPart(layer) {
 
 // Chords that fit a song with no tune yet: I, V, vi, IV, one per bar, in the
 // song's key, over one loop.
+// Chords for parts written without a tune. Each song gets its own: a
+// mood (which chords, in which order) and a key, picked fresh for a new
+// song, and changeable any time. Every part written this way in the song
+// shares them, so they fit together.
+const CHORD_MOODS = {
+  happy: { name: "Happy", steps: [0, 4, 5, 3], minor: false },
+  hopeful: { name: "Hopeful", steps: [0, 5, 3, 4], minor: false },
+  simple: { name: "Simple", steps: [0, 3, 4, 0], minor: false },
+  dreamy: { name: "Dreamy", steps: [0, 3, 1, 4], minor: false },
+  smooth: { name: "Smooth", steps: [1, 4, 0, 5], minor: false },
+  oldtime: { name: "Old-time", steps: [0, 3, 0, 4], minor: false },
+  sad: { name: "Sad", steps: [0, 5, 2, 6], minor: true },
+  epic: { name: "Big and epic", steps: [0, 5, 6, 0], minor: true },
+  mystery: { name: "Mysterious", steps: [0, 6, 5, 4], minor: true },
+}
+const CHORD_KEYS = [0, 2, 3, 5, 7, 9]
+
+function pickBacking() {
+  const last = state.backingLast || ""
+  const moods = Object.keys(CHORD_MOODS).filter((id) => id !== last)
+  const mood = moods[Math.floor(Math.random() * moods.length)]
+  const root = state.songKey != null ? state.songKey : CHORD_KEYS[Math.floor(Math.random() * CHORD_KEYS.length)]
+  state.backingLast = mood
+  return { mood, root }
+}
+
+function songBacking() {
+  if (!state.backing || !CHORD_MOODS[state.backing.mood]) state.backing = pickBacking()
+  return state.backing
+}
+
+function chordNames(backing = songBacking()) {
+  const mood = CHORD_MOODS[backing.mood]
+  const key = { root: backing.root, minor: mood.minor }
+  return mood.steps.map((step) => {
+    const root = SongbirdMusic.scaleStep(60 + key.root, step, key)
+    const third = SongbirdMusic.scaleStep(60 + key.root, step + 2, key)
+    return `${noteName(root)}${(third - root + 12) % 12 === 3 ? "m" : ""}`
+  }).join(" ")
+}
+
 function backingNotes() {
   const beat = 60 / Math.max(40, state.bpm || 92)
   const bar = beat * 4
   const pass = state.loopSec || (state.loopBars || 4) * bar
   const bars = Math.max(1, Math.round(pass / bar))
-  const key = { root: ((state.songKey ?? state.keyPc ?? 0) % 12 + 12) % 12, minor: false }
-  const steps = [0, 4, 5, 3]
+  const backing = songBacking()
+  const mood = CHORD_MOODS[backing.mood]
+  const key = { root: ((backing.root % 12) + 12) % 12, minor: mood.minor }
   const melody = []
-  for (let i = 0; i < bars; i++) melody.push({ time: i * bar, dur: bar, midi: SongbirdMusic.scaleStep(60 + key.root, steps[i % 4], key), chord: true })
+  for (let i = 0; i < bars; i++) melody.push({ time: i * bar, dur: bar, midi: SongbirdMusic.scaleStep(60 + key.root, mood.steps[i % mood.steps.length], key), chord: true })
   const length = Math.max(state.lengthSec || pass, pass)
   return { melody, key, pass, total: length, loop: length > pass + 0.01, beat, phase: 0 }
 }
+
+// New chords for the song: every part written from the song's chords is
+// written again with them. Parts that follow a tune stay as they are.
+async function setBacking(change) {
+  const before = songBacking()
+  state.backing = { ...before, ...change }
+  if (state.backing.mood === "surprise") state.backing = pickBacking()
+  const parts = state.layers.filter((layer) => layer.make?.backing && buffers.get(layer.id + ":audio"))
+  const label = `${CHORD_MOODS[state.backing.mood].name} chords: ${chordNames()}`
+  if (!parts.length) {
+    rememberSong()
+    return { text: `${label}. Parts you add without a tune will play these.` }
+  }
+  state.transforming = true
+  say(`Writing ${parts.length === 1 ? parts[0].name : `${parts.length} parts`} with ${label}…`)
+  const changed = []
+  try {
+    for (const layer of parts) {
+      const make = { ...layer.make, ...backingNotes(), backing: true }
+      const made = await buildPart(make, null)
+      if (!made.error) changed.push({ layer, make, made })
+    }
+  } finally {
+    state.transforming = false
+  }
+  snapshot(changed.map((item) => item.layer.id))
+  for (const { layer, make, made } of changed) {
+    layer.make = make
+    buffers.set(layer.id + ":audio", loopedBuffer(made.samples, made.rate, made.loopSamples))
+    layer.peaks = peaksFromSamples(made.samples)
+    layer.played = made.played || layer.played
+  }
+  labelTop(label)
+  rememberSong()
+  renderTracks()
+  play(0)
+  return { text: `${label}. ${changed.map((item) => item.layer.name).join(", ")} ${changed.length === 1 ? "plays" : "play"} them now. Undo puts the old chords back.` }
+}
+
+function chordChooser(busy) {
+  const backing = songBacking()
+  return `<div class="chord-chooser">
+    <p class="ask">Chords: <b>${esc(chordNames())}</b></p>
+    <div class="choices">${Object.entries(CHORD_MOODS).map(([id, mood]) => filterChip(mood.name, `data-backing-mood="${id}" ${busy}`, backing.mood === id)).join("")}${filterChip(`${ms("shuffle")}Surprise me`, `data-backing-mood="surprise" ${busy}`)}</div>
+    <p class="ask">Key</p>
+    <div class="choices">${CHORD_KEYS.map((root) => filterChip(noteName(root), `data-backing-root="${root}" ${busy}`, backing.root === root)).join("")}</div>
+  </div>`
+}
+
+document.body.addEventListener("click", (event) => {
+  const node = event.target.closest?.("[data-backing-mood],[data-backing-root]")
+  if (!node || node.disabled || state.transforming) return
+  const change = node.dataset.backingMood ? { mood: node.dataset.backingMood } : { root: Number(node.dataset.backingRoot) }
+  void setBacking(change).then((reply) => {
+    $("save-status").textContent = reply.text
+    if (typeof browse !== "undefined") browse.note = reply.text
+    renderInspector()
+    if (state.panel === "sounds" && typeof listenFirst === "function" && !state.layers.some((layer) => layer.make?.backing)) void listenFirst()
+  })
+})
 
 function withPlayed(choice, layer) {
   const played = playedPart(layer)
@@ -243,7 +378,11 @@ async function buildPart(choice, source) {
   const info = drums ? null : instrumentInfo(choice.instrument)
   const audio = source && !choice.pattern ? sourceAudio(source) : null
   let plan
-  if (choice.pattern) {
+  if (drums && choice.groove && !choice.hits) {
+    // One of Songbird's beats, written on the beat grid.
+    const seconds = state.loopSec || state.lengthSec || 60
+    plan = { hits: grooveHits(choice.groove, seconds), pass: seconds, total: Math.max(state.lengthSec || seconds, seconds), loop: !!state.loopSec }
+  } else if (choice.pattern) {
     // A genre's own drum pattern, written on the beat grid.
     const seconds = state.loopSec || state.lengthSec || 60
     const beat = 60 / Math.max(40, state.bpm || 92)
@@ -1202,7 +1341,7 @@ function magicPanel(head) {
     sources.some((layer) => isRecording(layer)) ? ["clean", "graphic_eq", "Clean up every recording", "Hiss out, brighter, warmer, smoother", `data-magic-open="clean"`] : null,
     ["studio", "instant_mix", "Make it studio quality", "In the Mixer: hiss, balance (bring up the vocals), tone, polish", `data-action="panel" data-panel="mix"`],
     sources.length ? ["timing", "timer", "Fix my timing & notes", "Every layer onto the beat and in tune", `data-magic-say="Fix my timing & notes"`] : null,
-    ["feel", "tune", "Key, speed, and era", "Higher or lower, faster or slower, sound like the ’70s", `data-magic-open="feel"`],
+    ["feel", "tune", "Key, chords, speed, and era", "Higher or lower, happy or sad chords, faster or slower, the ’70s", `data-magic-open="feel"`],
     vocal ? ["vocal", "record_voice_over", "Make my vocal shine", "On the beat, studio sound, harmonies in your voice", `data-vocal-open="${vocal.id}"`] : null,
   ].filter(Boolean)
   const layerCards = target ? [
@@ -1245,6 +1384,8 @@ function magicPanel(head) {
               <div class="choices">${["Make it higher", "Make it lower"].map((line) => `<button class="chip" data-magic-say="${line}" ${busy}>${ms(/higher/.test(line) ? "arrow_upward" : "arrow_downward")}${line.replace("Make it ", "")}</button>`).join("")}</div>
               <p class="ask">Speed</p>
               <div class="choices">${["A little faster", "A little slower"].map((line) => `<button class="chip" data-magic-say="${line}" ${busy}>${line}</button>`).join("")}</div>
+              <p class="ask">Chords for parts without a tune</p>
+              ${chordChooser(busy)}
               <p class="ask">Sound like</p>
               <div class="choices">${ERAS.map(([id, name]) => filterChip(name, `data-magic-say="${id === "today" ? "Make it sound like today" : `Make it sound like the ${name.replace("’", "")}`}" ${busy}`, (state.era || "today") === id)).join("")}</div>
               <p class="hint">Fades and length are in Length. Turning up the vocals is in the Mixer.</p></div>`
