@@ -92,8 +92,8 @@ const GROOVES = {
 }
 
 // The beat's hits over a stretch of time.
-function grooveHits(id, seconds) {
-  const groove = GROOVES[id] || GROOVES.pop
+function grooveHits(id, seconds, own) {
+  const groove = own?.length ? { bar: own } : GROOVES[id] || GROOVES.pop
   const beat = 60 / Math.max(40, state.bpm || 92)
   const bar = beat * 4
   const hits = []
@@ -453,10 +453,10 @@ async function buildPart(choice, source) {
   const info = drums ? null : instrumentInfo(choice.instrument)
   const audio = source && !choice.pattern ? sourceAudio(source) : null
   let plan
-  if (drums && choice.groove && !choice.hits) {
-    // One of Songbird's beats, written on the beat grid.
+  if (drums && (choice.groove || choice.ownBeat?.length) && !choice.hits) {
+    // One of Songbird's beats, or one you made, written on the beat grid.
     const seconds = state.loopSec || state.lengthSec || 60
-    plan = { hits: grooveHits(choice.groove, seconds), pass: seconds, total: Math.max(state.lengthSec || seconds, seconds), loop: !!state.loopSec }
+    plan = { hits: grooveHits(choice.groove, seconds, choice.ownBeat), pass: seconds, total: Math.max(state.lengthSec || seconds, seconds), loop: !!state.loopSec }
   } else if (choice.pattern) {
     // A genre's own drum pattern, written on the beat grid.
     const seconds = state.loopSec || state.lengthSec || 60
@@ -703,7 +703,7 @@ async function makePart(choice, options = {}) {
         loop: !!made.loopSamples,
         lengthSec: Math.round((made.samples.length / made.rate) * 100) / 100,
         range: source?.range ? { ...source.range } : { start: 0, end: made.samples.length / made.rate },
-        from: choice.follows ? `follows ${state.layers.find((item) => item.id === choice.follows)?.name || "another part"}` : choice.backing ? `chords in ${KEY_LABEL[((choice.key?.root || 0) % 12 + 12) % 12]} that fit your beat` : fromPlay ? "you played it" : source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : melodyLayer() ? `a groove that fits ${melodyLayer().name}` : "a groove on the beat",
+        from: choice.family === "drums" && choice.ownBeat?.length ? "your own beat" : choice.family === "drums" && choice.groove && GROOVES[choice.groove] ? GROOVES[choice.groove].name : choice.follows ? `follows ${state.layers.find((item) => item.id === choice.follows)?.name || "another part"}` : choice.backing ? `chords in ${KEY_LABEL[((choice.key?.root || 0) % 12 + 12) % 12]} that fit your beat` : fromPlay ? "you played it" : source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : melodyLayer() ? `a groove that fits ${melodyLayer().name}` : "a groove on the beat",
       }
       state.layers.push(layer)
       buffers.set(id + ":audio", buffer)

@@ -55,6 +55,8 @@ function openBrowser(targetId) {
   const yours = state.layers.some((layer) => isRecording(layer) && buffers.get(layer.id + ":audio"))
   const beats = Object.keys(GROOVES).filter((id) => id !== pick.groove)
   pick.groove = yours ? null : beats[Math.floor(Math.random() * beats.length)]
+  delete pick.ownBeat
+  browse.grid = null
   setPanel("sounds")
   // Start at step 1, with room to see the choices.
   const sheet = $("inspector")
@@ -153,8 +155,50 @@ function beatStep(n, busy) {
   const yours = state.layers.some((layer) => isRecording(layer) && buffers.get(layer.id + ":audio"))
   return `<section class="browse-step"><h3><span class="num">${n}</span>Which beat?</h3>
     <p class="hint">Tap one to hear it with your song.</p>
-    <div class="tile-grid">${yours ? tile("Follow my beat", "Drums that follow the rhythm of what you recorded.", `data-pick-groove="" ${busy}`, !pick.groove) : ""}${Object.entries(GROOVES).map(([id, groove]) => tile(groove.name, groove.line, `data-pick-groove="${id}" ${busy}`, pick.groove === id)).join("")}</div>
+    <div class="tile-grid">${yours ? tile("Follow my beat", "Drums that follow the rhythm of what you recorded.", `data-pick-groove="" ${busy}`, !pick.groove && !pick.ownBeat) : ""}${Object.entries(GROOVES).map(([id, groove]) => tile(groove.name, groove.line, `data-pick-groove="${id}" ${busy}`, pick.groove === id && !pick.ownBeat)).join("")}</div>
+    <details class="how-more" ${pick.ownBeat ? "open" : ""}>
+      <summary>${ms("grid_on")}Make your own beat</summary>
+      ${beatMaker(busy)}
+    </details>
   </section>`
+}
+
+// Your own beat: one bar of eighth notes, a row for each drum. It starts
+// from the beat you picked, so you can change just a little.
+const BEAT_ROWS = [["kick", "Kick"], ["snare", "Snare"], ["clap", "Clap"], ["hat", "Hi-hat"], ["open-hat", "Open hat"]]
+const BEAT_STEPS = 8
+
+function beatGrid() {
+  if (!browse.grid) {
+    const bar = pick.ownBeat || (GROOVES[pick.groove] || GROOVES.pop).bar
+    browse.grid = Object.fromEntries(BEAT_ROWS.map(([kind]) => [kind, Array(BEAT_STEPS).fill(false)]))
+    for (const [at, kind, vel] of bar) {
+      const row = kind === "ride" || kind === "shaker" || kind === "pedal-hat" ? "hat" : kind === "rim" ? "snare" : kind
+      const step = Math.round(at * 2)
+      if (browse.grid[row] && vel > 0.2 && step < BEAT_STEPS) browse.grid[row][step] = true
+    }
+  }
+  return browse.grid
+}
+
+function gridBar() {
+  const grid = beatGrid()
+  const bar = []
+  for (const [kind] of BEAT_ROWS) grid[kind].forEach((on, step) => {
+    if (on) bar.push([step / 2, kind, kind === "kick" ? 0.95 : kind === "snare" || kind === "clap" ? 0.85 : step % 2 ? 0.32 : 0.48])
+  })
+  return bar
+}
+
+function beatMaker(busy) {
+  const grid = beatGrid()
+  const count = ["1", "&", "2", "&", "3", "&", "4", "&"]
+  return `<p class="hint">Tap a square to add or take out a drum. Each tap plays it. Listen first plays the whole beat with your song.</p>
+    <div class="beat-grid" role="grid" aria-label="Your beat">
+      <span></span>${count.map((c) => `<span class="beat-count">${c}</span>`).join("")}
+      ${BEAT_ROWS.map(([kind, name]) => `<span class="beat-row-name">${name}</span>${grid[kind].map((on, step) => `<button class="beat-cell ${on ? "on" : ""} ${step % 2 ? "" : "down"}" data-beat-cell="${kind}:${step}" aria-pressed="${on}" aria-label="${name} on ${count[step]}" ${busy}></button>`).join("")}`).join("")}
+    </div>
+    ${pick.ownBeat ? `<div class="choices">${filterChip(`${ms("restart_alt")}Start again from ${esc(GROOVES[pick.groove]?.name || "the beat")}`, `data-beat-reset ${busy}`)}</div>` : ""}`
 }
 
 function pickIdea(id) {
@@ -199,7 +243,7 @@ function browseSource(choice) {
 
 function choiceSummary(choice) {
   const bits = [partName(choice)]
-  if (choice.family === "drums" && choice.drums === "kit") bits.push(choice.groove ? GROOVES[choice.groove]?.name.toLowerCase() : "follows your beat")
+  if (choice.family === "drums" && choice.drums === "kit") bits.push(choice.ownBeat ? "your own beat" : choice.groove ? GROOVES[choice.groove]?.name.toLowerCase() : "follows your beat")
   const idea = pick.idea && (SOUND_IDEAS[pick.family] || SOUND_IDEAS.keys).find((item) => item.id === pick.idea)
   if (choice.family !== "drums") bits.push(idea ? idea.name.toLowerCase() : PLAY_WORDS[choice.play]?.[0].toLowerCase())
   bits.push(ERA_WORDS[choice.era]?.[0] || "Today")
@@ -342,9 +386,28 @@ async function addFromBrowser() {
 }
 
 document.body.addEventListener("click", (event) => {
+  const cell = event.target.closest?.("[data-beat-cell]")
+  if (cell && !cell.disabled) {
+    const [kind, step] = cell.dataset.beatCell.split(":")
+    const grid = beatGrid()
+    grid[kind][Number(step)] = !grid[kind][Number(step)]
+    pick.ownBeat = gridBar()
+    browse.note = ""
+    if (grid[kind][Number(step)]) void SongbirdSampler.playHit(ac(), ac().destination, pick.kit || "standard", kind, 0.9).catch(() => {})
+    renderInspector()
+    return
+  }
+  if (event.target.closest?.("[data-beat-reset]")) {
+    delete pick.ownBeat
+    browse.grid = null
+    renderInspector()
+    return
+  }
   const beat = event.target.closest?.("[data-pick-groove]")
   if (beat && !beat.disabled) {
     pick.groove = beat.dataset.pickGroove || null
+    delete pick.ownBeat
+    browse.grid = null
     renderInspector()
     void listenFirst()
     return
