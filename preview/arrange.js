@@ -481,12 +481,7 @@ function arrangeMarkup(head) {
   const fadeIn = arrange.plan === "background" || arrange.vibes.some((id) => ["chill", "dreamy", "gentle"].includes(id)) ? 3 : 0
   const fadeOut = arrange.plan === "jam" || arrange.vibes.includes("party") ? 4 : 8
   return `${head("Make it a full song")}
-    <p class="hint">Tell me what the song is for and how it should feel. I'll add what's missing, lay it out, and bring parts in and out.</p>
-    <label class="field">Or just say it
-      <textarea id="song-wish" rows="2" placeholder="Steady, with background vocals and a guitar solo" ${busy}>${esc(arrange.said)}</textarea>
-    </label>
-    ${outlinedButton(`${ms("wand_stars")}Use what I said`, `data-arrange="read" ${busy}`)}
-    ${arrange.heard ? `<p class="hint">${esc(arrange.heard)}</p>` : ""}
+    <p class="hint">Pick what the song is for and how it should feel. I'll add what's missing, lay it out, and bring parts in and out.</p>
     <p class="ask">What's it for?</p>
     <div class="plan-cards">${SONG_PLANS.map((item) => `<button class="plan-card ${item.id === plan.id ? "on" : ""}" data-arrange-plan="${item.id}" aria-pressed="${item.id === plan.id}" ${busy}>${ms(item.icon)}<b>${esc(item.name)}</b><small>${esc(item.line)}</small></button>`).join("")}</div>
     <p class="ask">How should it feel? <small class="hint">Pick up to three</small></p>

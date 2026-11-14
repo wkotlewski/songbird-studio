@@ -1231,13 +1231,7 @@ function magicPanel(head) {
               <p class="hint">Fades and length are in Length. Turning up the vocals is in the Mixer.</p></div>`
             : ""
   return `${head("Magic")}
-    <p class="hint">Say what you want, or tap one of the things Magic can do. Every change is one Undo.</p>
-    <form class="magic-ask" data-magic-form>
-      <label class="sr" for="magic-say">Tell Songbird what you want</label>
-      <textarea id="magic-say" rows="2" placeholder="${scopeLayer ? `Make ${esc(target.name)} softer, add echo to it…` : "Add a horn section and make it tight"}" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
-      <button class="btn btn-primary magic-go" type="submit" ${busy}>${state.transforming ? "Working…" : `${ms("wand_stars")}Do it`}</button>
-    </form>
-    <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your keyboard to say it out loud."}</p>
+    <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap what you want Magic to do. Every change is one Undo."}</p>
     ${chatMarkup()}
 
     <h3 class="magic-h">${scopeLayer ? `What Magic can do with ${esc(target.name)}` : "What Magic can do with the whole song"}</h3>

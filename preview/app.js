@@ -3177,11 +3177,6 @@ function renderInspector() {
     const suggestions = INTENTS.find((item) => item.id === state.intent)
     body = `${head("How long, and how it builds")}
       <p class="hint">${!state.layers.length ? "Record a sound first. " : songWide ? "Every layer loops or stops to fit. " : `How long ${esc(shaping.name)} plays, how it fades, and how it builds. `}${songWide ? "Pick how long it is, how it fades, and whether it builds up." : ""}</p>
-      ${songWide ? `<label class="field">Say what you want
-        <textarea id="wish" rows="3" placeholder="3 minutes, soft intro, build up, then soften at the end">${esc(state.wish)}</textarea>
-      </label>
-      ${filledButton("Use what I said", `data-action="read-wish"`)}
-      ${state.heard ? `<p class="hint">${esc(state.heard)}</p>` : ""}` : ""}
       <p class="ask">How long?</p>
       <div class="choices">${LENGTHS.map(([seconds, label, tag]) => filterChip(`${label}${tag ? ` ${tag}` : ""}`, `data-action="apply-length" data-seconds="${seconds}"`, shapingLength === seconds)).join("")}</div>
       <div class="length-entry">
