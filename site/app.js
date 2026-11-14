@@ -3175,28 +3175,43 @@ function renderInspector() {
     const mins = shapingLength ? Math.floor(shapingLength / 60) : ""
     const secs = shapingLength ? String(shapingLength % 60).padStart(2, "0") : ""
     const suggestions = INTENTS.find((item) => item.id === state.intent)
-    body = `${head("How long, and how it builds")}
-      <p class="hint">${!state.layers.length ? "Record a sound first. " : songWide ? "Every layer loops or stops to fit. " : `How long ${esc(shaping.name)} plays, how it fades, and how it builds. `}${songWide ? "Pick how long it is, how it fades, and whether it builds up." : ""}</p>
-      <p class="ask">How long?</p>
-      <div class="choices">${LENGTHS.map(([seconds, label, tag]) => filterChip(`${label}${tag ? ` ${tag}` : ""}`, `data-action="apply-length" data-seconds="${seconds}"`, shapingLength === seconds)).join("")}</div>
-      <div class="length-entry">
-        <label class="field">Minutes<input id="len-min" type="number" min="0" max="8" value="${mins}" aria-label="Minutes" /></label>
-        <label class="field">Seconds<input id="len-sec" type="number" min="0" max="59" value="${secs}" aria-label="Seconds" /></label>
-        ${outlinedButton("Use this length", `data-action="apply-length-custom"`)}
+    const shapeNow = songWide ? state.shape : shaping?.shape
+    const who = songWide ? "your song" : esc(shaping.name)
+    const fadeWords = fadeIn || fadeOut
+      ? [fadeIn ? `fades in over ${fadeIn} sec` : "", fadeOut ? `fades out over ${fadeOut} sec` : ""].filter(Boolean).join(", ")
+      : "no fades"
+    body = `${head(songWide ? "Length and fades" : `${esc(shaping.name)}: length and fades`)}
+      ${!state.layers.length ? `<p class="empty">Record a sound first, then set how long the song is.</p>` : `
+      <div class="length-now" role="status">
+        ${ms("timeline")}
+        <span><b>${shapingLength ? formatClock(shapingLength) : "Not set yet"}</b><small>${esc(fadeWords)}${shapeNow && SHAPES[shapeNow] ? ` · ${esc(SHAPES[shapeNow].name)}` : ""}</small></span>
       </div>
-      <p class="ask">Fade in</p>
-      <div class="choices">${[[0, "None"], [2, "2 sec"], [4, "4 sec"], [8, "8 sec"]].map(([seconds, label]) => filterChip(label, `data-action="set-fade" data-which="in" data-seconds="${seconds}"`, fadeIn === seconds)).join("")}</div>
-      <p class="ask">Fade out</p>
-      <div class="choices">${[[0, "None"], [3, "3 sec"], [6, "6 sec"], [10, "10 sec"]].map(([seconds, label]) => filterChip(label, `data-action="set-fade" data-which="out" data-seconds="${seconds}"`, fadeOut === seconds)).join("")}</div>
-      <p class="hint">${songWide ? "Fades are on the whole song, and in your download." : `Fades ${esc(shaping.name)} in at its start and out at its end.`}</p>
-      <p class="ask">How should it feel?</p>
-      <div class="choices">${INTENTS.map((item) => filterChip(item.title, `data-action="pick-intent" data-intent="${item.id}"`, state.intent === item.id)).join("")}</div>
-      ${suggestions ? `<p class="hint">${esc(suggestions.detail)}</p>${suggestions.shapes.map((id) => {
-        const shape = SHAPES[id]
-        return planButton(shape.name, shape.line, `data-action="apply-shape" data-shape="${id}"`, (shaping?.shape || state.shape) === id, curve(id))
-      }).join("")}` : ""}
-      ${songWide ? `${filledButton(`${ms("wand_stars")}Next: Magic`, `data-action="next-transform"`)}
-      ${outlinedButton(`${ms("mic")}Record another sound`, `data-action="add-and-record" data-input="hum"`)}` : ""}`
+      <p class="hint">Each choice changes ${who} right away and plays it. Undo takes it back.</p>
+      <section class="length-step">
+        <h3><span class="num">1</span>How long</h3>
+        <p class="hint">${songWide ? "Every layer repeats or stops to fit." : `How long ${esc(shaping.name)} plays.`}</p>
+        <div class="choices">${LENGTHS.map(([seconds, label, tag]) => filterChip(`${label}${tag ? ` · ${tag}` : ""}`, `data-action="apply-length" data-seconds="${seconds}"`, shapingLength === seconds)).join("")}</div>
+        <div class="length-entry">
+          <label class="field">Minutes<input id="len-min" type="number" min="0" max="8" value="${mins}" aria-label="Minutes" /></label>
+          <label class="field">Seconds<input id="len-sec" type="number" min="0" max="59" value="${secs}" aria-label="Seconds" /></label>
+          ${outlinedButton("Set", `data-action="apply-length-custom"`)}
+        </div>
+      </section>
+      <section class="length-step">
+        <h3><span class="num">2</span>Fades</h3>
+        <p class="hint">${songWide ? "How the song starts and ends. Your download has them too." : `How ${esc(shaping.name)} comes in and goes out.`}</p>
+        <p class="ask">Fade in at the start</p>
+        <div class="choices">${[[0, "None"], [2, "2 sec"], [4, "4 sec"], [8, "8 sec"]].map(([seconds, label]) => filterChip(label, `data-action="set-fade" data-which="in" data-seconds="${seconds}"`, fadeIn === seconds)).join("")}</div>
+        <p class="ask">Fade out at the end</p>
+        <div class="choices">${[[0, "None"], [3, "3 sec"], [6, "6 sec"], [10, "10 sec"]].map(([seconds, label]) => filterChip(label, `data-action="set-fade" data-which="out" data-seconds="${seconds}"`, fadeOut === seconds)).join("")}</div>
+      </section>
+      <section class="length-step">
+        <h3><span class="num">3</span>How it builds</h3>
+        <p class="hint">How loud ${who} gets over time. The bars show it, start to end.</p>
+        <div class="shape-grid">${Object.entries(SHAPES).map(([id, shape]) => `<button class="shape-card ${shapeNow === id ? "on" : ""}" data-action="apply-shape" data-shape="${id}" aria-pressed="${shapeNow === id}">
+          <b>${esc(shape.name)}</b>${curve(id)}
+        </button>`).join("")}</div>
+      </section>`}`
   } else if (state.panel === "finish") {
     body = `${head("Save your song")}
       <div class="seg">${filterChip("Audio", "", true)}${outlinedButton("Video", `data-action="video-note"`)}</div>
@@ -6202,6 +6217,8 @@ document.body.addEventListener("click", (event) => {
       if (playing) play(which === "out" ? Math.max(0, (layer.range?.end || state.lengthSec || 0) - seconds - 2) : layer.range?.start || 0)
     } else {
       text = setFade(which, seconds).text
+      // Hear it: the start for a fade in, the last stretch for a fade out.
+      if (seconds) play(which === "in" ? 0 : Math.max(0, (state.lengthSec || 0) - seconds - 3))
     }
     $("save-status").textContent = text
     renderInspector()
@@ -6499,6 +6516,7 @@ document.body.addEventListener("click", (event) => {
     const seconds = Number(node.dataset.seconds)
     const hadShape = !!state.shape
     applyPlan(seconds, hadShape ? state.shape : null, lengthNote(clampLength(seconds), hadShape))
+    play(0)
   }
   if (action === "apply-length-custom") {
     const minutes = Number($("len-min")?.value)
@@ -6513,6 +6531,7 @@ document.body.addEventListener("click", (event) => {
       const limit = total > 480 ? "8:00 is the longest song here." : total < 15 ? "The shortest song here is 0:15." : ""
       const clamped = clampLength(total)
       applyPlan(clamped, hadShape ? state.shape : null, lengthNote(clamped, hadShape, limit))
+      play(0)
     }
   }
   if (action === "pick-intent") {
@@ -6533,11 +6552,12 @@ document.body.addEventListener("click", (event) => {
     }
   }
   if (action === "apply-shape") {
-    const layer = selectedLayer()
+    const layer = state.lengthScope === "layer" ? pickedLayer() : null
     const assumed = !layer?.lengthSec && !state.lengthSec
     const length = layer?.lengthSec || state.lengthSec || 60
     const intro = assumed ? "I used 1:00. " : ""
     applyPlan(length, node.dataset.shape, `${intro}${planMessage(length, node.dataset.shape)}`)
+    play(0)
   }
   if (action === "add-and-record") {
     state.input = node.dataset.input
