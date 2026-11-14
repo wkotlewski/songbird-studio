@@ -136,32 +136,154 @@
     return loadSet(wanted, (name) => `sounds/kits/${id}/${name}.mp3`, ctx)
   }
 
-  // A sound of the era: older records are darker and narrower.
+  // The sound of each era, as a record of that time would have it: the
+  // band of frequencies it kept, its tone, the tape or groove it went
+  // through, its echo and room, and wobble, crackle and hiss on the oldest.
   const ERA = {
-    "1900": { low: 400, high: 3200 },
-    "1920": { low: 220, high: 4500 },
-    "1950": { low: 120, high: 7000 },
-    "1960": { low: 90, high: 9000 },
-    "1970": { low: 60, high: 12000 },
-    "1980": { low: 50, high: 16000 },
+    "1900": { low: 550, high: 2800, lowShelf: -3, highShelf: -8, drive: 0.6, verb: 0.3, verbLen: 1.1, wow: 0.0045, wowRate: 0.55, crackle: 0.06, hiss: 0.025 },
+    "1920": { low: 320, high: 4200, lowShelf: -2, highShelf: -6, drive: 0.45, verb: 0.32, verbLen: 1.5, wow: 0.0028, wowRate: 0.7, crackle: 0.035, hiss: 0.014 },
+    "1950": { low: 150, high: 6500, lowShelf: 1, highShelf: -3, drive: 0.35, slap: 0.125, slapMix: 0.38, verb: 0.12, verbLen: 1.0, hiss: 0.006 },
+    "1960": { low: 100, high: 9000, lowShelf: 2, highShelf: -2.5, drive: 0.28, verb: 0.34, verbLen: 2.4, hiss: 0.004 },
+    "1970": { low: 55, high: 11000, lowShelf: 4.5, highShelf: -4.5, drive: 0.22, verb: 0.2, verbLen: 1.5, chorus: 0.0022, chorusRate: 0.35, wow: 0.0009, wowRate: 0.4 },
+    "1980": { low: 70, high: 16000, lowShelf: -1.5, highShelf: 5.5, verb: 0.38, verbLen: 1.9, gated: 0.38, chorus: 0.0045, chorusRate: 0.9 },
+    "1990": { low: 40, high: 14000, lowShelf: 3.5, highShelf: -1, drive: 0.18, verb: 0.1, verbLen: 0.8 },
+    "2000": { low: 35, high: 18000, lowShelf: 2.5, highShelf: 3.5, drive: 0.3, verb: 0.08, verbLen: 0.7 },
+  }
+
+  function noiseBuffer(ctx, seconds, crackle, hiss) {
+    const length = Math.ceil(seconds * ctx.sampleRate)
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    let seed = 7
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1
+    let low = 0
+    for (let i = 0; i < length; i++) {
+      low += (rand() - low) * 0.25
+      data[i] = low * hiss
+      if (crackle && Math.abs(rand()) > 0.99965) {
+        const size = crackle * (0.4 + Math.abs(rand()))
+        for (let k = 0; k < 40 && i + k < length; k++) data[i + k] += size * rand() * (1 - k / 40)
+      }
+    }
+    return buffer
+  }
+
+  function roomImpulse(ctx, seconds, gated) {
+    const length = Math.ceil(seconds * ctx.sampleRate)
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    let seed = 3
+    for (let i = 0; i < length; i++) {
+      seed = (seed * 16807) % 2147483647
+      const t = i / ctx.sampleRate
+      // A gated room (the 1980s snare) stays big, then stops dead.
+      const env = gated ? (t < gated ? 0.9 : 0) : Math.pow(1 - i / length, 2.2)
+      data[i] = ((seed / 2147483647) * 2 - 1) * env
+    }
+    return buffer
+  }
+
+  function wobble(ctx, input, depth, rate, mix) {
+    const delay = ctx.createDelay(0.05)
+    delay.delayTime.value = depth * 1.5 + 0.002
+    const lfo = ctx.createOscillator()
+    lfo.frequency.value = rate
+    const amount = ctx.createGain()
+    amount.gain.value = depth
+    lfo.connect(amount)
+    amount.connect(delay.delayTime)
+    lfo.start(0)
+    const out = ctx.createGain()
+    input.connect(delay)
+    if (mix < 1) {
+      const dry = ctx.createGain()
+      dry.gain.value = 1 - mix
+      input.connect(dry)
+      dry.connect(out)
+      const wet = ctx.createGain()
+      wet.gain.value = mix
+      delay.connect(wet)
+      wet.connect(out)
+    } else delay.connect(out)
+    return out
   }
 
   function chain(ctx, era) {
-    const out = ctx.createGain()
-    let head = out
     const tone = ERA[era]
-    if (tone) {
-      const hp = ctx.createBiquadFilter()
-      hp.type = "highpass"
-      hp.frequency.value = tone.low
-      const lp = ctx.createBiquadFilter()
-      lp.type = "lowpass"
-      lp.frequency.value = tone.high
-      out.connect(hp)
-      hp.connect(lp)
-      lp.connect(ctx.destination)
-    } else out.connect(ctx.destination)
-    return head
+    const out = ctx.createGain()
+    if (!tone) {
+      out.connect(ctx.destination)
+      return out
+    }
+    let node = out
+    if (tone.wow) node = wobble(ctx, node, tone.wow, tone.wowRate || 0.5, 1)
+    if (tone.chorus) node = wobble(ctx, node, tone.chorus, tone.chorusRate || 0.8, 0.45)
+    const filters = [
+      ["highpass", tone.low],
+      ["lowpass", tone.high],
+      ["lowshelf", 220, tone.lowShelf || 0],
+      ["highshelf", 5000, tone.highShelf || 0],
+    ]
+    for (const [type, frequency, gain] of filters) {
+      const filter = ctx.createBiquadFilter()
+      filter.type = type
+      filter.frequency.value = frequency
+      if (gain != null) filter.gain.value = gain
+      node.connect(filter)
+      node = filter
+    }
+    if (tone.drive) {
+      // Tape and valves: loud parts round off and thicken.
+      const shaper = ctx.createWaveShaper()
+      const curve = new Float32Array(1024)
+      const k = 1 + tone.drive * 6
+      for (let i = 0; i < curve.length; i++) {
+        const x = (i / (curve.length - 1)) * 2 - 1
+        curve[i] = Math.tanh(k * x) / Math.tanh(k)
+      }
+      shaper.curve = curve
+      const pre = ctx.createGain()
+      pre.gain.value = 0.9
+      const post = ctx.createGain()
+      post.gain.value = 0.85
+      node.connect(pre)
+      pre.connect(shaper)
+      shaper.connect(post)
+      node = post
+    }
+    const end = ctx.createGain()
+    node.connect(end)
+    if (tone.slap) {
+      const slap = ctx.createDelay(0.5)
+      slap.delayTime.value = tone.slap
+      const level = ctx.createGain()
+      level.gain.value = tone.slapMix || 0.3
+      node.connect(slap)
+      slap.connect(level)
+      level.connect(end)
+    }
+    if (tone.verb) {
+      const room = ctx.createConvolver()
+      room.buffer = roomImpulse(ctx, tone.verbLen || 1.2, tone.gated)
+      const level = ctx.createGain()
+      level.gain.value = tone.verb * 0.18
+      node.connect(room)
+      room.connect(level)
+      level.connect(end)
+    }
+    end.connect(ctx.destination)
+    if (tone.crackle || tone.hiss) {
+      const noise = ctx.createBufferSource()
+      noise.buffer = noiseBuffer(ctx, ctx.length / ctx.sampleRate, tone.crackle || 0, tone.hiss || 0)
+      const band = ctx.createBiquadFilter()
+      band.type = "bandpass"
+      band.frequency.value = Math.sqrt(tone.low * tone.high)
+      band.Q.value = 0.5
+      noise.connect(band)
+      band.connect(ctx.destination)
+      noise.start(0)
+    }
+    return out
   }
 
   // Families that keep sounding while a note is held stop with a short fade

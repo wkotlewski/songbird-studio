@@ -742,6 +742,19 @@ function nudgeSpace(amount, echo) {
   play(playing ? Math.max(0, songSeconds(ac().currentTime)) : 0)
 }
 
+const ERA_KITS = { "1900": "brush", "1920": "brush", "1950": "jazz", "1960": "room", "1970": "room", "1980": "electronic", "2000": "808" }
+const ERA_SOUND = {
+  "1900": "a thin, old gramophone with crackle and a wobble",
+  "1920": "a warm old record with brushes and a little crackle",
+  "1950": "tape echo, a warm valve sound, a jazz kit",
+  "1960": "big plate echo, a warm room kit",
+  "1970": "warm and round, soft highs, tape wobble",
+  "1980": "bright and wide, big gated echo, an electronic kit",
+  "1990": "full and punchy low end, dry",
+  "2000": "bright, loud, and tight, with an 808",
+  today: "clean and modern",
+}
+
 async function setEra(era) {
   state.era = era
   const name = ERAS.find(([id]) => id === era)?.[1] || "today"
@@ -753,22 +766,28 @@ async function setEra(era) {
   try {
     for (const layer of parts) {
       const source = state.layers.find((item) => item.id === layer.make.sourceId)
-      const made = await buildPart({ ...layer.make, era }, source || null)
-      if (!made.error) changed.push({ layer, buffer: loopedBuffer(made.samples, made.rate, made.loopSamples) })
+      const make = { ...layer.make, era }
+      // Drums change kit too: brushes in the 1920s, an electronic kit in the 1980s.
+      if (make.family === "drums" && make.drums === "kit") {
+        make.baseKit = layer.make.baseKit || layer.make.kit || "standard"
+        make.kit = ERA_KITS[era] || make.baseKit
+      }
+      const made = await buildPart(make, source || null)
+      if (!made.error) changed.push({ layer, make, buffer: loopedBuffer(made.samples, made.rate, made.loopSamples) })
     }
   } finally {
     state.transforming = false
   }
   snapshot(changed.map((item) => item.layer.id))
-  for (const { layer, buffer } of changed) {
-    layer.make = { ...layer.make, era }
+  for (const { layer, make, buffer } of changed) {
+    layer.make = make
     buffers.set(layer.id + ":audio", buffer)
   }
   rememberSong()
   renderTracks()
   play(0)
   const when = name === "Today" ? "today" : /^’/.test(name) ? `the ${name}` : `the ${name}`
-  return { text: `${changed.length === 1 ? `${changed[0]?.layer?.name || "The part"} now sounds` : `${changed.length} parts now sound`} like ${when}. Your own recordings stay as they are.` }
+  return { text: `${changed.length === 1 ? `${changed[0]?.layer?.name || "The part"} now sounds` : `${changed.length} parts now sound`} like ${when}${ERA_SOUND[era] ? `: ${ERA_SOUND[era]}` : ""}. Your own recordings stay as they are.` }
 }
 
 // Hiss and background noise come out of the layer you picked, or every
