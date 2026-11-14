@@ -185,6 +185,7 @@ function groovePlan(seconds) {
 // How chords are played: guitars strum a pattern, pianos play block
 // chords, and strings, voices, organs, and pads hold them.
 function styleFor(choice) {
+  if (choice.style) return choice.style
   if (choice.rhythm === "beat") return "beat"
   // A horn section plays like a band: punchy chords, not a soft pad.
   if (choice.instrument === "brass-section" || choice.rhythm === "stab") return "stab"
@@ -1296,6 +1297,12 @@ document.body.addEventListener("click", (event) => {
     pick.instrument = d.pickInstrument
     const info = instrumentInfo(pick.instrument)
     if (!info.plays.includes(pick.play)) pick.play = info.plays[0]
+  }
+  if (d.pickPlay || d.pickRhythm || d.pickFamily || d.pickInstrument) {
+    // Set by hand: no idea picked any more.
+    delete pick.style
+    delete pick.idea
+    if (typeof browse !== "undefined") browse.bigOnly = false
   }
   if (d.pickPlay) pick.play = d.pickPlay
   if (d.pickRhythm) pick.rhythm = d.pickRhythm
