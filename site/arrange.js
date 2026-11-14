@@ -200,6 +200,15 @@ function tonesIn(chord, low, high) {
   return out
 }
 
+// The same hand drum, played three ways, so it isn't the same every song:
+// as written, with answers on the off-beats, or pushed a sixteenth late.
+function colorBar(color, feel) {
+  const bar = color.bar
+  if (!feel || bar.length > 10) return bar
+  if (feel === 1) return [...bar, ...bar.filter(([pos]) => pos + 0.5 < 4).map(([pos, kind, vel]) => [pos + 0.5, kind, vel * 0.5])]
+  return bar.map(([pos, kind, vel], i) => [i % 2 ? Math.min(3.75, pos + 0.25) : pos, kind, vel])
+}
+
 function colorPart(id, sections, harmony, total) {
   const color = COLORS[id]
   const beat = 60 / Math.max(40, state.bpm || 92)
@@ -209,7 +218,7 @@ function colorPart(id, sections, harmony, total) {
     sections.forEach((section, index) => {
       if (!color.plays(section, index, sections)) return
       for (let t = section.start; t < section.end - 0.01; t += bar) {
-        for (const [pos, kind, vel] of color.bar) {
+        for (const [pos, kind, vel] of colorBar(color, arrange.band?.colorFeel || 0)) {
           const time = t + pos * beat
           if (time < section.end - 0.01) hits.push({ kind, time, vel: Math.min(1, vel * (0.92 + Math.random() * 0.16)) })
         }
@@ -332,6 +341,21 @@ const BAND_POOLS = {
 }
 const BAND_EXTRAS = { vocals: ["choir-aahs", "voice-oohs"], guitar: ["clean-guitar", "steel-guitar", "nylon-guitar", "jazz-guitar"] }
 
+// Beats that suit each feel; a build picks one, not the same as last time.
+const GROOVE_POOLS = {
+  plain: ["pop", "rock", "halftime", "funk"], chill: ["hiphop", "halftime", "jazz", "reggae"], upbeat: ["pop", "dance", "rock", "funk"],
+  dreamy: ["halftime", "hiphop", "dance"], warm: ["pop", "shuffle", "halftime"], soulful: ["shuffle", "funk", "hiphop", "pop"],
+  funky: ["funk", "dance", "latin"], rock: ["rock", "halftime", "shuffle"], epic: ["halftime", "rock", "pop"], party: ["dance", "latin", "funk"],
+  jazzy: ["jazz", "shuffle", "latin"], gentle: ["jazz", "halftime", "reggae"], sad: ["halftime", "hiphop", "jazz"], dark: ["halftime", "hiphop", "rock"],
+}
+
+function pickFrom(list, avoid = []) {
+  const ok = list.filter((id) => GROOVES[id])
+  const fresh = ok.filter((id) => !avoid.includes(id))
+  const from = fresh.length ? fresh : ok
+  return from[Math.floor(Math.random() * from.length)]
+}
+
 function rollBand() {
   const pool = BAND_POOLS[arrange.vibes[0]] || BAND_POOLS.plain
   const last = state.song?.lastBand || {}
@@ -348,6 +372,8 @@ function rollBand() {
   // Guitar picking is a different guitar from the chords.
   band.guitar = pick(BAND_EXTRAS.guitar, "guitar", [band.chords, band.solo])
   band.color = rollColor(last.color || arrange.band?.color, [band.chords, band.solo])
+  band.groove = pickFrom(GROOVE_POOLS[arrange.vibes[0]] || GROOVE_POOLS.plain, [last.groove, arrange.band?.groove])
+  band.colorFeel = Math.floor(Math.random() * 3)
   arrange.band = band
   arrange.bandFor = arrange.vibes.join(",")
   return band
@@ -519,7 +545,7 @@ function reviewRows(adds, facts) {
       continue
     }
     const role = { drums: "kit", bass: "bass", chords: "chords", solo: "solo", vocals: "vocals", guitar: "guitar" }[item.id]
-    const sound = item.id === "drums" ? KITS.find((kit) => kit.id === vibe.kit)?.name || "Studio kit"
+    const sound = item.id === "drums" ? `${KITS.find((kit) => kit.id === vibe.kit)?.name || "Studio kit"} · ${GROOVES[arrange.band?.groove]?.name || "Pop beat"}`
       : item.id === "solo" ? name(arrange.soloPick || vibe.solo)
         : item.id === "vocals" ? (vibe.vocals === "voice-oohs" ? "Oohs" : "Choir")
           : item.id === "strings" ? "String section" : item.id === "horns" ? "Horn section" : item.id === "fills" ? "Drum fills into the big parts"
@@ -707,7 +733,7 @@ async function buildSong() {
     for (const item of wanted) {
       count++
       step(`Adding ${item.name.toLowerCase()} (${count} of ${wanted.length})…`)
-      if (item.id === "drums" && !facts.hasDrums) await make("drums", { family: "drums", drums: "kit", kit: vibe.kit, era: state.era || "today" })
+      if (item.id === "drums" && !facts.hasDrums) await make("drums", { family: "drums", drums: "kit", kit: vibe.kit, groove: vibe.groove || arrange.band?.groove || "pop", era: state.era || "today" })
       if (item.id === "bass" && !facts.hasBass) await make("bass", { family: "bass", instrument: vibe.bass, play: "bass", rhythm: "played", era: state.era || "today" })
       if (item.id === "chords") {
         const info = instrumentInfo(vibe.chords)
@@ -897,6 +923,16 @@ document.body.addEventListener("click", (event) => {
       if (choices.length) band.color = band.color.map((id) => (id === d.color ? choices[Math.floor(Math.random() * choices.length)] : id))
     } else {
       const role = { drums: "kit", bass: "bass", chords: "chords", solo: "solo", vocals: "vocals", guitar: "guitar" }[d.reviewSwap]
+      if (role === "kit") {
+        // Drums: another beat, and now and then another kit.
+        band.groove = pickFrom(Object.keys(GROOVES), [band.groove])
+        if (Math.random() < 0.5) {
+          const kits = roleOptions("kit").filter((id) => id !== band.kit)
+          if (kits.length) band.kit = kits[Math.floor(Math.random() * kits.length)]
+        }
+        renderInspector()
+        return
+      }
       const list = roleOptions(role)
       const now = role === "solo" ? arrange.soloPick || band.solo : band[role]
       // Not the sound another part already plays (chords and solo).
