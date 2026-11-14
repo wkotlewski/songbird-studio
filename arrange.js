@@ -491,17 +491,67 @@ function arrangeMarkup(head) {
     <div class="plan-cards">${SONG_PLANS.map((item) => `<button class="plan-card ${item.id === plan.id ? "on" : ""}" data-arrange-plan="${item.id}" aria-pressed="${item.id === plan.id}" ${busy}>${ms(item.icon)}<b>${esc(item.name)}</b><small>${esc(item.line)}</small></button>`).join("")}</div>
     <p class="ask">How should it feel? <small class="hint">Pick up to three</small></p>
     <div class="choices">${VIBES.map((vibe) => filterChip(vibe.name, `data-arrange-vibe="${vibe.id}" ${busy}`, arrange.vibes.includes(vibe.id))).join("")}</div>
-    <p class="ask">I'll add</p>
-    <div class="choices">${ADDS.map((item) => filterChip(esc(item.id === "solo" && arrange.soloPick ? `A solo · ${instrumentInfo(arrange.soloPick)?.name}` : addLabel(item.id)), `data-arrange-add="${item.id}" ${busy}`, adds.has(item.id))).join("")}</div>
-    <p class="hint">${facts.hasDrums ? "" : "No drums yet. "}${facts.hasBass ? "" : "No bass yet. "}${facts.hasChords ? "" : "No chords yet. "}${facts.hasDrums && facts.hasBass && facts.hasChords ? "You have drums, bass, and chords already. " : ""}I picked sounds that fit the feel, different from last time. Tap to change, or shuffle for another band.</p>
-    <div class="choices">${filterChip(`${ms("shuffle")}Shuffle the sounds`, `data-arrange="shuffle" ${busy}`)}</div>
+    ${reviewMarkup(adds, facts, busy)}
     <p class="ask">The plan</p>
     <ol class="song-map">${sections.map((section) => `<li><b>${esc(section.name)}</b><span>${formatClock(section.start)}</span><small>${esc(sectionWho(section, adds, sections))}</small></li>`).join("")}</ol>
     <p class="hint">${formatClock(total)} long · ${order.join(", ")}. ${fadeIn ? `Fades in over ${fadeIn} seconds and out` : "Fades out"} over the last ${fadeOut} seconds.</p>
     <div class="choices">${filterChip("Shorter", `data-arrange="short" ${busy}`, arrange.short)}</div>
     <div class="browse-bar"><div class="browse-actions">
-      ${filledButton(arrange.working ? esc(arrange.working) : `${ms("auto_awesome")}Build my song`, `data-arrange="build" ${busy}`)}
+      ${filledButton(arrange.working ? esc(arrange.working) : `${ms("auto_awesome")}Build my song${reviewRows(adds, facts).length ? ` with these ${reviewRows(adds, facts).length}` : ""}`, `data-arrange="build" ${busy}`)}
     </div><p class="hint">Undo takes the whole thing back in one tap.</p></div>`
+}
+
+// What the build will add, one sound per row, before anything is made:
+// take any out, try another sound for it, or add more.
+const ADD_ICONS = { drums: "graphic_eq", bass: "music_note", chords: "piano", vocals: "record_voice_over", solo: "mic", strings: "music_note", horns: "campaign", guitar: "music_note", color: "auto_awesome", fills: "graphic_eq" }
+
+function roleOptions(role) {
+  const pool = BAND_POOLS[arrange.vibes[0]] || BAND_POOLS.plain
+  const list = role === "vocals" || role === "guitar" ? BAND_EXTRAS[role] : [...new Set([...(pool[role] || []), ...(BAND_POOLS.plain[role] || [])])]
+  return list.filter((id) => (role === "kit" ? KITS.some((kit) => kit.id === id) : instrumentInfo(id)))
+}
+
+function reviewRows(adds, facts) {
+  const vibe = vibeOf()
+  const name = (id) => instrumentInfo(id)?.name || id
+  const rows = []
+  for (const item of ADDS) {
+    if (!adds.has(item.id)) continue
+    if (item.id === "drums" && facts.hasDrums) continue
+    if (item.id === "bass" && facts.hasBass) continue
+    if (item.id === "color") {
+      for (const id of colorPalette()) rows.push({ add: "color", color: id, part: "Color", sound: COLORS[id].name, swap: true })
+      continue
+    }
+    const role = { drums: "kit", bass: "bass", chords: "chords", solo: "solo", vocals: "vocals", guitar: "guitar" }[item.id]
+    const sound = item.id === "drums" ? KITS.find((kit) => kit.id === vibe.kit)?.name || "Studio kit"
+      : item.id === "solo" ? name(arrange.soloPick || vibe.solo)
+        : item.id === "vocals" ? (vibe.vocals === "voice-oohs" ? "Oohs" : "Choir")
+          : item.id === "strings" ? "String section" : item.id === "horns" ? "Horn section" : item.id === "fills" ? "Drum fills into the big parts"
+            : role ? name(vibe[role] || (item.id === "guitar" ? "clean-guitar" : "")) : ""
+    rows.push({ add: item.id, role, part: item.name, sound, swap: !!role && roleOptions(role).length > 1 })
+  }
+  return rows
+}
+
+function reviewMarkup(adds, facts, busy) {
+  const rows = reviewRows(adds, facts)
+  const already = [facts.hasDrums ? "drums" : "", facts.hasBass ? "bass" : "", facts.hasChords ? "chords" : ""].filter(Boolean)
+  const more = ADDS.filter((item) => !adds.has(item.id) && !(item.id === "drums" && facts.hasDrums) && !(item.id === "bass" && facts.hasBass))
+  const colorsLeft = adds.has("color") ? Object.keys(COLORS).filter((id) => !colorPalette().includes(id)) : []
+  return `<section class="build-review">
+    <h3 class="magic-h">${ms("checklist")}What I'll add (${rows.length})</h3>
+    <p class="hint">Picked for the feel${already.length ? `. You already have ${already.join(", ")}, so I won't add ${already.length === 1 ? "it" : "them"}` : ""}. Take out anything you don't want, or try another sound for it.</p>
+    ${rows.length ? `<ul class="review-list">${rows.map((row) => `<li class="review-row">
+      ${ms(ADD_ICONS[row.add] || "music_note")}
+      <span class="review-copy"><small>${esc(row.part)}</small><b>${esc(row.sound)}</b></span>
+      ${row.swap ? `<button class="icon-btn small" data-review-swap="${row.add}" ${row.color ? `data-color="${row.color}"` : ""} aria-label="Try another sound for ${esc(row.part)}" title="Another sound" ${busy}>${ms("autorenew")}</button>` : ""}
+      <button class="icon-btn small" data-review-drop="${row.add}" ${row.color ? `data-color="${row.color}"` : ""} aria-label="Don't add ${esc(row.sound)}" title="Take out" ${busy}>${ms("close")}</button>
+    </li>`).join("")}</ul>` : `<p class="empty">Nothing to add. Pick something below, or build with just your sounds.</p>`}
+    ${more.length || colorsLeft.length ? `<p class="ask">Add more</p>
+    <div class="choices">${more.map((item) => `<button class="chip" data-arrange-add="${item.id}" ${busy}>${ms("add")}${esc(item.name)}</button>`).join("")}${colorsLeft.length && colorPalette().length < 4 ? `<button class="chip" data-review-more-color ${busy}>${ms("add")}Another color sound</button>` : ""}</div>` : ""}
+    <div class="choices">${filterChip(`${ms("shuffle")}Different sounds for all`, `data-arrange="shuffle" ${busy}`)}</div>
+  </section>`
 }
 
 // Who plays in a section, from the same rules the build uses.
@@ -823,4 +873,54 @@ document.body.addEventListener("click", (event) => {
 
 document.addEventListener("input", (event) => {
   if (event.target?.id === "song-wish") arrange.said = event.target.value
+})
+
+// The review list: take a sound out, try another, add another color.
+document.body.addEventListener("click", (event) => {
+  const node = event.target.closest?.("[data-review-swap],[data-review-drop],[data-review-more-color]")
+  if (!node || node.disabled) return
+  const d = node.dataset
+  vibeOf()
+  const band = arrange.band
+  if (d.reviewDrop) {
+    if (d.reviewDrop === "color" && d.color) {
+      band.color = (band.color || []).filter((id) => id !== d.color)
+      if (band.color.length) {
+        renderInspector()
+        return
+      }
+    }
+    const adds = new Set(chosenAdds())
+    adds.delete(d.reviewDrop)
+    arrange.adds = adds
+    arrange.touched = true
+  }
+  if (d.reviewSwap) {
+    if (d.reviewSwap === "color" && d.color) {
+      const used = new Set(band.color || [])
+      const choices = Object.keys(COLORS).filter((id) => !used.has(id))
+      if (choices.length) band.color = band.color.map((id) => (id === d.color ? choices[Math.floor(Math.random() * choices.length)] : id))
+    } else {
+      const role = { drums: "kit", bass: "bass", chords: "chords", solo: "solo", vocals: "vocals", guitar: "guitar" }[d.reviewSwap]
+      const list = roleOptions(role)
+      const now = role === "solo" ? arrange.soloPick || band.solo : band[role]
+      const next = list[(list.indexOf(now) + 1) % list.length]
+      band[role] = next
+      if (role === "solo") arrange.soloPick = null
+      if (typeof checkPreview === "function" && role !== "kit" && instrumentInfo(next)) {
+        // A quick taste of the new sound.
+        void SongbirdSampler.playNote(ac(), ac().destination, next, 60, 0.6).then((voice) => voice && window.setTimeout(() => voice.stop(), 500)).catch(() => {})
+      }
+    }
+  }
+  if (d.reviewMoreColor != null) {
+    const used = new Set(band.color || [])
+    const choices = Object.keys(COLORS).filter((id) => !used.has(id))
+    if (choices.length) band.color = [...(band.color || []), choices[Math.floor(Math.random() * choices.length)]]
+    const adds = new Set(chosenAdds())
+    adds.add("color")
+    arrange.adds = adds
+    arrange.touched = true
+  }
+  renderInspector()
 })
