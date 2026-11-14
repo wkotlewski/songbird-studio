@@ -120,7 +120,7 @@ function hasTune() {
 function ideaBasis() {
   const follow = state.layers.find((layer) => layer.id === browse.follow)
   if (follow && !follow.make?.backing && (isRecording(follow) ? hasTune() : true)) return `Fits ${follow.name}`
-  return `${CHORD_MOODS[songBacking().mood].name} chords: ${chordNames()}`
+  return `${moodOf().name} chords: ${chordNames()}`
 }
 
 // Written from the song's chords (no tune to follow): pick them here.

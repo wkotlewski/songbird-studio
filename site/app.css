@@ -1846,3 +1846,12 @@ html, body { touch-action: manipulation; }
 .shape-card.on { border-color: var(--md-primary, #34d399); background: rgba(52, 211, 153, 0.14); }
 .shape-card .curve { display: flex; height: 28px; margin-top: auto; }
 .shape-card .curve i { display: block; }
+
+/* Picking chords bar by bar. */
+.chord-chooser .chord-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 6px 0 10px; }
+.chord-slot { display: grid; gap: 2px; min-height: 60px; padding: 6px; border-radius: 12px; border: 1px dashed var(--line); background: rgba(255, 251, 242, 0.04); color: inherit; font: inherit; cursor: pointer; text-align: center; }
+.chord-slot small { font-size: 11px; opacity: 0.7; }
+.chord-slot b { font-size: 18px; }
+.chord-slot.on { border: 2px solid #ff8ab0; background: rgba(255, 138, 176, 0.14); }
+.chord-chooser .chord-pads { margin: 0 0 10px; }
+.chord-chooser button.chord-pad { min-height: 56px; font-size: 18px; }

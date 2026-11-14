@@ -263,18 +263,28 @@ function pickBacking() {
 }
 
 function songBacking() {
-  if (!state.backing || !CHORD_MOODS[state.backing.mood]) state.backing = pickBacking()
+  if (!state.backing || !(CHORD_MOODS[state.backing.mood] || state.backing.steps?.length)) state.backing = pickBacking()
   return state.backing
 }
 
+// A mood, or chords you picked yourself.
+function moodOf(backing = songBacking()) {
+  if (backing.mood === "custom" && backing.steps?.length) return { name: "Your", steps: backing.steps, minor: !!backing.minor }
+  return CHORD_MOODS[backing.mood] || CHORD_MOODS.happy
+}
+
+function degreeChord(step, key) {
+  const root = SongbirdMusic.scaleStep(60 + key.root, step, key)
+  const third = SongbirdMusic.scaleStep(60 + key.root, step + 2, key)
+  const fifth = SongbirdMusic.scaleStep(60 + key.root, step + 4, key)
+  const kind = (third - root + 12) % 12 === 3 ? ((fifth - root + 12) % 12 === 6 ? "dim" : "m") : ""
+  return `${noteName(root)}${kind}`
+}
+
 function chordNames(backing = songBacking()) {
-  const mood = CHORD_MOODS[backing.mood]
+  const mood = moodOf(backing)
   const key = { root: backing.root, minor: mood.minor }
-  return mood.steps.map((step) => {
-    const root = SongbirdMusic.scaleStep(60 + key.root, step, key)
-    const third = SongbirdMusic.scaleStep(60 + key.root, step + 2, key)
-    return `${noteName(root)}${(third - root + 12) % 12 === 3 ? "m" : ""}`
-  }).join(" ")
+  return mood.steps.map((step) => degreeChord(step, key)).join(" ")
 }
 
 function backingNotes() {
@@ -283,7 +293,7 @@ function backingNotes() {
   const pass = state.loopSec || (state.loopBars || 4) * bar
   const bars = Math.max(1, Math.round(pass / bar))
   const backing = songBacking()
-  const mood = CHORD_MOODS[backing.mood]
+  const mood = moodOf(backing)
   const key = { root: ((backing.root % 12) + 12) % 12, minor: mood.minor }
   const melody = []
   for (let i = 0; i < bars; i++) melody.push({ time: i * bar, dur: bar, midi: SongbirdMusic.scaleStep(60 + key.root, mood.steps[i % mood.steps.length], key), chord: true })
@@ -296,9 +306,11 @@ function backingNotes() {
 async function setBacking(change) {
   const before = songBacking()
   state.backing = { ...before, ...change }
+  if (change.mood && change.mood !== "custom") delete state.backing.steps
   if (state.backing.mood === "surprise") state.backing = pickBacking()
   const parts = state.layers.filter((layer) => layer.make?.backing && buffers.get(layer.id + ":audio"))
-  const label = `${CHORD_MOODS[state.backing.mood].name} chords: ${chordNames()}`
+  chordDraft.steps = null
+  const label = `${moodOf().name} chords: ${chordNames()}`
   if (!parts.length) {
     rememberSong()
     return { text: `${label}. Parts you add without a tune will play these.` }
@@ -329,15 +341,78 @@ async function setBacking(change) {
   return { text: `${label}. ${changed.map((item) => item.layer.name).join(", ")} ${changed.length === 1 ? "plays" : "play"} them now. Undo puts the old chords back.` }
 }
 
+// Chords you pick yourself, bar by bar, from the six that fit the key,
+// like the chord pads in Record, without recording anything.
+const chordDraft = { steps: null, slot: 0 }
+
+function draftSteps() {
+  if (!chordDraft.steps) chordDraft.steps = [...moodOf().steps]
+  return chordDraft.steps
+}
+
 function chordChooser(busy) {
   const backing = songBacking()
+  const mood = moodOf(backing)
+  const key = { root: backing.root, minor: mood.minor }
+  const steps = draftSteps()
+  const changed = steps.join(",") !== mood.steps.join(",")
+  const degrees = mood.minor ? [0, 3, 4, 5, 6, 2] : [0, 3, 4, 5, 1, 2]
   return `<div class="chord-chooser">
-    <p class="ask">Chords: <b>${esc(chordNames())}</b></p>
-    <div class="choices">${Object.entries(CHORD_MOODS).map(([id, mood]) => filterChip(mood.name, `data-backing-mood="${id}" ${busy}`, backing.mood === id)).join("")}${filterChip(`${ms("shuffle")}Surprise me`, `data-backing-mood="surprise" ${busy}`)}</div>
+    <p class="ask">Chords now: <b>${esc(chordNames())}</b> · ${esc(keyName(key))}</p>
+    <p class="ask">Start from a feel</p>
+    <div class="choices">${Object.entries(CHORD_MOODS).map(([id, item]) => filterChip(item.name, `data-backing-mood="${id}" ${busy}`, backing.mood === id)).join("")}${filterChip(`${ms("shuffle")}Surprise me`, `data-backing-mood="surprise" ${busy}`)}</div>
     <p class="ask">Key</p>
     <div class="choices">${CHORD_KEYS.map((root) => filterChip(noteName(root), `data-backing-root="${root}" ${busy}`, backing.root === root)).join("")}</div>
+    <p class="ask">Or pick each chord yourself</p>
+    <p class="hint">Tap a bar, then a chord. Tap a chord to hear it.</p>
+    <div class="chord-slots" role="group" aria-label="Chords, bar by bar">${steps.map((step, i) => `<button class="chord-slot ${chordDraft.slot === i ? "on" : ""}" data-chord-slot="${i}" aria-pressed="${chordDraft.slot === i}"><small>Bar ${i + 1}</small><b>${esc(degreeChord(step, key))}</b></button>`).join("")}</div>
+    <div class="chord-pads">${degrees.map((degree, i) => `<button class="chord-pad ${i === 0 ? "home" : ""}" data-chord-degree="${degree}" ${busy}>${esc(degreeChord(degree, key))}${i === 0 ? "<small>Home</small>" : ""}</button>`).join("")}</div>
+    <div class="row tight">
+      ${filledButton(`${ms("check")}Use these chords`, `data-chord-use ${changed && !busy ? "" : "disabled"}`)}
+      ${outlinedButton(`${ms("play_arrow")}Hear them`, `data-chord-hear ${busy}`)}
+    </div>
   </div>`
 }
+
+function hearChord(step, key, at = 0) {
+  const root = SongbirdMusic.scaleStep(48 + key.root, step, key)
+  const tones = [0, 2, 4].map((k) => SongbirdMusic.scaleStep(48 + key.root, step + k, key))
+  const ctx = ac()
+  const when = ctx.currentTime + at
+  for (const midi of [root - 12, ...tones]) {
+    void SongbirdSampler.playNote(ctx, ctx.destination, "grand-piano", midi, 0.5, when).then((voice) => voice && window.setTimeout(() => voice.stop?.(), (at + 0.9) * 1000)).catch(() => {})
+  }
+}
+
+document.body.addEventListener("click", (event) => {
+  const node = event.target.closest?.("[data-chord-slot],[data-chord-degree],[data-chord-use],[data-chord-hear]")
+  if (!node || node.disabled || state.transforming) return
+  const backing = songBacking()
+  const key = { root: backing.root, minor: moodOf(backing).minor }
+  const steps = draftSteps()
+  const d = node.dataset
+  if (d.chordSlot != null) {
+    chordDraft.slot = Number(d.chordSlot)
+    hearChord(steps[chordDraft.slot], key)
+  }
+  if (d.chordDegree != null) {
+    steps[chordDraft.slot] = Number(d.chordDegree)
+    hearChord(steps[chordDraft.slot], key)
+    chordDraft.slot = (chordDraft.slot + 1) % steps.length
+  }
+  if (d.chordHear != null) steps.forEach((step, i) => hearChord(step, key, i * 0.9))
+  if (d.chordUse != null) {
+    const picked = [...steps]
+    void setBacking({ mood: "custom", steps: picked, minor: key.minor }).then((reply) => {
+      $("save-status").textContent = reply.text
+      if (typeof browse !== "undefined") browse.note = reply.text
+      renderInspector()
+      if (state.panel === "sounds" && typeof listenFirst === "function" && !state.layers.some((layer) => layer.make?.backing)) void listenFirst()
+    })
+    return
+  }
+  renderInspector()
+})
 
 document.body.addEventListener("click", (event) => {
   const node = event.target.closest?.("[data-backing-mood],[data-backing-root]")
