@@ -1879,8 +1879,88 @@ function layerActions(layer) {
     outlinedButton(`${ms("close")}Done`, `data-action="unpick-layer"`),
   ].filter(Boolean)
   const width = Math.max(240, ($("timeline")?.clientWidth || 360) - 24)
-  return `<div class="layer-actions" role="group" aria-label="What you can do with ${esc(layer.name)}" style="width:${width}px">${chips.join("")}</div>`
+  return `<div class="layer-panel" style="width:${width}px">
+    ${playsInRow(layer)}
+    <div class="layer-actions" role="group" aria-label="What you can do with ${esc(layer.name)}">${chips.join("")}</div>
+  </div>`
 }
+
+// Which parts of the song a layer plays in. Tap a part to add it there,
+// or to take it out.
+function layerPlaysIn(layer, section) {
+  const box = sectionSpan(section)
+  const span = layerSpan(layer)
+  if (box.end <= span.start + 0.05 || box.start >= span.start + span.length - 0.05) return false
+  return typeof restingIn === "function" ? restingIn(layer, box) < 0.5 : true
+}
+
+function playsInRow(layer) {
+  const sections = songWideSections()
+  if (sections.length < 2 || !buffers.get(layer.id + ":audio")) return ""
+  const picked = activeSection()
+  const pickedOff = picked && !layerPlaysIn(layer, picked)
+  return `<div class="plays-in" role="group" aria-label="Where ${esc(layer.name)} plays">
+    <span class="plays-label">Plays in</span>
+    ${pickedOff ? `<button class="btn btn-primary" data-plays-in="${picked.id}" data-id="${layer.id}">${ms("add")}Add it to ${esc(picked.name)}</button>` : ""}
+    ${sections.map((section) => {
+      const on = layerPlaysIn(layer, section)
+      return `<button class="chip part-chip ${on ? "on" : ""}" data-plays-in="${section.id}" data-id="${layer.id}" aria-pressed="${on}" title="${on ? `Take it out of ${esc(section.name)}` : `Add it to ${esc(section.name)}`}">${on ? "" : ms("add")}${esc(section.name)}</button>`
+    }).join("")}
+  </div>`
+}
+
+// Let a layer play over a stretch of the song: lift its rests there, and
+// if the stretch is past where it starts or ends, reach out to cover it
+// and stay quiet in between.
+function bringIn(layer, box) {
+  let gaps = withoutGap(layer.gaps || [], box.start, box.end)
+  const span = layerSpan(layer)
+  if (layer.range && (box.start < span.start || box.end > span.start + span.length)) {
+    const start = Math.min(span.start, box.start)
+    const end = Math.max(span.start + span.length, box.end)
+    if (box.start > span.start + span.length) gaps.push({ start: span.start + span.length, end: box.start })
+    if (box.end < span.start) gaps.push({ start: box.end, end: span.start })
+    layer.range = { start, end }
+    gaps = mergeGaps(gaps)
+  }
+  layer.gaps = gaps
+}
+
+function togglePlaysIn(id, sectionId) {
+  const layer = state.layers.find((item) => item.id === id)
+  const section = songWideSections().find((item) => item.id === sectionId)
+  if (!layer || !section) return
+  const box = sectionSpan(section)
+  const on = layerPlaysIn(layer, section)
+  const was = { gaps: JSON.stringify(layer.gaps || []), range: layer.range ? { ...layer.range } : null }
+  snapshot([layer.id])
+  if (on) {
+    layer.gaps = mergeGaps([...(layer.gaps || []), { start: box.start, end: box.end }])
+  } else {
+    bringIn(layer, box)
+    if (!layerPlaysIn(layer, section)) {
+      // Made for other parts: nothing in it to play here.
+      layer.gaps = JSON.parse(was.gaps)
+      layer.range = was.range
+      undoStack.pop()
+      renderTracks()
+      $("save-status").textContent = `${layer.name} was made for other parts, so it has nothing to play in ${section.name}. Try Fix this layer, or Build a song again.`
+      return
+    }
+  }
+  labelTop(on ? `${layer.name} out of ${section.name}` : `${layer.name} added to ${section.name}`)
+  rememberSong()
+  renderTracks()
+  renderRuler()
+  play(box.start)
+  $("save-status").textContent = on ? `${layer.name} sits out ${section.name} now. Undo puts it back.` : `${layer.name} plays in ${section.name} now. Undo takes it out again.`
+}
+
+document.body.addEventListener("click", (event) => {
+  const node = event.target.closest?.("[data-plays-in]")
+  if (!node) return
+  togglePlaysIn(node.dataset.id, node.dataset.playsIn)
+})
 
 function partPicked(layer) {
   return !!(state.section && state.partPick && state.partPick.has(layer.id))
@@ -1905,10 +1985,8 @@ function partLayers(out) {
   const box = sectionSpan(section)
   snapshot()
   for (const layer of picked) {
-    let gaps = (layer.gaps || []).map((gap) => ({ ...gap }))
-    if (out) gaps = mergeGaps([...gaps, { start: box.start, end: box.end }])
-    else gaps = typeof withoutGap === "function" ? withoutGap(gaps, box.start, box.end) : gaps.filter((gap) => gap.end <= box.start || gap.start >= box.end)
-    layer.gaps = gaps
+    if (out) layer.gaps = mergeGaps([...(layer.gaps || []), { start: box.start, end: box.end }])
+    else bringIn(layer, box)
   }
   rememberSong()
   renderTracks()
@@ -2205,8 +2283,8 @@ function renderRuler() {
     const inPart = state.layers.filter((layer) => partPicked(layer)).length
     context = `<span class="bar-title">${ms("check_circle")}${esc(current.name)} · ${inPart} of ${state.layers.length} ${state.layers.length === 1 ? "layer" : "layers"}</span>
         ${outlinedButton(`${ms("play_arrow")}Play this part`, `data-action="play-section"`)}
-        ${outlinedButton(`${ms("volume_off")}Take out here`, `data-action="part-out" ${inPart ? "" : "disabled"}`)}
-        ${outlinedButton(`${ms("volume_up")}Bring back here`, `data-action="part-in" ${inPart ? "" : "disabled"}`)}
+        ${outlinedButton(`${ms("add")}Add to ${esc(current.name)}`, `data-action="part-in" ${inPart ? "" : "disabled"}`)}
+        ${outlinedButton(`${ms("volume_off")}Take out of ${esc(current.name)}`, `data-action="part-out" ${inPart ? "" : "disabled"}`)}
         ${outlinedButton(`${ms("mic")}Record in this part`, `data-action="panel" data-panel="record"`)}
         ${filterChip("Add onto this part", `data-action="section-mode" data-mode="add"`, state.sectionMode === "add")}
         ${filterChip("Change this part", `data-action="section-mode" data-mode="replace"`, state.sectionMode === "replace")}
