@@ -328,7 +328,37 @@ async function buildPart(choice, source) {
   const rate = SongbirdSampler.RATE
   const total = Math.round(plan.total * rate)
   const samples = plan.loop ? tileTo(body, total) : body
-  return { samples, rate, loopSamples: plan.loop ? body.length : 0, key: plan.key, notes: (plan.events || plan.hits || []).length }
+  return { samples, rate, loopSamples: plan.loop ? body.length : 0, key: plan.key, notes: (plan.events || plan.hits || []).length, played: playedNotes(plan) }
+}
+
+// What a made part plays, kept as notes, so another sound can follow it
+// (strings that follow the piano, say), not only your recordings.
+function playedNotes(plan) {
+  if (!plan.events?.length || !plan.key) return null
+  const shift = state.transpose || 0
+  const events = plan.events.map((event) => ({ time: event.time, dur: event.dur, midi: event.midi - shift })).sort((a, b) => a.time - b.time)
+  const melody = events.map((event, i) => {
+    const together = events.filter((other, j) => j !== i && Math.abs(other.time - event.time) < 0.03).length > 0
+    return together ? { ...event, chord: true } : event
+  })
+  return {
+    melody,
+    key: { root: (((plan.key.root - shift) % 12) + 12) % 12, minor: !!plan.key.minor },
+    pass: plan.pass,
+    total: plan.total,
+    loop: !!plan.loop,
+    beat: plan.grid?.beat || 60 / Math.max(40, state.bpm || 92),
+    phase: plan.grid?.phase || 0,
+  }
+}
+
+// A sound you picked to follow: a recording is listened to; a part
+// Songbird made hands on the notes it plays.
+function followChoice(choice, source) {
+  if (!source || isRecording(source) || choice.family === "drums" || choice.melody || choice.hits) return choice
+  const played = source.played
+  if (!played?.melody?.length) return choice
+  return { ...choice, melody: played.melody, key: played.key, pass: played.pass, total: played.total, loop: played.loop, beat: played.beat, phase: played.phase, follows: source.id }
 }
 
 function partName(choice) {
@@ -353,10 +383,13 @@ async function makePart(choice, options = {}) {
     if (!layer || isRecording(layer)) return layer
     return state.layers.find((item) => item.id === layer.make?.sourceId) || null
   }
+  if (options.follow) choice = followChoice(choice, options.source)
   choice = withPlayed(choice, options.source)
   choice = withPlayed(choice, target)
   let fromPlay = !!(choice.melody || choice.hits)
-  let source = fromPlay ? null : origin(options.source)
+  // Following a part Songbird made, from before parts kept their notes:
+  // listen to that part itself.
+  let source = fromPlay ? null : options.follow ? options.source : origin(options.source)
   if (fromPlay) source = null
   else if (choice.family === "drums") source = source && kindOf(source) === "drums" ? source : rhythmLayer()
   else if (!source || kindOf(source) === "drums") source = melodyLayer()
@@ -393,7 +426,7 @@ async function makePart(choice, options = {}) {
     if (made.error === "no-notes") return { text: `I couldn't hear clear notes in ${source.name}. Try humming each note a little more clearly, or pick drums.`, warn: true }
     if (made.error) return { text: `I couldn't hear a beat in ${source?.name || "the song"} to follow.`, warn: true }
     const buffer = loopedBuffer(made.samples, made.rate, made.loopSamples)
-    const make = { ...choice, sourceId: source?.id || null }
+    const make = { ...choice, sourceId: source?.id || choice.follows || null }
     if (!fromPlay) for (const key of ["melody", "hits", "pass", "total", "loop", "beat", "phase", "key"]) delete make[key]
     const family = choice.family
     const wasPart = !!(target && target.make)
@@ -412,6 +445,7 @@ async function makePart(choice, options = {}) {
         from: `was ${target.baseName} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}${choice.era && choice.era !== "today" ? ` · ${ERAS.find(([id]) => id === choice.era)?.[1]}` : ""}`,
       })
       buffers.set(target.id + ":audio", buffer)
+      target.played = made.played || null
       target.peaks = peaksFromSamples(made.samples)
       state.selected = target.id
       state.arrived = target.id
@@ -425,6 +459,7 @@ async function makePart(choice, options = {}) {
         family,
         generated: true,
         make,
+        played: made.played || null,
         color: FAMILY_COLORS[family] || "#7aa2ff",
         peaks: peaksFromSamples(made.samples),
         gain: FAMILY_GAIN[family] ?? 0.5,
@@ -438,7 +473,7 @@ async function makePart(choice, options = {}) {
         loop: !!made.loopSamples,
         lengthSec: Math.round((made.samples.length / made.rate) * 100) / 100,
         range: source?.range ? { ...source.range } : { start: 0, end: made.samples.length / made.rate },
-        from: choice.backing ? `chords in ${KEY_LABEL[((choice.key?.root || 0) % 12 + 12) % 12]} that fit your beat` : fromPlay ? "you played it" : source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : melodyLayer() ? `a groove that fits ${melodyLayer().name}` : "a groove on the beat",
+        from: choice.follows ? `follows ${state.layers.find((item) => item.id === choice.follows)?.name || "another part"}` : choice.backing ? `chords in ${KEY_LABEL[((choice.key?.root || 0) % 12 + 12) % 12]} that fit your beat` : fromPlay ? "you played it" : source ? `from ${source.name} · ${choice.family === "drums" ? "follows your beat" : PLAYS[choice.play]?.[0].toLowerCase() || "played"}` : melodyLayer() ? `a groove that fits ${melodyLayer().name}` : "a groove on the beat",
       }
       state.layers.push(layer)
       buffers.set(id + ":audio", buffer)

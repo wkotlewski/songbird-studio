@@ -74,6 +74,8 @@ function choiceSummary(choice) {
   const bits = [partName(choice)]
   if (choice.family !== "drums") bits.push(PLAY_WORDS[choice.play]?.[0].toLowerCase())
   bits.push(ERA_WORDS[choice.era]?.[0] || "Today")
+  const follow = choice.family !== "drums" && state.layers.find((layer) => layer.id === browse.follow)
+  if (follow && !isRecording(follow)) bits.push(`follows ${follow.name}`)
   return bits.filter(Boolean).join(" · ")
 }
 
@@ -89,6 +91,9 @@ function soundsPanel(head) {
   const info = instrumentInfo(pick.instrument)
   const plays = pick.family === "drums" ? [] : info?.plays || []
   const recs = recordingsWithSound()
+  // Anything with notes can be followed: your recordings, and parts made here.
+  const followable = state.layers.filter((layer) => layer.id !== browse.target && buffers.get(layer.id + ":audio") && kindOf(layer) !== "drums" && (isRecording(layer) || layer.played?.melody?.length || layer.make))
+    .sort((a, b) => Number(!isRecording(a)) - Number(!isRecording(b)))
   const step = (n, title, body) => `<section class="browse-step"><h3><span class="num">${n}</span>${title}</h3>${body}</section>`
   let n = 0
   const kinds = step(++n, "What kind of sound?", `<div class="family-grid">${FAMILIES.map((item) => `<button class="family ${item.id === pick.family ? "on" : ""}" data-pick-family="${item.id}" ${busy}>${ms(item.icon)}${esc(item.name)}</button>`).join("")}</div>`)
@@ -107,8 +112,8 @@ function soundsPanel(head) {
       ${plays.length > 1 ? `<div class="tile-grid">${plays.map((id) => tile(PLAY_WORDS[id][0], PLAY_WORDS[id][1], `data-pick-play="${id}" ${busy}`, pick.play === id)).join("")}</div>` : `<p class="hint">${esc(PLAY_WORDS[plays[0]]?.[0] || "Plays your tune")}.</p>`}
       ${pick.play !== "bass" ? `<p class="ask">Rhythm</p><div class="choices">${RHYTHMS.filter(([id]) => id !== "strum" || (info?.strum && pick.play === "chords")).map(([id]) => filterChip(RHYTHM_WORDS[id], `data-pick-rhythm="${id}" ${busy}`, pick.rhythm === id)).join("")}</div>` : ""}`)
   const when = step(++n, "From what time?", `<div class="era-row">${ERAS.map(([id]) => tile(ERA_WORDS[id][0], ERA_WORDS[id][1], `data-browse-era="${id}" ${busy}`, browse.era === id)).join("")}</div>`)
-  const follow = pick.family !== "drums" && recs.length > 1
-    ? step(++n, "Play along with", `<div class="choices">${recs.map((layer) => filterChip(esc(layer.name), `data-browse-follow="${layer.id}" ${busy}`, browse.follow === layer.id)).join("")}</div>`)
+  const follow = pick.family !== "drums" && followable.length > 1
+    ? step(++n, "Play along with", `<p class="hint">It follows the notes of the one you pick: a recording, or a sound made here.</p><div class="choices">${followable.map((layer) => filterChip(`${ms(isRecording(layer) ? "mic" : "wand_stars")}${esc(layer.name)}`, `data-browse-follow="${layer.id}" ${busy}`, browse.follow === layer.id)).join("")}</div>`)
     : ""
   const noTune = pick.family !== "drums" && !recs.length && !state.layers.some((layer) => playedPart(layer)?.melody)
   return `${head(changing ? `Change ${esc(target.name)}` : "Add a sound")}
@@ -127,8 +132,9 @@ function soundsPanel(head) {
 
 // Listen first: the song plays with the new sound on top, nothing is added.
 async function listenFirst() {
-  const choice = withPlayed(browseChoice(), state.layers.find((layer) => layer.id === browse.target))
+  let choice = withPlayed(browseChoice(), state.layers.find((layer) => layer.id === browse.target))
   const source = browseSource(choice)
+  if (browse.follow && source?.id === browse.follow) choice = followChoice(choice, source)
   browse.listening = true
   browse.note = ""
   renderInspector()
@@ -172,8 +178,8 @@ async function addFromBrowser() {
   const target = state.layers.find((layer) => layer.id === browse.target)
   stopPlayback()
   const reply = browse.mode === "change" && target
-    ? await makePart(choice, { layer: target, source: browseSource(choice) })
-    : await makePart(choice, choice.family === "drums" ? {} : { source: browseSource(choice) })
+    ? await makePart(choice, { layer: target, source: browseSource(choice), follow: !!browse.follow && browseSource(choice)?.id === browse.follow })
+    : await makePart(choice, choice.family === "drums" ? {} : { source: browseSource(choice), follow: !!browse.follow && browseSource(choice)?.id === browse.follow })
   browse.note = reply.text
   browse.noteWarn = !!reply.warn
   state.magicChat.push({ you: `${browse.mode === "change" ? "Change to" : "Add"} ${choiceSummary(choice)}`, did: reply.text, warn: !!reply.warn })
