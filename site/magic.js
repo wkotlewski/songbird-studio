@@ -362,6 +362,12 @@ function followChoice(choice, source) {
   return { ...choice, melody: played.melody, key: played.key, pass: played.pass, total: played.total, loop: played.loop, beat: played.beat, phase: played.phase, follows: source.id }
 }
 
+// Chords, bass, and held parts can be written from the song's key alone;
+// a part that plays your tune needs a tune.
+function canUseKeyChords(choice) {
+  return choice && choice.family !== "drums" && !["solo", "section"].includes(choice.play)
+}
+
 function partName(choice) {
   if (choice.family === "drums") {
     if (choice.drums === "single") return SINGLES.find((item) => item.id === choice.single)?.name || "Percussion"
@@ -421,7 +427,16 @@ async function makePart(choice, options = {}) {
   renderInspector()
   try {
     const songId = state.song?.id
-    const made = await buildPart(choice, source)
+    let made = await buildPart(choice, source)
+    let noTuneNote = ""
+    if (made.error === "no-notes" && canUseKeyChords(choice)) {
+      // No clear tune to follow: write it from chords in the song's key.
+      noTuneNote = `${source?.name || "That sound"} has no clear tune, so I wrote it from chords in the song's key.`
+      choice = { ...choice, ...backingNotes(), backing: true }
+      fromPlay = true
+      source = null
+      made = await buildPart(choice, null)
+    }
     if (state.song?.id !== songId) return { text: "" }
     if (made.key && state.songKey == null) state.songKey = ((made.key.root - (state.transpose || 0)) % 12 + 12) % 12
     if (made.error === "no-notes") return { text: `I couldn't hear clear notes in ${source.name}. Try humming each note a little more clearly, or pick drums.`, warn: true }
@@ -492,7 +507,7 @@ async function makePart(choice, options = {}) {
         : wasPart
           ? `${wasName} is now ${label}.`
           : `${target.baseName} is now ${label}.`
-    return { text: `${said} Undo takes it back.` }
+    return { text: `${said}${noTuneNote ? ` ${noTuneNote}` : ""} Undo takes it back.` }
   } catch (error) {
     console.error("Magic couldn't make that part:", error)
     return { text: /sounds missing|missing sounds|Failed to fetch|Load failed|NetworkError|network/i.test(String(error)) ? "The instrument sounds didn't load. Check the connection and try again." : "That didn't work. Nothing changed.", warn: true }
@@ -1306,6 +1321,7 @@ document.body.addEventListener("click", (event) => {
   }
   if (d.pickPlay) pick.play = d.pickPlay
   if (d.pickRhythm) pick.rhythm = d.pickRhythm
+  pick.manual = !!(d.pickPlay || d.pickRhythm)
   if (d.pickDrums) pick.drums = d.pickDrums
   if (d.pickKit) pick.kit = d.pickKit
   if (d.pickSingle) pick.single = d.pickSingle

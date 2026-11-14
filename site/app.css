@@ -1821,3 +1821,10 @@ html, body { touch-action: manipulation; }
 .review-copy small { font-size: 12px; opacity: 0.7; }
 .review-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-row .icon-btn.small { width: 44px; height: 44px; border-color: transparent; background: transparent; }
+
+/* Add a sound: the detailed settings under the ideas. */
+.how-more { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; }
+.how-more > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; color: var(--md-primary, #34d399); font-weight: 600; list-style: none; }
+.how-more > summary::-webkit-details-marker { display: none; }
+.how-more > summary::after { content: "expand_more"; font-family: "Material Symbols Rounded"; margin-left: auto; font-size: 22px; }
+.how-more[open] > summary::after { content: "expand_less"; }

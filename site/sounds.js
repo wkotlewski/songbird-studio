@@ -120,14 +120,21 @@ function ideaBasis() {
   return `Chords in ${KEY_LABEL?.[root] || "the song's key"}`
 }
 
-function ideasStep(n, busy) {
-  const info = instrumentInfo(pick.instrument)
+// How it plays: ideas first (Songbird writes the part from your song),
+// with the detailed settings tucked under them.
+function howStep(n, busy, plays, info) {
   const family = INSTRUMENTS.filter((item) => item.family === pick.family)
   const ideas = (SOUND_IDEAS[pick.family] || SOUND_IDEAS.keys).filter((idea) => (!idea.needsTune || hasTune()) && family.some((item) => item.plays.includes(idea.play)))
-  if (!ideas.length) return ""
-  return `<section class="browse-step"><h3><span class="num">${n}</span>Ideas for ${esc(FAMILIES.find((item) => item.id === pick.family)?.name || info?.name || "it")}</h3>
-    <p class="hint">Songbird writes the part for you from your song. ${esc(ideaBasis())}. Tap one to hear it.</p>
+  const settings = `${plays.length > 1 ? `<div class="tile-grid">${plays.map((id) => tile(PLAY_WORDS[id][0], PLAY_WORDS[id][1], `data-pick-play="${id}" ${busy}`, !pick.idea && pick.play === id)).join("")}</div>` : `<p class="hint">${esc(PLAY_WORDS[plays[0]]?.[0] || "Plays your tune")}.</p>`}
+      ${pick.play !== "bass" ? `<p class="ask">Rhythm</p><div class="choices">${RHYTHMS.filter(([id]) => id !== "strum" || (info?.strum && pick.play === "chords")).map(([id]) => filterChip(RHYTHM_WORDS[id], `data-pick-rhythm="${id}" ${busy}`, !pick.idea && pick.rhythm === id)).join("")}</div>` : ""}`
+  if (!ideas.length) return `<section class="browse-step"><h3><span class="num">${n}</span>How should it play?</h3>${settings}</section>`
+  return `<section class="browse-step"><h3><span class="num">${n}</span>How should it play?</h3>
+    <p class="hint">Pick an idea and Songbird writes the part from your song. ${esc(ideaBasis())}. Tap one to hear it.</p>
     <div class="tile-grid">${ideas.map((idea) => tile(idea.name, idea.line, `data-sound-idea="${idea.id}" ${busy}`, pick.idea === idea.id, idea.bigOnly ? "auto_awesome" : null)).join("")}</div>
+    <details class="how-more" ${pick.manual && !pick.idea ? "open" : ""}>
+      <summary>${ms("tune")}Set it yourself</summary>
+      ${settings}
+    </details>
   </section>`
 }
 
@@ -215,20 +222,16 @@ function soundsPanel(head) {
         ? KITS.map((kit) => tile(kit.name, KIT_BLURBS[kit.id], `data-pick-kit="${kit.id}" ${busy}`, pick.kit === kit.id)).join("")
         : SINGLES.map((one) => tile(one.name, SINGLE_BLURBS[one.id], `data-pick-single="${one.id}" ${busy}`, pick.single === one.id)).join("")}</div>`)
     : step(++n, "Which one?", `<div class="tile-grid">${INSTRUMENTS.filter((item) => item.family === pick.family).map((item) => tile(item.name, SOUND_BLURBS[item.id], `data-pick-instrument="${item.id}" ${busy}`, item.id === pick.instrument)).join("")}</div>`)
-  const ideas = pick.family === "drums" || changing ? "" : ideasStep(++n, busy)
-  if (!ideas && pick.family !== "drums" && !changing) n--
-  const how = pick.family === "drums" ? "" : step(++n, ideas ? "Or set how it plays" : "How should it play?", `
-      ${plays.length > 1 ? `<div class="tile-grid">${plays.map((id) => tile(PLAY_WORDS[id][0], PLAY_WORDS[id][1], `data-pick-play="${id}" ${busy}`, pick.play === id)).join("")}</div>` : `<p class="hint">${esc(PLAY_WORDS[plays[0]]?.[0] || "Plays your tune")}.</p>`}
-      ${pick.play !== "bass" ? `<p class="ask">Rhythm</p><div class="choices">${RHYTHMS.filter(([id]) => id !== "strum" || (info?.strum && pick.play === "chords")).map(([id]) => filterChip(RHYTHM_WORDS[id], `data-pick-rhythm="${id}" ${busy}`, pick.rhythm === id)).join("")}</div>` : ""}`)
+  const how = pick.family === "drums" ? "" : howStep(++n, busy, plays, info)
   const when = step(++n, "From what time?", `<div class="era-row">${ERAS.map(([id]) => tile(ERA_WORDS[id][0], ERA_WORDS[id][1], `data-browse-era="${id}" ${busy}`, browse.era === id)).join("")}</div>`)
   const follow = pick.family !== "drums" && followable.length > 1
-    ? step(++n, "Play along with", `<p class="hint">It follows the notes of the one you pick: a recording, or a sound made here.</p><div class="choices">${followable.map((layer) => filterChip(`${ms(isRecording(layer) ? "mic" : "wand_stars")}${esc(layer.name)}`, `data-browse-follow="${layer.id}" ${busy}`, browse.follow === layer.id)).join("")}</div>`)
+    ? step(++n, "Play along with", `<p class="hint">It follows the notes of the one you pick: a recording, or a sound made here. Tap one to hear it.</p><div class="choices">${followable.map((layer) => filterChip(`${ms(isRecording(layer) ? "mic" : "wand_stars")}${esc(layer.name)}`, `data-browse-follow="${layer.id}" ${busy}`, browse.follow === layer.id)).join("")}</div>`)
     : ""
   // Chords and bass can be written in the song's key; only a tune needs one.
   const noTune = pick.family !== "drums" && ["solo", "section"].includes(pick.play) && !hasTune()
   return `${head(changing ? `Change ${esc(target.name)}` : "Add a sound")}
     <p class="hint">${changing ? "Pick a new instrument, a new way to play, or a different time. Your other sounds stay the same." : "Pick any sound, try it with your song, then add it. Every note lands on the beat and in tune."}</p>
-    ${kinds}${which}${ideas}${how}${when}${follow}
+    ${kinds}${which}${how}${when}${follow}
     <div class="browse-bar">
       <p class="browse-summary">${ms(changing ? "swap_horiz" : "music_note")}${esc(choiceSummary(choice))}</p>
       ${noTune ? `<p class="hint warn-text">There's no tune yet for it to play. Pick one of the ideas above, or record a hum first.</p>` : ""}
@@ -249,7 +252,12 @@ async function listenFirst() {
   browse.note = ""
   renderInspector()
   try {
-    const made = await buildPart(choice, source)
+    browse.keyNote = ""
+    let made = await buildPart(choice, source)
+    if (made.error === "no-notes" && canUseKeyChords(choice)) {
+      made = await buildPart({ ...choice, ...backingNotes(), backing: true }, null)
+      browse.keyNote = `${source?.name || "That sound"} has no clear tune, so this plays chords in the song's key. `
+    }
     if (made.error) {
       browse.note = made.error === "no-notes" ? "I couldn't hear a clear tune to follow. Try humming each note a bit more clearly." : "There's no beat to follow yet."
       browse.noteWarn = true
@@ -272,7 +280,7 @@ async function listenFirst() {
     gain.connect(songBus(ctx))
     src.start(ctx.currentTime + 0.01)
     previewSources.push(src)
-    browse.note = `That's ${choiceSummary(choice)} with your song. Like it? Tap ${browse.mode === "change" ? "Change it" : "Add it"}.`
+    browse.note = `${browse.keyNote || ""}That's ${choiceSummary(choice)} with your song. Like it? Tap ${browse.mode === "change" ? "Change it" : "Add it"}.`
     browse.noteWarn = false
   } catch {
     browse.note = "That didn't play. Check the connection and try again."
@@ -329,7 +337,13 @@ document.body.addEventListener("click", (event) => {
     return
   }
   if (d.browseEra) browse.era = d.browseEra
-  if (d.browseFollow) browse.follow = d.browseFollow
+  if (d.browseFollow) {
+    // Hear it with the one it follows right away.
+    browse.follow = d.browseFollow
+    renderInspector()
+    void listenFirst()
+    return
+  }
   if (d.browse === "listen") {
     void listenFirst()
     return

@@ -501,9 +501,10 @@ function noteCheckPanel(head) {
   }
   if (check.empty) {
     return `${head("Check your notes")}
-      <p class="hint">I couldn't hear clear notes in ${esc(source.name)}. Humming each note a bit longer and clearer helps.</p>
+      <p class="hint">I couldn't hear clear notes in ${esc(source.name)}${check.choice && canUseKeyChords(check.choice) ? `. ${esc(partName(check.choice))} doesn't need them: I can write it from chords in the song's key` : ". Humming each note a bit longer and clearer helps"}.</p>
+      ${check.choice && canUseKeyChords(check.choice) ? filledButton(`${ms("auto_awesome")}Write ${esc(partName(check.choice))} from the song's chords`, `data-check="key-chords"`) : ""}
       <div class="row">
-        ${filledButton(`${ms("piano")}Play it on the keys instead`, `data-check="play-instead"`)}
+        ${(check.choice && canUseKeyChords(check.choice) ? outlinedButton : filledButton)(`${ms("piano")}Play it on the keys instead`, `data-check="play-instead"`)}
         ${outlinedButton(`${ms("mic")}Record again`, `data-check="record-again"`)}
       </div>`
   }
@@ -662,6 +663,15 @@ document.body.addEventListener("click", (event) => {
   }
   if (what === "done") {
     void confirmNotes()
+    return
+  }
+  if (what === "key-chords" && check.choice) {
+    const choice = { ...check.choice, ...backingNotes(), backing: true }
+    const target = state.layers.find((item) => item.id === check.layerId) || null
+    void makePart(choice, { layer: target, checked: true }).then((reply) => {
+      $("save-status").textContent = reply.text
+      closePanel()
+    })
     return
   }
   if (what === "play-instead") {
