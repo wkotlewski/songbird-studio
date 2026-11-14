@@ -6959,11 +6959,16 @@ document.addEventListener("input", (event) => {
   let start = null
   let locked = ""
   let release = 0
+  // Hold the other direction still by putting it back as it moves.
+  // (Turning its scrolling off instead made iPhones jump to the top.)
+  let hold = { top: 0, left: 0 }
   const unlock = () => {
-    box.style.overflowX = ""
-    box.style.overflowY = ""
     locked = ""
   }
+  box.addEventListener("scroll", () => {
+    if (locked === "x" && box.scrollTop !== hold.top) box.scrollTop = hold.top
+    if (locked === "y" && box.scrollLeft !== hold.left) box.scrollLeft = hold.left
+  }, { passive: true })
   box.addEventListener("touchstart", (event) => {
     if (event.touches.length !== 1) return
     clearTimeout(release)
@@ -6976,8 +6981,7 @@ document.addEventListener("input", (event) => {
     const dy = Math.abs(event.touches[0].clientY - start.y)
     if (Math.max(dx, dy) < 8) return
     locked = dx > dy ? "x" : "y"
-    if (locked === "x") box.style.overflowY = "hidden"
-    else box.style.overflowX = "hidden"
+    hold = { top: box.scrollTop, left: box.scrollLeft }
   }, { passive: true })
   box.addEventListener("touchend", () => {
     start = null
