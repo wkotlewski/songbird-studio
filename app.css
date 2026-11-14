@@ -1722,12 +1722,21 @@ html, body { touch-action: manipulation; }
 
 /* A picked layer's actions sit right under it, and stay in view while the
    song scrolls sideways. */
-.layer-actions {
-  position: sticky; left: 0; z-index: 4;
-  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+.layer-panel {
+  position: sticky; left: 0; z-index: 4; display: grid; gap: 6px;
   margin: -2px 0 10px; padding: 8px; border-radius: 16px;
   background: rgba(10, 18, 22, 0.92); border: 1px solid rgba(52, 211, 153, 0.45);
 }
+.layer-actions { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.plays-in { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 6px; border-bottom: 1px solid rgba(255, 251, 242, 0.1); }
+.plays-in::-webkit-scrollbar { display: none; }
+.plays-label { flex: none; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--mute); }
+.plays-in .chip, .plays-in .btn { flex: none; white-space: nowrap; min-height: 40px; }
+.plays-in .part-chip .ms { font-size: 18px; }
+.plays-in .part-chip:not(.on) { border-style: dashed; opacity: 0.85; }
+/* Shape pictures in the Length panel: bars side by side, not stacked. */
+.plan-copy .curve { display: flex; }
+.plan-copy .curve i { display: block; }
 .layer-actions::-webkit-scrollbar { display: none; }
 .layer-actions .btn { flex: none; white-space: nowrap; min-height: 40px; }
 
