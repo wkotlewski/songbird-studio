@@ -1089,3 +1089,15 @@ button.roll-note.maybe.on { outline: 3px solid var(--md-primary); }
 .hint-legend .dot.could { background: #6ee7b7; }
 .hint-row .choices .chip { min-height: 40px; }
 .hint-clear { display: flex; align-items: center; gap: 6px; color: #a7f3d0; }
+
+/* The close button on every panel: a clear, filled round button. */
+.sheet-head .sheet-transport button.icon-btn[data-action="close-panel"] {
+  width: 44px; height: 44px; min-width: 44px; padding: 0;
+  border: 0; border-radius: 50%; box-shadow: none;
+  background: rgba(255, 251, 242, 0.12); color: var(--md-on-surface, #fffbf2);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.sheet-head .sheet-transport button.icon-btn[data-action="close-panel"] .ms { font-size: 24px; font-variation-settings: "wght" 600; }
+.sheet-head .sheet-transport button.icon-btn[data-action="close-panel"]:hover { background: rgba(255, 251, 242, 0.2); }
+.sheet-head .sheet-transport button.icon-btn[data-action="close-panel"]:active { transform: scale(0.94); background: rgba(255, 251, 242, 0.26); }
+.sheet-head .sheet-transport button.icon-btn[data-action="close-panel"]:focus-visible { outline: 2px solid var(--md-primary, #34d399); outline-offset: 2px; }
