@@ -55,6 +55,10 @@ function openBrowser(targetId) {
   const yours = state.layers.some((layer) => isRecording(layer) && buffers.get(layer.id + ":audio"))
   const beats = Object.keys(GROOVES).filter((id) => id !== pick.groove)
   pick.groove = yours ? null : beats[Math.floor(Math.random() * beats.length)]
+  delete pick.ownBeat
+  browse.grid = null
+  pick.ownTune = null
+  pick.ownTuneOn = false
   setPanel("sounds")
   // Start at step 1, with room to see the choices.
   const sheet = $("inspector")
@@ -64,7 +68,82 @@ function openBrowser(targetId) {
 function browseChoice() {
   const choice = { ...pick, era: browse.era }
   delete choice.idea
+  delete choice.ownTune
+  delete choice.ownTuneFor
+  delete choice.ownTuneEdited
+  delete choice.ownTuneOn
+  if (pick.family !== "drums" && pick.ownTuneOn && pick.ownTune?.some((midi) => midi != null)) Object.assign(choice, tuneNotes(), { ownTune: true })
+  // Playing along with the song's chords, not a layer.
+  else if (pick.family !== "drums" && browse.follow === "song") Object.assign(choice, backingNotes(), { backing: true })
   return choice
+}
+
+// Your own tune: two bars, a note on each beat, picked from the notes of
+// the song's key. A note lasts until the next one. Every pitched sound
+// can play it: as a tune, as chords under it, or as a bass line.
+const TUNE_STEPS = 8
+
+function tuneKey() {
+  const backing = songBacking()
+  return { root: ((state.songKey ?? backing.root) % 12 + 12) % 12, minor: !!moodOf(backing).minor }
+}
+
+function tuneBase() {
+  const info = instrumentInfo(pick.instrument)
+  const middle = info?.low != null && info?.high != null ? (info.low + info.high) / 2 : 64
+  const key = tuneKey()
+  let base = 48 + key.root
+  while (base + 6 < middle - 3) base += 12
+  while (base + 6 > middle + 6) base -= 12
+  return base
+}
+
+function tuneRows() {
+  const key = tuneKey()
+  const base = tuneBase()
+  return Array.from({ length: 8 }, (_, i) => SongbirdMusic.scaleStep(base, 7 - i, key))
+}
+
+function ownTune() {
+  if (!pick.ownTune || pick.ownTuneFor !== `${pick.instrument}|${tuneKey().root}`) {
+    // Starts from the song's chords: each one's low note, a bar each.
+    const key = tuneKey()
+    const base = tuneBase()
+    const mood = moodOf()
+    pick.ownTune = Array(TUNE_STEPS).fill(null)
+    pick.ownTune[0] = SongbirdMusic.scaleStep(base, mood.steps[0] || 0, key)
+    pick.ownTune[4] = SongbirdMusic.scaleStep(base, mood.steps[1] || 0, key)
+    pick.ownTuneFor = `${pick.instrument}|${key.root}`
+    pick.ownTuneEdited = false
+  }
+  return pick.ownTune
+}
+
+function tuneNotes() {
+  const steps = ownTune()
+  const beat = 60 / Math.max(40, state.bpm || 92)
+  const pass = beat * TUNE_STEPS
+  const melody = []
+  steps.forEach((midi, i) => {
+    if (midi == null) return
+    let next = i + 1
+    while (next < steps.length && steps[next] == null) next++
+    melody.push({ time: i * beat, dur: (next - i) * beat * 0.95, midi })
+  })
+  const total = Math.max(state.lengthSec || pass, pass)
+  return { melody, key: tuneKey(), pass, total, loop: total > pass + 0.01, beat, phase: 0 }
+}
+
+function tuneMaker(busy) {
+  const rows = tuneRows()
+  const steps = ownTune()
+  const count = ["1", "2", "3", "4", "1", "2", "3", "4"]
+  return `<p class="hint">Tap a square to play that note on that beat; tap it again to take it out. A note lasts until the next one. It loops through the song.</p>
+    <div class="beat-grid tune-grid" role="grid" aria-label="Your tune">
+      <span></span>${count.map((c, i) => `<span class="beat-count">${i === 4 ? `<b>${c}</b>` : c}</span>`).join("")}
+      ${rows.map((midi) => `<span class="beat-row-name">${esc(noteName(midi))}${midi % 12 === tuneKey().root ? " ·" : ""}</span>${steps.map((on, step) => `<button class="beat-cell ${on === midi ? "on" : ""} ${step % 4 ? "" : "down"}" data-tune-cell="${midi}:${step}" aria-pressed="${on === midi}" aria-label="${esc(noteName(midi))} on beat ${count[step]}" ${busy}></button>`).join("")}`).join("")}
+    </div>
+    <div class="choices">${filterChip(`${ms("play_arrow")}Hear it`, `data-tune-hear ${busy}`)}${pick.ownTuneEdited ? filterChip(`${ms("restart_alt")}Start again`, `data-tune-reset ${busy}`) : ""}${pick.ownTuneOn ? filterChip(`${ms("close")}Don't use my tune`, `data-tune-off ${busy}`) : ""}</div>`
 }
 
 // Ideas for each kind of sound: Songbird writes the part from your song
@@ -120,7 +199,7 @@ function hasTune() {
 function ideaBasis() {
   const follow = state.layers.find((layer) => layer.id === browse.follow)
   if (follow && !follow.make?.backing && (isRecording(follow) ? hasTune() : true)) return `Fits ${follow.name}`
-  return `${CHORD_MOODS[songBacking().mood].name} chords: ${chordNames()}`
+  return `${moodOf().name} chords: ${chordNames()}`
 }
 
 // Written from the song's chords (no tune to follow): pick them here.
@@ -136,11 +215,16 @@ function howStep(n, busy, plays, info) {
   const ideas = (SOUND_IDEAS[pick.family] || SOUND_IDEAS.keys).filter((idea) => (!idea.needsTune || hasTune()) && family.some((item) => item.plays.includes(idea.play)))
   const settings = `${plays.length > 1 ? `<div class="tile-grid">${plays.map((id) => tile(PLAY_WORDS[id][0], PLAY_WORDS[id][1], `data-pick-play="${id}" ${busy}`, !pick.idea && pick.play === id)).join("")}</div>` : `<p class="hint">${esc(PLAY_WORDS[plays[0]]?.[0] || "Plays your tune")}.</p>`}
       ${pick.play !== "bass" ? `<p class="ask">Rhythm</p><div class="choices">${RHYTHMS.filter(([id]) => id !== "strum" || (info?.strum && pick.play === "chords")).map(([id]) => filterChip(RHYTHM_WORDS[id], `data-pick-rhythm="${id}" ${busy}`, !pick.idea && pick.rhythm === id)).join("")}</div>` : ""}`
-  if (!ideas.length) return `<section class="browse-step"><h3><span class="num">${n}</span>How should it play?</h3>${settings}</section>`
+  if (!ideas.length) return `<section class="browse-step"><h3><span class="num">${n}</span>How should it play?</h3>${settings}
+    <details class="how-more" ${pick.ownTuneOn ? "open" : ""}><summary>${ms("piano")}Make your own tune</summary>${tuneMaker(busy)}</details></section>`
   return `<section class="browse-step"><h3><span class="num">${n}</span>How should it play?</h3>
     <p class="hint">Pick an idea and Songbird writes the part from your song. ${esc(ideaBasis())}. Tap one to hear it.</p>
     <div class="tile-grid">${ideas.map((idea) => tile(idea.name, idea.line, `data-sound-idea="${idea.id}" ${busy}`, pick.idea === idea.id, idea.bigOnly ? "auto_awesome" : null)).join("")}</div>
     ${usesSongChords() ? `<details class="how-more" open><summary>${ms("piano")}Change the chords</summary>${chordChooser(busy)}</details>` : ""}
+    <details class="how-more" ${pick.ownTuneOn ? "open" : ""}>
+      <summary>${ms("piano")}Make your own tune</summary>
+      ${tuneMaker(busy)}
+    </details>
     <details class="how-more" ${pick.manual && !pick.idea ? "open" : ""}>
       <summary>${ms("tune")}Set it yourself</summary>
       ${settings}
@@ -153,8 +237,70 @@ function beatStep(n, busy) {
   const yours = state.layers.some((layer) => isRecording(layer) && buffers.get(layer.id + ":audio"))
   return `<section class="browse-step"><h3><span class="num">${n}</span>Which beat?</h3>
     <p class="hint">Tap one to hear it with your song.</p>
-    <div class="tile-grid">${yours ? tile("Follow my beat", "Drums that follow the rhythm of what you recorded.", `data-pick-groove="" ${busy}`, !pick.groove) : ""}${Object.entries(GROOVES).map(([id, groove]) => tile(groove.name, groove.line, `data-pick-groove="${id}" ${busy}`, pick.groove === id)).join("")}</div>
+    <div class="tile-grid">${yours ? tile("Follow my beat", "Drums that follow the rhythm of what you recorded.", `data-pick-groove="" ${busy}`, !pick.groove && !pick.ownBeat) : ""}${Object.entries(GROOVES).map(([id, groove]) => tile(groove.name, groove.line, `data-pick-groove="${id}" ${busy}`, pick.groove === id && !pick.ownBeat)).join("")}</div>
+    <details class="how-more" ${pick.ownBeat ? "open" : ""}>
+      <summary>${ms("grid_on")}Make your own beat</summary>
+      ${beatMaker(busy)}
+    </details>
   </section>`
+}
+
+// One sound (a conga, a shaker…): you set where it plays.
+function singleStep(n, busy) {
+  if (!pick.single) return ""
+  return `<section class="browse-step"><h3><span class="num">${n}</span>Where it plays</h3>
+    ${beatMaker(busy)}
+  </section>`
+}
+
+// Your own beat: one bar of eighth notes, a row for each drum. It starts
+// from the beat you picked, so you can change just a little.
+const KIT_ROWS = [["kick", "Kick"], ["snare", "Snare"], ["clap", "Clap"], ["hat", "Hi-hat"], ["open-hat", "Open hat"]]
+const BEAT_STEPS = 8
+
+// The rows: a kit's drums, or one sound (hand drums get their high and low).
+function beatRows() {
+  if (pick.drums !== "single") return KIT_ROWS
+  const name = SINGLES.find((one) => one.id === pick.single)?.name || "Hit"
+  if (pick.single === "conga") return [["conga", "High"], ["low-conga", "Low"]]
+  if (pick.single === "high-bongo") return [["high-bongo", "High"], ["low-bongo", "Low"]]
+  return [[pick.single || "clap", name]]
+}
+
+function beatGrid() {
+  const BEAT_ROWS = beatRows()
+  if (!browse.grid || browse.gridFor !== BEAT_ROWS.map(([kind]) => kind).join()) {
+    browse.gridFor = BEAT_ROWS.map(([kind]) => kind).join()
+    // A one-sound part starts on every beat; a kit starts from the picked beat.
+    const bar = pick.ownBeat || (pick.drums === "single" ? [0, 1, 2, 3].map((b) => [b, BEAT_ROWS[0][0], 0.8]) : (GROOVES[pick.groove] || GROOVES.pop).bar)
+    browse.grid = Object.fromEntries(BEAT_ROWS.map(([kind]) => [kind, Array(BEAT_STEPS).fill(false)]))
+    for (const [at, kind, vel] of bar) {
+      const row = kind === "ride" || kind === "shaker" || kind === "pedal-hat" ? "hat" : kind === "rim" ? "snare" : kind
+      const step = Math.round(at * 2)
+      if (browse.grid[row] && vel > 0.2 && step < BEAT_STEPS) browse.grid[row][step] = true
+    }
+  }
+  return browse.grid
+}
+
+function gridBar() {
+  const grid = beatGrid()
+  const bar = []
+  for (const [kind] of beatRows()) grid[kind].forEach((on, step) => {
+    if (on) bar.push([step / 2, kind, kind === "kick" ? 0.95 : kind === "snare" || kind === "clap" ? 0.85 : step % 2 ? 0.32 : 0.48])
+  })
+  return bar
+}
+
+function beatMaker(busy) {
+  const grid = beatGrid()
+  const count = ["1", "&", "2", "&", "3", "&", "4", "&"]
+  return `<p class="hint">Tap a square to add or take out a drum. Each tap plays it. Listen first plays the whole beat with your song.</p>
+    <div class="beat-grid" role="grid" aria-label="Your beat">
+      <span></span>${count.map((c) => `<span class="beat-count">${c}</span>`).join("")}
+      ${beatRows().map(([kind, name]) => `<span class="beat-row-name">${name}</span>${grid[kind].map((on, step) => `<button class="beat-cell ${on ? "on" : ""} ${step % 2 ? "" : "down"}" data-beat-cell="${kind}:${step}" aria-pressed="${on}" aria-label="${name} on ${count[step]}" ${busy}></button>`).join("")}`).join("")}
+    </div>
+    ${pick.ownBeat ? `<div class="choices">${filterChip(`${ms("restart_alt")}Start again${pick.drums === "single" ? "" : ` from ${esc(GROOVES[pick.groove]?.name || "the beat")}`}`, `data-beat-reset ${busy}`)}</div>` : ""}`
 }
 
 function pickIdea(id) {
@@ -199,9 +345,9 @@ function browseSource(choice) {
 
 function choiceSummary(choice) {
   const bits = [partName(choice)]
-  if (choice.family === "drums" && choice.drums === "kit") bits.push(choice.groove ? GROOVES[choice.groove]?.name.toLowerCase() : "follows your beat")
+  if (choice.family === "drums" && choice.drums === "kit") bits.push(choice.ownBeat ? "your own beat" : choice.groove ? GROOVES[choice.groove]?.name.toLowerCase() : "follows your beat")
   const idea = pick.idea && (SOUND_IDEAS[pick.family] || SOUND_IDEAS.keys).find((item) => item.id === pick.idea)
-  if (choice.family !== "drums") bits.push(idea ? idea.name.toLowerCase() : PLAY_WORDS[choice.play]?.[0].toLowerCase())
+  if (choice.family !== "drums") bits.push(choice.ownTune ? `your own tune, ${PLAY_WORDS[choice.play]?.[0].toLowerCase()}` : idea ? idea.name.toLowerCase() : PLAY_WORDS[choice.play]?.[0].toLowerCase())
   bits.push(ERA_WORDS[choice.era]?.[0] || "Today")
   const follow = choice.family !== "drums" && state.layers.find((layer) => layer.id === browse.follow)
   if (follow && !isRecording(follow)) bits.push(`follows ${follow.name}`)
@@ -217,7 +363,7 @@ function soundsPanel(head) {
   const target = state.layers.find((layer) => layer.id === browse.target)
   const changing = browse.mode === "change" && target
   // No tune to play yet: start on the first idea, so Add it just works.
-  if (!changing && pick.family !== "drums" && !pick.idea && ["solo", "section"].includes(pick.play) && !hasTune()) {
+  if (!changing && pick.family !== "drums" && !pick.idea && !pick.ownTuneOn && ["solo", "section"].includes(pick.play) && !hasTune()) {
     const first = (SOUND_IDEAS[pick.family] || SOUND_IDEAS.keys).find((idea) => !idea.needsTune && INSTRUMENTS.some((item) => item.family === pick.family && item.plays.includes(idea.play)))
     if (first) pickIdea(first.id)
   }
@@ -242,19 +388,19 @@ function soundsPanel(head) {
         ? KITS.map((kit) => tile(kit.name, KIT_BLURBS[kit.id], `data-pick-kit="${kit.id}" ${busy}`, pick.kit === kit.id)).join("")
         : SINGLES.map((one) => tile(one.name, SINGLE_BLURBS[one.id], `data-pick-single="${one.id}" ${busy}`, pick.single === one.id)).join("")}</div>`)
     : step(++n, "Which one?", `<div class="tile-grid">${INSTRUMENTS.filter((item) => item.family === pick.family).map((item) => tile(item.name, SOUND_BLURBS[item.id], `data-pick-instrument="${item.id}" ${busy}`, item.id === pick.instrument)).join("")}</div>`)
-  const how = pick.family === "drums" ? (pick.drums === "kit" ? beatStep(++n, busy) : "") : howStep(++n, busy, plays, info)
+  const how = pick.family === "drums" ? (pick.drums === "kit" ? beatStep(++n, busy) : singleStep(++n, busy)) : howStep(++n, busy, plays, info)
   const when = step(++n, "From what time?", `<div class="era-row">${ERAS.map(([id]) => tile(ERA_WORDS[id][0], ERA_WORDS[id][1], `data-browse-era="${id}" ${busy}`, browse.era === id)).join("")}</div>`)
-  const follow = pick.family !== "drums" && followable.length > 1
-    ? step(++n, "Play along with", `<p class="hint">It follows the notes of the one you pick: a recording, or a sound made here. Tap one to hear it.</p><div class="choices">${followable.map((layer) => filterChip(`${ms(isRecording(layer) ? "mic" : "wand_stars")}${esc(layer.name)}`, `data-browse-follow="${layer.id}" ${busy}`, browse.follow === layer.id)).join("")}</div>`)
+  const follow = pick.family !== "drums" && followable.length >= 1
+    ? step(++n, "Play along with", `<p class="hint">It follows the notes of the one you pick: a recording, or a sound made here. Tap one to hear it.</p><div class="choices">${followable.map((layer) => filterChip(`${ms(isRecording(layer) ? "mic" : "wand_stars")}${esc(layer.name)}`, `data-browse-follow="${layer.id}" ${busy}`, browse.follow === layer.id)).join("")}${filterChip(`${ms("piano")}The song's chords`, `data-browse-follow="song" ${busy}`, browse.follow === "song")}</div>`)
     : ""
   // Chords and bass can be written in the song's key; only a tune needs one.
-  const noTune = pick.family !== "drums" && ["solo", "section"].includes(pick.play) && !hasTune()
+  const noTune = pick.family !== "drums" && ["solo", "section"].includes(pick.play) && !hasTune() && !pick.ownTuneOn
   return `${head(changing ? `Change ${esc(target.name)}` : "Add a sound")}
     <p class="hint">${changing ? "Pick a new instrument, a new way to play, or a different time. Your other sounds stay the same." : "Pick any sound, try it with your song, then add it. Every note lands on the beat and in tune."}</p>
     ${kinds}${which}${how}${when}${follow}
     <div class="browse-bar">
       <p class="browse-summary">${ms(changing ? "swap_horiz" : "music_note")}${esc(choiceSummary(choice))}</p>
-      ${noTune ? `<p class="hint warn-text">There's no tune yet for it to play. Pick one of the ideas above, or record a hum first.</p>` : ""}
+      ${noTune ? `<p class="hint warn-text">There's no tune yet for it to play. Pick one of the ideas above, or make your own tune.</p>` : ""}
       <div class="browse-actions">
         ${outlinedButton(browse.listening ? `${ms("graphic_eq")}Playing…` : `${ms("play_arrow")}Listen first`, `data-browse="listen" ${busy} ${noTune ? "disabled" : ""}`)}
         ${filledButton(state.transforming ? "Working…" : changing ? `${ms("check")}Change it` : `${ms("add")}Add it`, `data-browse="add" ${busy} ${noTune ? "disabled" : ""}`)}
@@ -342,9 +488,56 @@ async function addFromBrowser() {
 }
 
 document.body.addEventListener("click", (event) => {
+  const tune = event.target.closest?.("[data-tune-cell],[data-tune-hear],[data-tune-reset],[data-tune-off]")
+  if (tune && !tune.disabled) {
+    const d = tune.dataset
+    if (d.tuneCell) {
+      const [midi, step] = d.tuneCell.split(":").map(Number)
+      const steps = ownTune()
+      steps[step] = steps[step] === midi ? null : midi
+      pick.ownTuneEdited = true
+      pick.ownTuneOn = true
+      browse.note = ""
+      if (steps[step] != null) void SongbirdSampler.playNote(ac(), ac().destination, pick.instrument, midi, 0.8).then((voice) => voice && setTimeout(() => voice.stop?.(), 600)).catch(() => {})
+    }
+    if (d.tuneHear != null) {
+      const { melody } = tuneNotes()
+      const ctx = ac()
+      for (const note of melody) void SongbirdSampler.playNote(ctx, ctx.destination, pick.instrument, note.midi, 0.8, ctx.currentTime + note.time).then((voice) => voice && setTimeout(() => voice.stop?.(), (note.time + note.dur) * 1000)).catch(() => {})
+    }
+    if (d.tuneReset != null) {
+      pick.ownTune = null
+      pick.ownTuneOn = true
+    }
+    if (d.tuneOff != null) {
+      pick.ownTune = null
+      pick.ownTuneOn = false
+    }
+    renderInspector()
+    return
+  }
+  const cell = event.target.closest?.("[data-beat-cell]")
+  if (cell && !cell.disabled) {
+    const [kind, step] = cell.dataset.beatCell.split(":")
+    const grid = beatGrid()
+    grid[kind][Number(step)] = !grid[kind][Number(step)]
+    pick.ownBeat = gridBar()
+    browse.note = ""
+    if (grid[kind][Number(step)]) void SongbirdSampler.playHit(ac(), ac().destination, pick.kit || "standard", kind, 0.9).catch(() => {})
+    renderInspector()
+    return
+  }
+  if (event.target.closest?.("[data-beat-reset]")) {
+    delete pick.ownBeat
+    browse.grid = null
+    renderInspector()
+    return
+  }
   const beat = event.target.closest?.("[data-pick-groove]")
   if (beat && !beat.disabled) {
     pick.groove = beat.dataset.pickGroove || null
+    delete pick.ownBeat
+    browse.grid = null
     renderInspector()
     void listenFirst()
     return
@@ -385,6 +578,10 @@ document.body.addEventListener("click", (event) => {
 
 // Picking in the browser clears the last note, so it never describes an old choice.
 document.body.addEventListener("click", (event) => {
+  if (state.panel === "sounds" && event.target.closest?.("[data-pick-drums],[data-pick-single]")) {
+    delete pick.ownBeat
+    browse.grid = null
+  }
   if (state.panel === "sounds" && event.target.closest?.("[data-pick-family],[data-pick-instrument],[data-pick-play],[data-pick-rhythm],[data-pick-drums],[data-pick-kit],[data-pick-single]")) {
     browse.note = ""
     stopPreview()
