@@ -362,6 +362,12 @@ function followChoice(choice, source) {
   return { ...choice, melody: played.melody, key: played.key, pass: played.pass, total: played.total, loop: played.loop, beat: played.beat, phase: played.phase, follows: source.id }
 }
 
+// Chords, bass, and held parts can be written from the song's key alone;
+// a part that plays your tune needs a tune.
+function canUseKeyChords(choice) {
+  return choice && choice.family !== "drums" && !["solo", "section"].includes(choice.play)
+}
+
 function partName(choice) {
   if (choice.family === "drums") {
     if (choice.drums === "single") return SINGLES.find((item) => item.id === choice.single)?.name || "Percussion"
@@ -421,7 +427,16 @@ async function makePart(choice, options = {}) {
   renderInspector()
   try {
     const songId = state.song?.id
-    const made = await buildPart(choice, source)
+    let made = await buildPart(choice, source)
+    let noTuneNote = ""
+    if (made.error === "no-notes" && canUseKeyChords(choice)) {
+      // No clear tune to follow: write it from chords in the song's key.
+      noTuneNote = `${source?.name || "That sound"} has no clear tune, so I wrote it from chords in the song's key.`
+      choice = { ...choice, ...backingNotes(), backing: true }
+      fromPlay = true
+      source = null
+      made = await buildPart(choice, null)
+    }
     if (state.song?.id !== songId) return { text: "" }
     if (made.key && state.songKey == null) state.songKey = ((made.key.root - (state.transpose || 0)) % 12 + 12) % 12
     if (made.error === "no-notes") return { text: `I couldn't hear clear notes in ${source.name}. Try humming each note a little more clearly, or pick drums.`, warn: true }
@@ -492,7 +507,7 @@ async function makePart(choice, options = {}) {
         : wasPart
           ? `${wasName} is now ${label}.`
           : `${target.baseName} is now ${label}.`
-    return { text: `${said} Undo takes it back.` }
+    return { text: `${said}${noTuneNote ? ` ${noTuneNote}` : ""} Undo takes it back.` }
   } catch (error) {
     console.error("Magic couldn't make that part:", error)
     return { text: /sounds missing|missing sounds|Failed to fetch|Load failed|NetworkError|network/i.test(String(error)) ? "The instrument sounds didn't load. Check the connection and try again." : "That didn't work. Nothing changed.", warn: true }
@@ -752,7 +767,8 @@ async function setEra(era) {
   rememberSong()
   renderTracks()
   play(0)
-  return { text: `${changed.length === 1 ? "The part" : `${changed.length} parts`} now sound like ${name}. Your own recordings stay as they are.` }
+  const when = name === "Today" ? "today" : /^’/.test(name) ? `the ${name}` : `the ${name}`
+  return { text: `${changed.length === 1 ? `${changed[0]?.layer?.name || "The part"} now sounds` : `${changed.length} parts now sound`} like ${when}. Your own recordings stay as they are.` }
 }
 
 // Hiss and background noise come out of the layer you picked, or every
@@ -1165,7 +1181,9 @@ function magicPanel(head) {
     ["add", "add_circle", "Add an instrument", "Drums, bass, piano, guitar, horns, strings, choir…", `data-browse-open=""`],
     ["style", "album", "Music style", "Soul, pop, gospel, lo-fi, and more", `data-magic-open="style"`],
     sources.some((layer) => isRecording(layer)) ? ["clean", "graphic_eq", "Clean up every recording", "Hiss out, brighter, warmer, smoother", `data-magic-open="clean"`] : null,
-    ["studio", "instant_mix", "Make it studio quality", "In the Mixer: hiss, balance, tone, polish", `data-action="panel" data-panel="mix"`],
+    ["studio", "instant_mix", "Make it studio quality", "In the Mixer: hiss, balance (bring up the vocals), tone, polish", `data-action="panel" data-panel="mix"`],
+    sources.length ? ["timing", "timer", "Fix my timing & notes", "Every layer onto the beat and in tune", `data-magic-say="Fix my timing & notes"`] : null,
+    ["feel", "tune", "Key, speed, and era", "Higher or lower, faster or slower, sound like the ’70s", `data-magic-open="feel"`],
     vocal ? ["vocal", "record_voice_over", "Make my vocal shine", "On the beat, studio sound, harmonies in your voice", `data-vocal-open="${vocal.id}"`] : null,
   ].filter(Boolean)
   const layerCards = target ? [
@@ -1203,16 +1221,17 @@ function magicPanel(head) {
           </div></div>`
         : open === "style"
           ? `<div class="magic-open">${genrePanel()}</div>`
-          : ""
+          : open === "feel"
+            ? `<div class="magic-open"><p class="ask">Key</p>
+              <div class="choices">${["Make it higher", "Make it lower"].map((line) => `<button class="chip" data-magic-say="${line}" ${busy}>${ms(/higher/.test(line) ? "arrow_upward" : "arrow_downward")}${line.replace("Make it ", "")}</button>`).join("")}</div>
+              <p class="ask">Speed</p>
+              <div class="choices">${["A little faster", "A little slower"].map((line) => `<button class="chip" data-magic-say="${line}" ${busy}>${line}</button>`).join("")}</div>
+              <p class="ask">Sound like</p>
+              <div class="choices">${ERAS.map(([id, name]) => filterChip(name, `data-magic-say="${id === "today" ? "Make it sound like today" : `Make it sound like the ${name.replace("’", "")}`}" ${busy}`, (state.era || "today") === id)).join("")}</div>
+              <p class="hint">Fades and length are in Length. Turning up the vocals is in the Mixer.</p></div>`
+            : ""
   return `${head("Magic")}
-    <p class="hint">Say what you want, or tap one of the things Magic can do. Every change is one Undo.</p>
-    <form class="magic-ask" data-magic-form>
-      <label class="sr" for="magic-say">Tell Songbird what you want</label>
-      <textarea id="magic-say" rows="2" placeholder="${scopeLayer ? `Make ${esc(target.name)} softer, add echo to it…` : "Add a horn section and make it tight"}" enterkeyhint="go">${esc(state.magicDraft || "")}</textarea>
-      <button class="btn btn-primary magic-go" type="submit" ${busy}>${state.transforming ? "Working…" : `${ms("wand_stars")}Do it`}</button>
-    </form>
-    <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap the microphone on your keyboard to say it out loud. Or try one:"}</p>
-    <div class="choices magic-suggest">${SUGGESTIONS.map((line) => `<button class="chip" data-magic-say="${esc(line)}" ${busy}>${esc(line)}</button>`).join("")}</div>
+    <p class="hint">${state.transforming && state.magicBusy ? esc(state.magicBusy) : "Tap what you want Magic to do. Every change is one Undo."}</p>
     ${chatMarkup()}
 
     <h3 class="magic-h">${scopeLayer ? `What Magic can do with ${esc(target.name)}` : "What Magic can do with the whole song"}</h3>
@@ -1306,6 +1325,7 @@ document.body.addEventListener("click", (event) => {
   }
   if (d.pickPlay) pick.play = d.pickPlay
   if (d.pickRhythm) pick.rhythm = d.pickRhythm
+  pick.manual = !!(d.pickPlay || d.pickRhythm)
   if (d.pickDrums) pick.drums = d.pickDrums
   if (d.pickKit) pick.kit = d.pickKit
   if (d.pickSingle) pick.single = d.pickSingle

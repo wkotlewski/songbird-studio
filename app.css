@@ -1821,3 +1821,28 @@ html, body { touch-action: manipulation; }
 .review-copy small { font-size: 12px; opacity: 0.7; }
 .review-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-row .icon-btn.small { width: 44px; height: 44px; border-color: transparent; background: transparent; }
+
+/* Add a sound: the detailed settings under the ideas. */
+.how-more { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; }
+.how-more > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; color: var(--md-primary, #34d399); font-weight: 600; list-style: none; }
+.how-more > summary::-webkit-details-marker { display: none; }
+.how-more > summary::after { content: "expand_more"; font-family: "Material Symbols Rounded"; margin-left: auto; font-size: 22px; }
+.how-more[open] > summary::after { content: "expand_less"; }
+
+/* Length and fades: what it is now, then three steps that apply as you tap. */
+.length-now { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.35); }
+.length-now > .ms { font-size: 26px; color: var(--md-primary, #34d399); }
+.length-now span { display: grid; }
+.length-now b { font-size: 22px; font-variant-numeric: tabular-nums; }
+.length-now small { font-size: 13px; opacity: 0.8; }
+.length-step { margin-top: 18px; }
+.length-step h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 4px; font-size: 18px; }
+.length-step h3 .num { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--md-primary, #34d399); color: #062b1f; font-size: 14px; }
+.length-step .ask { margin-top: 10px; }
+.length-entry { align-items: end; }
+.shape-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.shape-card { display: grid; gap: 6px; min-height: 88px; padding: 10px 12px; border-radius: 14px; text-align: left; cursor: pointer; border: 1px solid var(--line); background: rgba(255, 251, 242, 0.04); color: inherit; font: inherit; }
+.shape-card b { font-size: 14px; line-height: 1.25; }
+.shape-card.on { border-color: var(--md-primary, #34d399); background: rgba(52, 211, 153, 0.14); }
+.shape-card .curve { display: flex; height: 28px; margin-top: auto; }
+.shape-card .curve i { display: block; }
