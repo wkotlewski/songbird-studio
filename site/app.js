@@ -3496,6 +3496,7 @@ function openSong(id) {
     state.fadeOut = song.fadeOut || 0
     state.era = song.era || "today"
     state.songKey = song.songKey ?? null
+    state.backing = song.backing || null
     state.master = song.master || null
     state.studioDone = new Set()
     refreshMaster()
@@ -3594,6 +3595,7 @@ function rememberSong() {
   state.song.fadeOut = state.fadeOut || 0
   state.song.era = state.era
   state.song.songKey = state.songKey ?? null
+  state.song.backing = state.backing || null
   state.song.master = state.master || null
   state.song.layers = state.layers.map(({ id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine, idea, choruses, firstEdit }) => ({
     id, name, sound, from, color, peaks, gain, pan, low, high, space, mute, solo, live, range, gaps, sourceId, figure, touch, pocket, packageId, transformed, baseName, echo, room, reverb, mic, vocalType, pitch, role, originSound, lengthSec, shape, sections, loop, family, generated, make, tight, notes, fadeIn, fadeOut, arrangeRole, tried, lead, phrases, carve, duck, singer, shine, idea, choruses, firstEdit,
