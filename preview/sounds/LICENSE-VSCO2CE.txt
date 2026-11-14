@@ -1,7 +1,0 @@
-Trumpet, trombone, tuba, and French horn samples (sounds/trumpet, trumpet-stac,
-trombone, trombone-stac, tuba, tuba-stac, french-horn, french-horn-stac) are
-from VSCO 2 Community Edition by Versilian Studios (Sam Gossner), released
-into the public domain under CC0 1.0 Universal.
-https://github.com/sgossner/VSCO-2-CE
-
-Converted to short MP3 notes by tools/build-brass.py.
